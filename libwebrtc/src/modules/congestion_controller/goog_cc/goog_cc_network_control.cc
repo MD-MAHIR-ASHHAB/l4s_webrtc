@@ -140,13 +140,20 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
           config.stream_based_config.min_total_allocated_bitrate.value_or(
               DataRate::Zero())),
       max_padding_rate_(config.stream_based_config.max_padding_rate.value_or(
-          DataRate::Zero())) {
+          DataRate::Zero())),
+      l4s_enabled_(goog_cc_config.enable_l4s ||
+                   !env_.field_trials().IsDisabled("WebRTC-L4S-Enabled")) {
   RTC_DCHECK(config.constraints.at_time.IsFinite());
   ParseFieldTrial(
       {&safe_reset_on_route_change_, &safe_reset_acknowledged_rate_},
       env_.field_trials().Lookup("WebRTC-Bwe-SafeResetOnRouteChange"));
   if (delay_based_bwe_)
     delay_based_bwe_->SetMinBitrate(kCongestionControllerMinBitrate);
+
+  // Initialize L4S if enabled
+  if (l4s_enabled_) {
+    RTC_LOG(LS_INFO) << "L4S congestion control enabled";
+  }
 }
 
 GoogCcNetworkController::~GoogCcNetworkController() {}
@@ -542,20 +549,33 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   NetworkControlUpdate update;
   bool recovered_from_overuse = false;
 
+  // DelayBasedBwe processing
   DelayBasedBwe::Result result;
   result = delay_based_bwe_->IncomingPacketFeedbackVector(
       report, acknowledged_bitrate, probe_bitrate, estimate_,
       alr_start_time.has_value());
 
+  // Add L4S ECN processing
+  UpdateEcnFeedback(report);
+
+  // Apply L4S Prague algorithm if enabled and ECN feedback available
+  DataRate final_target_rate = result.target_bitrate;
+  if (l4s_enabled_ && prague_alpha_ > 0.0) {
+    DataRate prague_target = CalculatePragueTarget(report.feedback_time);
+    // Use the more conservative (lower) of Prague and traditional BWE
+    final_target_rate = std::min(result.target_bitrate, prague_target);
+
+    RTC_LOG(LS_VERBOSE) << "L4S Prague target: " << prague_target.bps()
+                        << " bps, alpha: " << prague_alpha_;
+  }
+
   if (result.updated) {
     if (result.probe) {
-      bandwidth_estimation_->SetSendBitrate(result.target_bitrate,
+      bandwidth_estimation_->SetSendBitrate(final_target_rate,
                                             report.feedback_time);
     }
-    // Since SetSendBitrate now resets the delay-based estimate, we have to
-    // call UpdateDelayBasedEstimate after SetSendBitrate.
     bandwidth_estimation_->UpdateDelayBasedEstimate(report.feedback_time,
-                                                    result.target_bitrate);
+                                                    final_target_rate);
   }
   bandwidth_estimation_->UpdateLossBasedEstimator(
       report, result.delay_detector_state, probe_bitrate,
@@ -734,4 +754,75 @@ PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
   return msg;
 }
 
-}  // namespace webrtc
+// Add these methods after existing methods
+
+void GoogCcNetworkController::UpdateEcnFeedback(
+    const TransportPacketsFeedback& report) {
+  if (!l4s_enabled_) return;
+  
+  uint32_t new_ecn_marked = 0;
+  uint32_t new_total_packets = 0;
+  
+  for (const auto& packet_feedback : report.PacketsWithFeedback()) {
+    if (packet_feedback.IsReceived()) {
+      new_total_packets++;
+      // Check if packet was ECN marked (CE bit set)
+      if (packet_feedback.sent_packet.ecn_marking == EcnMarking::kCe) {
+        new_ecn_marked++;
+      }
+    }
+  }
+  
+  ecn_marked_packets_ += new_ecn_marked;
+  total_packets_received_ += new_total_packets;
+  last_ecn_feedback_time_ = report.feedback_time;
+  
+  // Update Prague algorithm with ECN feedback
+  if (total_packets_received_ > 0) {
+    UpdatePragueAlgorithm(report.feedback_time);
+  }
+}
+
+void GoogCcNetworkController::UpdatePragueAlgorithm(Timestamp at_time) {
+  const TimeDelta kAlphaUpdateInterval = TimeDelta::Millis(100);
+  
+  if (at_time - last_ecn_feedback_time_ > kAlphaUpdateInterval && 
+      total_packets_received_ > 0) {
+    // Calculate ECN marking rate (alpha)
+    double current_marking_rate = 
+        static_cast<double>(ecn_marked_packets_) / total_packets_received_;
+    
+    // EWMA update of alpha
+    const double kAlphaWeight = 0.1;
+    prague_alpha_ = (1.0 - kAlphaWeight) * prague_alpha_ + 
+                    kAlphaWeight * current_marking_rate;
+    
+    // Reset counters
+    ecn_marked_packets_ = 0;
+    total_packets_received_ = 0;
+  }
+}
+
+DataRate GoogCcNetworkController::CalculatePragueTarget(Timestamp at_time) {
+  if (!l4s_enabled_ || prague_alpha_ <= 0.0) {
+    return last_loss_based_target_rate_;
+  }
+  
+  // Prague congestion control equation: Rate = 1 / (RTT * sqrt(alpha))
+  if (prague_rtt_estimate_.IsZero()) {
+    prague_rtt_estimate_ = last_estimated_round_trip_time_;
+  }
+  
+  double prague_factor = 1.0 / (prague_rtt_estimate_.seconds() * sqrt(prague_alpha_));
+  DataRate prague_target = DataRate::BitsPerSec(
+      static_cast<int64_t>(prague_factor * 1000000));
+  
+  // Limit rate changes for stability
+  const double kMaxRateChangeRatio = 1.1;
+  DataRate max_increase = last_loss_based_target_rate_ * kMaxRateChangeRatio;
+  DataRate min_decrease = last_loss_based_target_rate_ / kMaxRateChangeRatio;
+  
+  return std::min(max_increase, std::max(min_decrease, prague_target));
+}
+
+} // namespace webrtc

@@ -124,6 +124,7 @@ struct RTC_EXPORT SentPacket {
   int64_t sequence_number;
   // Tracked data in flight when the packet was sent, excluding unacked data.
   DataSize data_in_flight = DataSize::Zero();
+  EcnMarking ecn_marking = EcnMarking::kNotEct;
 };
 
 struct RTC_EXPORT ReceivedPacket {

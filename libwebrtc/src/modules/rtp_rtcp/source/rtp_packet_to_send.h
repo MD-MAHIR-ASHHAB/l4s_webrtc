@@ -152,6 +152,10 @@ class RtpPacketToSend : public RtpPacket {
   bool send_as_ect1() const { return send_as_ect1_; }
   void set_send_as_ect1() { send_as_ect1_ = true; }
 
+  // Add ECN marking support
+  void set_ecn_marking(EcnMarking marking) { ecn_marking_ = marking; }
+  EcnMarking ecn_marking() const { return ecn_marking_; }
+
  private:
   webrtc::Timestamp capture_time_ = webrtc::Timestamp::Zero();
   std::optional<RtpPacketMediaType> packet_type_;
@@ -167,6 +171,7 @@ class RtpPacketToSend : public RtpPacket {
   bool is_red_ = false;
   bool send_as_ect1_ = false;
   std::optional<TimeDelta> time_in_send_queue_;
+  EcnMarking ecn_marking_ = EcnMarking::kNotEct;
 };
 
 }  // namespace webrtc

@@ -42,6 +42,7 @@ struct GoogCcConfig {
   std::unique_ptr<NetworkStateEstimator> network_state_estimator = nullptr;
   std::unique_ptr<NetworkStatePredictor> network_state_predictor = nullptr;
   bool feedback_only = false;
+  bool enable_l4s = false;  // Add L4S flag
 };
 
 class GoogCcNetworkController : public NetworkControllerInterface {
@@ -140,6 +141,20 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   bool previously_in_alr_ = false;
 
   std::optional<DataSize> current_data_window_;
+
+  // L4S/ECN related members
+  bool l4s_enabled_ = false;
+  uint32_t ecn_marked_packets_ = 0;
+  uint32_t total_packets_received_ = 0;
+  Timestamp last_ecn_feedback_time_ = Timestamp::MinusInfinity();
+
+  // Prague congestion control state
+  double prague_alpha_ = 0.0;  // ECN marking rate estimator
+  TimeDelta prague_rtt_estimate_ = TimeDelta::Zero();
+
+  void UpdateEcnFeedback(const TransportPacketsFeedback& report);
+  void UpdatePragueAlgorithm(Timestamp at_time);
+  DataRate CalculatePragueTarget(Timestamp at_time);
 };
 
 }  // namespace webrtc
