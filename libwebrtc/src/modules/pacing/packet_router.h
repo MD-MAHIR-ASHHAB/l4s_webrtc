@@ -124,6 +124,7 @@ class PacketRouter : public PacingController::PacketSender {
   bool use_cc_feedback_according_to_rfc8888_ RTC_GUARDED_BY(thread_checker_) =
       false;
   bool send_rtp_packets_as_ect1_ RTC_GUARDED_BY(thread_checker_) = false;
+  bool sending_as_ect1_ = false;
   absl::AnyInvocable<void(RtpPacketToSend& packet,
                           const PacedPacketInfo& pacing_info)>
       notify_bwe_callback_ RTC_GUARDED_BY(thread_checker_) = nullptr;

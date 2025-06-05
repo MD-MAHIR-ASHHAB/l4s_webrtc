@@ -74,3 +74,41 @@ if (rtc_include_tests && !build_with_chromium) {
     ]
   }
 }
+
+# Add new L4S targets
+
+rtc_library("l4s") {
+  sources = [
+    "l4s/l4s_network_controller.cc",
+    "l4s/l4s_network_controller.h",
+    "l4s/l4s_prague_controller.cc",
+    "l4s/l4s_prague_controller.h",
+  ]
+  deps = [
+    ":goog_cc",
+    "../../api/transport:network_control",
+    "../../api/units:data_rate",
+    "../../api/units:data_size",
+    "../../api/units:time_delta",
+    "../../api/units:timestamp",
+    "../../rtc_base:checks",
+    "../../rtc_base:rtc_base_approved",
+    "../../rtc_base/experiments:field_trial_parser",
+  ]
+}
+
+rtc_library("l4s_test") {
+  testonly = true
+  sources = [
+    "l4s/l4s_network_controller_unittest.cc",
+    "l4s/l4s_prague_controller_unittest.cc",
+  ]
+  deps = [
+    ":l4s",
+    "../../api/transport:network_control",
+    "../../api/units:data_rate",
+    "../../api/units:time_delta",
+    "../../api/units:timestamp",
+    "../../test:test_support",
+  ]
+}

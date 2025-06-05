@@ -194,3 +194,16 @@ if (rtc_include_tests) {
     ]
   }
 }
+
+# Add L4S factory
+
+rtc_library("l4s_factory") {
+  sources = [
+    "l4s_factory.cc",
+    "l4s_factory.h",
+  ]
+  deps = [
+    ":network_control",
+    "../../modules/congestion_controller:l4s",
+  ]
+}

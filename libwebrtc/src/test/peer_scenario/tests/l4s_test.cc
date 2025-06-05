@@ -366,5 +366,68 @@ TEST(L4STest, SendsEct1AfterRouteChange) {
       s.WaitAndProcess(&seen_ect1_on_cellular_feedback, TimeDelta::Seconds(5)));
 }
 
+// Add a new test to verify our implementation
+
+TEST(L4STest, UsesL4SControllerWithEcnSupport) {
+  test::ScopedFieldTrials field_trials(
+      "WebRTC-L4SController/enabled:true/");
+  
+  PeerScenario s;
+  
+  // Create network with ECN support
+  auto* ecn_net = s.net()->CreateEmulatedNetworkNode(
+      BuiltInNetworkBehaviorConfig{
+          .queue_length_packets = 100,
+          .loss_percent = 0,
+          .queue_delay_ms = 50,
+          .link_capacity_kbps = 2000,
+          .allow_ecn_marking = true,  // Enable ECN support
+      });
+  
+  auto* route = s.net()->CreateRoute(ecn_net);
+  
+  // Create and set up clients
+  auto caller = s.CreateClient("caller", CallClient::Config());
+  auto callee = s.CreateClient("callee", CallClient::Config());
+  
+  // Configure clients to use the route with ECN support
+  s.net()->CreateRoutes(caller->endpoint(), {route}, callee->endpoint());
+  s.net()->CreateRoutes(callee->endpoint(), {route}, caller->endpoint());
+  
+  // Track feedback
+  RtcpFeedbackCounter feedback_counter;
+  s.net()->SetFilter([&feedback_counter](const EmulatedIpPacket& packet) {
+    feedback_counter.Count(packet);
+    return true;
+  });
+  
+  // Set up call with video
+  auto video = caller->CreateVideo(
+      "video", [](VideoTrackInterface* track) {
+        track->sender()->GetParameters().degradation_preference =
+            DegradationPreference::MAINTAIN_FRAMERATE;
+      });
+  
+  // Connect and start streaming
+  s.ConnectFull(caller.get(), callee.get());
+  
+  // Let the call run for a while to collect statistics
+  s.ProcessMessagesUntilIdle();
+  s.time_controller()->AdvanceTime(TimeDelta::Seconds(10));
+  
+  // Verify that L4S feedback was used
+  EXPECT_GT(feedback_counter.FeedbackAccordingToRfc8888(), 0);
+  
+  // Verify that we saw some ECT(1) markings
+  EXPECT_GT(feedback_counter.ect1(), 0);
+  
+  // Get call stats
+  auto caller_stats = GetStatsAndProcess(s, caller.get());
+  
+  // Verify send bitrate adaptation
+  DataRate send_bitrate = GetAvailableSendBitrate(caller_stats);
+  EXPECT_GE(send_bitrate, DataRate::KilobitsPerSec(100));
+}
+
 }  // namespace
 }  // namespace webrtc

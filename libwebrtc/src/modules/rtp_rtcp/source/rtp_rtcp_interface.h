@@ -456,6 +456,9 @@ class RtpRtcpInterface : public RtcpFeedbackSenderInterface {
                                        uint16_t last_received_seq_num,
                                        bool decodability_flag,
                                        bool buffering_allowed) = 0;
+
+  // Sets ECN marking mode for outgoing RTP packets
+  virtual void SetEcnMode(EcnMode ecn_mode) = 0;
 };
 
 }  // namespace webrtc

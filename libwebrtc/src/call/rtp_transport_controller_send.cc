@@ -32,6 +32,7 @@
 #include "api/transport/bandwidth_estimation_settings.h"
 #include "api/transport/bitrate_settings.h"
 #include "api/transport/goog_cc_factory.h"
+#include "api/transport/l4s_factory.h"
 #include "api/transport/network_control.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
@@ -45,6 +46,7 @@
 #include "call/rtp_video_sender_interface.h"
 #include "logging/rtc_event_log/events/rtc_event_route_change.h"
 #include "modules/congestion_controller/rtp/control_handler.h"
+#include "modules/congestion_controller/l4s/l4s_network_controller.h"
 #include "modules/pacing/packet_router.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
@@ -717,15 +719,42 @@ void RtpTransportControllerSend::MaybeCreateControllers() {
   initial_config_.stream_based_config = streams_config_;
 
   // TODO(srte): Use fallback controller if no feedback is available.
-  if (controller_factory_override_) {
-    RTC_LOG(LS_INFO) << "Creating overridden congestion controller";
-    controller_ = controller_factory_override_->Create(initial_config_);
-    process_interval_ = controller_factory_override_->GetProcessInterval();
+  bool use_l4s =
+      !env_.field_trials().IsDisabled("WebRTC-L4S") ||
+      env_.field_trials().IsEnabled("WebRTC-L4SController");
+  
+  NetworkControllerFactoryInterface* factory_to_use;
+  if (use_l4s) {
+    RTC_LOG(LS_INFO) << "Creating L4S network controller factory";
+    L4SFactoryConfig config;
+    config.use_ect1_marking = true;
+    config.fallback_to_gcc = true;
+
+    // Parse field trial parameters
+    FieldTrialParameter<bool> use_ect1("use_ect1", true);
+    FieldTrialParameter<bool> fallback("fallback_to_gcc", true);
+    ParseFieldTrial({&use_ect1, &fallback},
+                   env_.field_trials().Lookup("WebRTC-L4SController"));
+
+    config.use_ect1_marking = use_ect1.Get();
+    config.fallback_to_gcc = fallback.Get();
+
+    // Create a new L4S factory and use it
+    auto l4s_factory = std::make_unique<L4SFactory>(config);
+    factory_to_use = l4s_factory.get();
+    
+    // Transfer ownership
+    controller_factory_override_ = std::move(l4s_factory);
+    
+    // Enable ECN feedback if using L4S
+    EnableCongestionControlFeedbackAccordingToRfc8888();
   } else {
-    RTC_LOG(LS_INFO) << "Creating fallback congestion controller";
-    controller_ = controller_factory_fallback_->Create(initial_config_);
-    process_interval_ = controller_factory_fallback_->GetProcessInterval();
+    RTC_LOG(LS_INFO) << "Creating fallback network controller factory";
+    factory_to_use = controller_factory_fallback_.get();
   }
+
+  controller_ = factory_to_use->Create(initial_config_);
+  process_interval_ = factory_to_use->GetProcessInterval();
   UpdateControllerWithTimeInterval();
   StartProcessPeriodicTasks();
 }
@@ -852,6 +881,26 @@ void RtpTransportControllerSend::OnReport(
   if (controller_)
     PostUpdates(controller_->OnTransportLossReport(msg));
   last_report_block_time_ = receive_time;
+}
+
+bool RtpTransportControllerSend::IsL4SActive() const {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  
+  // Check if we're using L4S marking
+  if (!sending_packets_as_ect1_)
+    return false;
+    
+  // Check if we've received L4S feedback
+  if (feedback_count_ == 0)
+    return false;
+    
+  // Check if we have a controller that supports L4S
+  auto* l4s_controller = dynamic_cast<L4SNetworkController*>(controller_.get());
+  if (!l4s_controller)
+    return false;
+    
+  // Delegate to the controller to determine if L4S is active
+  return l4s_controller->IsL4SActive();
 }
 
 }  // namespace webrtc

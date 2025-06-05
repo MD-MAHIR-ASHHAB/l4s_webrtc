@@ -38,6 +38,7 @@
 #include "modules/rtp_rtcp/source/rtp_rtcp_config.h"
 #include "modules/rtp_rtcp/source/rtp_rtcp_interface.h"
 #include "modules/rtp_rtcp/source/rtp_sequence_number_map.h"
+#include "modules/rtp_rtcp/source/rtp_sender.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -734,6 +735,14 @@ RTPSender* ModuleRtpRtcpImpl::RtpSender() {
 
 const RTPSender* ModuleRtpRtcpImpl::RtpSender() const {
   return rtp_sender_ ? &rtp_sender_->packet_generator : nullptr;
+}
+
+// Add support for ECN marking
+
+void ModuleRtpRtcpImpl::SetEcnMode(EcnMode ecn_mode) {
+  if (rtp_sender_) {
+    rtp_sender_->packet_generator.SetEcnMode(ecn_mode);
+  }
 }
 
 }  // namespace webrtc

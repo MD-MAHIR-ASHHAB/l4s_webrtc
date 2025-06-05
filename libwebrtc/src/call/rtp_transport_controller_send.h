@@ -153,6 +153,10 @@ class RtpTransportControllerSend final
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     return transport_cc_feedback_count_;
   }
+    // Returns true if L4S (Low Latency, Low Loss, Scalable throughput) is active.
+  public:
+  bool IsL4SActive() const;
+
 
  private:
   void MaybeCreateControllers() RTC_RUN_ON(sequence_checker_);
@@ -204,15 +208,20 @@ class RtpTransportControllerSend final
   TransportFeedbackAdapter transport_feedback_adapter_
       RTC_GUARDED_BY(sequence_checker_);
 
-  NetworkControllerFactoryInterface* const controller_factory_override_
-      RTC_PT_GUARDED_BY(sequence_checker_);
-  const std::unique_ptr<NetworkControllerFactoryInterface>
+  
+   std::unique_ptr<NetworkControllerFactoryInterface>
+      controller_factory_override_ RTC_PT_GUARDED_BY(sequence_checker_);
+
+  std::unique_ptr<NetworkControllerFactoryInterface>
       controller_factory_fallback_ RTC_PT_GUARDED_BY(sequence_checker_);
 
   std::unique_ptr<CongestionControlHandler> control_handler_
       RTC_GUARDED_BY(sequence_checker_) RTC_PT_GUARDED_BY(sequence_checker_);
 
   std::unique_ptr<NetworkControllerInterface> controller_
+      RTC_GUARDED_BY(sequence_checker_) RTC_PT_GUARDED_BY(sequence_checker_);
+  
+      std::unique_ptr<NetworkControllerInterface> controller_factory_
       RTC_GUARDED_BY(sequence_checker_) RTC_PT_GUARDED_BY(sequence_checker_);
 
   TimeDelta process_interval_ RTC_GUARDED_BY(sequence_checker_);

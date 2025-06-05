@@ -32,12 +32,19 @@
 #include "rtc_base/random.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
-
 namespace webrtc {
 
 class FrameEncryptorInterface;
 class RateLimiter;
 class RtpPacketToSend;
+
+// Explicit Congestion Notification mode
+enum class EcnMode {
+    kNotEct = 0,
+    kEct1 = 1,
+    kEct0 = 2,
+    kCe = 3,
+};
 
 // Maximum amount of padding in RFC 3550 is 255 bytes.
 constexpr size_t kMaxPaddingLength = 255;
@@ -155,9 +162,12 @@ class RTPSender {
       RTC_LOCKS_EXCLUDED(send_mutex_);
   RtpState GetRtxRtpState() const RTC_LOCKS_EXCLUDED(send_mutex_);
 
+  // Sets ECN marking mode for outgoing packets
+  void SetEcnMode(EcnMode ecn_mode);
+
  private:
   std::unique_ptr<RtpPacketToSend> BuildRtxPacket(
-      const RtpPacketToSend& packet);
+        const RtpPacketToSend& packet);
 
   bool IsFecPacket(const RtpPacketToSend& packet) const;
 
@@ -207,6 +217,8 @@ class RTPSender {
   bool supports_bwe_extension_ RTC_GUARDED_BY(send_mutex_);
 
   RateLimiter* const retransmission_rate_limiter_;
+
+  EcnMode ecn_mode_ = EcnMode::kNotEct;
 };
 
 }  // namespace webrtc

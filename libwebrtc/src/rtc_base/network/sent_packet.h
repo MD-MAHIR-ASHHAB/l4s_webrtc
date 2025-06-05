@@ -68,6 +68,12 @@ struct RTC_EXPORT SentPacketInfo {
   PacketInfo info;
 };
 
+// Ensure we can mark packets with ECN
+struct NetworkPacketOptions {
+  // ECN marking for the packet
+  EcnMarking ecn_marking = EcnMarking::kNotEct;
+};
+
 }  //  namespace webrtc
 
 // Re-export symbols from the webrtc namespace for backwards compatibility.

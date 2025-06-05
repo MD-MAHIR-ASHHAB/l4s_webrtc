@@ -25,6 +25,8 @@
 #include "api/rtp_headers.h"
 #include "api/units/time_delta.h"
 #include "api/video/video_bitrate_allocation.h"
+#include "api/transport/network_types.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"  // For ECNMode
 #include "modules/include/module_fec_types.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp.h"
@@ -108,6 +110,9 @@ class ABSL_DEPRECATED("") ModuleRtpRtcpImpl
   uint32_t SSRC() const override { return rtcp_sender_.SSRC(); }
 
   void SetMid(absl::string_view mid) override;
+
+  // Sets ECN marking mode for outgoing RTP packets
+  void SetEcnMode(EcnMode ecn_mode) override;
 
   RTCPSender::FeedbackState GetFeedbackState();
 

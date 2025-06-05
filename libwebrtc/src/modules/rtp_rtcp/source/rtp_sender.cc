@@ -553,6 +553,14 @@ std::unique_ptr<RtpPacketToSend> RTPSender::AllocatePacket(
       packet->SetExtension<RtpStreamId>(rid_);
     }
   }
+  // Set ECN marking if enabled - the actual ECN marking will be set at the socket level
+  // Store the ECN marking intention in the packet
+  if (ecn_mode_ == EcnMode::kEct0) {
+    packet->SetEcnMarking(EcnMarking::kEct0);
+  } else if (ecn_mode_ == EcnMode::kEct1) {
+    packet->SetEcnMarking(EcnMarking::kEct1);
+  }
+  
   return packet;
 }
 
@@ -819,5 +827,13 @@ void RTPSender::UpdateHeaderSizes() {
   if (rtx_ssrc_.has_value()) {
     max_media_packet_header_ += kRtxHeaderSize;
   }
+}
+
+void RTPSender::SetEcnMode(EcnMode ecn_mode) {
+  MutexLock lock(&send_mutex_);
+  ecn_mode_ = ecn_mode;
+  RTC_LOG(LS_INFO) << "RTP Sender ECN mode set to: "
+                   << (ecn_mode_ == EcnMode::kEct0 ? "ECT(0)" :
+                       ecn_mode_ == EcnMode::kEct1 ? "ECT(1)" : "No ECN"); //need to lookup for exact value
 }
 }  // namespace webrtc
