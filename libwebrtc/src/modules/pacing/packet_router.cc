@@ -412,21 +412,21 @@ void PacketRouter::DetermineActiveRembModule() {
   active_remb_module_ = new_active_remb_module;
 }
 
-void PacketRouter::AddRtpModule(RtpRtcpInterface* rtp_module, bool remb_candidate) {
-  MutexLock lock(&modules_lock_);
-  RTC_DCHECK_RUN_ON(&thread_checker_);
-  RTC_DCHECK(rtp_module);
-  RTC_DCHECK(std::find(rtp_modules_.begin(), rtp_modules_.end(), rtp_module) ==
-             rtp_modules_.end());
+// void PacketRouter::AddRtpModule(RtpRtcpInterface* rtp_module, bool remb_candidate) {
+//   MutexLock lock(&modules_lock_);
+//   RTC_DCHECK_RUN_ON(&thread_checker_);
+//   RTC_DCHECK(rtp_module);
+//   RTC_DCHECK(std::find(rtp_modules_.begin(), rtp_modules_.end(), rtp_module) ==
+//              rtp_modules_.end());
 
-  rtp_modules_.push_back(rtp_module);
+//   rtp_modules_.push_back(rtp_module);
 
-  // Set ECN mode if we're using RFC 8888 feedback with ECT(1) marking
-  if (sending_as_ect1_) {
-    rtp_module->SetEcnMode(EcnMode::kEct1);
-  }
+//   // Set ECN mode if we're using RFC 8888 feedback with ECT(1) marking
+//   if (sending_as_ect1_) {
+//     rtp_module->SetEcnMode(EcnMode::kEct1);
+//   }
 
-  rtp_module->SetRtcpEventObserver(this);
-}
+//   rtp_module->SetRtcpEventObserver(this);
+// }
 
 }  // namespace webrtc
