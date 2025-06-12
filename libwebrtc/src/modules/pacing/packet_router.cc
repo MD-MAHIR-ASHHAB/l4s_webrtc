@@ -88,12 +88,12 @@ void PacketRouter::RegisterNotifyBweCallback(
 }
 
 void PacketRouter::ConfigureForRfc8888Feedback(bool use_ect1) {
-  MutexLock lock(&modules_lock_);
+  RTC_DCHECK_RUN_ON(&thread_checker_);
   sending_as_ect1_ = use_ect1;
 
   // Update ECN mode for all registered modules
-  for (auto& module : rtp_modules_) {
-    module->SetEcnMode(use_ect1 ? EcnMode::kEct1 : EcnMode::kNotEct);
+  for (RtpRtcpInterface* rtp_module : send_modules_list_) {
+    rtp_module->SetEcnMode(use_ect1 ? EcnMode::kEct1 : EcnMode::kNotEct);
   }
 
   RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
