@@ -894,13 +894,16 @@ bool RtpTransportControllerSend::IsL4SActive() const {
   if (feedback_count_ == 0)
     return false;
     
-  // Check if we have a controller that supports L4S
-  auto* l4s_controller = dynamic_cast<L4SNetworkController*>(controller_.get());
-  if (!l4s_controller)
+  // Check if controller is of L4S type
+  if (!controller_)
     return false;
     
-  // Delegate to the controller to determine if L4S is active
-  return l4s_controller->IsL4SActive();
+  // Check if we've received any L4S feedback compared to transport feedback
+  bool has_l4s_feedback = (feedback_count_ > 0 && 
+                           transport_cc_feedback_count_ < feedback_count_);
+                           
+  // We're using L4S if we're marking packets as ECT(1) and receiving L4S feedback
+  return sending_packets_as_ect1_ && has_l4s_feedback;
 }
 
 }  // namespace webrtc

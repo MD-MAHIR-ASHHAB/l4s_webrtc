@@ -155,7 +155,7 @@ class RtpTransportControllerSend final
   }
     // Returns true if L4S (Low Latency, Low Loss, Scalable throughput) is active.
   public:
-  bool IsL4SActive() const;
+  bool IsL4SActive() const override;
 
 
  private:
