@@ -17,6 +17,7 @@
 #include <optional>
 
 #include "rtc_base/system/rtc_export.h"
+#include "api/transport/ecn_marking.h"
 
 namespace webrtc {
 

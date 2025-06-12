@@ -422,14 +422,14 @@ class SendPacketObserver {
                             uint32_t ssrc) = 0;
 };
 
-// Add this enum to the rtp_rtcp_defines.h file
+// // Add this enum to the rtp_rtcp_defines.h file
 
-enum class EcnMarking {
-  kNotEct = 0,  // ECN bits: 00 - Not ECN-Capable Transport
-  kEct0 = 2,    // ECN bits: 10 - ECN Capable Transport (0)
-  kEct1 = 1,    // ECN bits: 01 - ECN Capable Transport (1) - Used for L4S
-  kCe = 3       // ECN bits: 11 - Congestion Experienced
-};
+// enum class EcnMarking {
+//   kNotEct = 0,  // ECN bits: 00 - Not ECN-Capable Transport
+//   kEct0 = 2,    // ECN bits: 10 - ECN Capable Transport (0)
+//   kEct1 = 1,    // ECN bits: 01 - ECN Capable Transport (1) - Used for L4S
+//   kCe = 3       // ECN bits: 11 - Congestion Experienced
+// };
 
 // Add this enum if it doesn't exist
 
