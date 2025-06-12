@@ -85,16 +85,17 @@ rtc_library("l4s") {
     "l4s/l4s_prague_controller.h",
   ]
   deps = [
-    ":goog_cc",
+    "goog_cc:goog_cc",
     "../../api/transport:network_control",
     "../../api/units:data_rate",
     "../../api/units:data_size",
     "../../api/units:time_delta",
     "../../api/units:timestamp",
     "../../rtc_base:checks",
-    "../../rtc_base:rtc_base_approved",
-    "../../rtc_base/experiments:field_trial_parser",
-  ]
+    "../../rtc_base:logging",
+    "../../rtc_base/experiments:field_trial_parser",  # Only if this file/target exists
+]
+
 }
 
 rtc_library("l4s_test") {
