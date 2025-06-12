@@ -87,10 +87,17 @@ void PacketRouter::RegisterNotifyBweCallback(
   notify_bwe_callback_ = std::move(callback);
 }
 
-void PacketRouter::ConfigureForRfc8888Feedback(bool send_rtp_packets_as_ect1) {
-  RTC_DCHECK_RUN_ON(&thread_checker_);
-  use_cc_feedback_according_to_rfc8888_ = true;
-  send_rtp_packets_as_ect1_ = send_rtp_packets_as_ect1;
+void PacketRouter::ConfigureForRfc8888Feedback(bool use_ect1) {
+  MutexLock lock(&modules_lock_);
+  sending_as_ect1_ = use_ect1;
+
+  // Update ECN mode for all registered modules
+  for (auto& module : rtp_modules_) {
+    module->SetEcnMode(use_ect1 ? EcnMode::kEct1 : EcnMode::kNotEct);
+  }
+
+  RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
+                   << (use_ect1 ? "enabled" : "disabled");
 }
 
 void PacketRouter::AddSendRtpModuleToMap(RtpRtcpInterface* rtp_module,
@@ -403,6 +410,23 @@ void PacketRouter::DetermineActiveRembModule() {
   }
 
   active_remb_module_ = new_active_remb_module;
+}
+
+void PacketRouter::AddRtpModule(RtpRtcpInterface* rtp_module, bool remb_candidate) {
+  MutexLock lock(&modules_lock_);
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  RTC_DCHECK(rtp_module);
+  RTC_DCHECK(std::find(rtp_modules_.begin(), rtp_modules_.end(), rtp_module) ==
+             rtp_modules_.end());
+
+  rtp_modules_.push_back(rtp_module);
+
+  // Set ECN mode if we're using RFC 8888 feedback with ECT(1) marking
+  if (sending_as_ect1_) {
+    rtp_module->SetEcnMode(EcnMode::kEct1);
+  }
+
+  rtp_module->SetRtcpEventObserver(this);
 }
 
 }  // namespace webrtc
