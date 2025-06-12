@@ -434,9 +434,10 @@ class SendPacketObserver {
 // Add this enum if it doesn't exist
 
 enum class EcnMode {
-  kNoEcn,  // Don't use ECN
-  kEct0,   // Mark packets with ECT(0)
-  kEct1    // Mark packets with ECT(1) - Used for L4S
+  kNotEct = 0,
+  kEct1 = 1,
+  kEct0 = 2,
+  kCe = 3,
 };
 
 }  // namespace webrtc

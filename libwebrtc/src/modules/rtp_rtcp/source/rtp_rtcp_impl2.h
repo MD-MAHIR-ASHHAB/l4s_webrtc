@@ -101,6 +101,11 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
 
   void SetNonSenderRttMeasurement(bool enabled) override;
 
+  //L4s ecnmode setup
+
+  void SetEcnMode(EcnMode ecn_mode) override;
+
+
   uint32_t SSRC() const override { return rtcp_sender_.SSRC(); }
 
   // Semantically identical to `SSRC()` but must be called on the packet

@@ -38,13 +38,13 @@ class FrameEncryptorInterface;
 class RateLimiter;
 class RtpPacketToSend;
 
-// Explicit Congestion Notification mode
-enum class EcnMode {
-    kNotEct = 0,
-    kEct1 = 1,
-    kEct0 = 2,
-    kCe = 3,
-};
+// // Explicit Congestion Notification mode
+// enum class EcnMode {
+//     kNotEct = 0,
+//     kEct1 = 1,
+//     kEct0 = 2,
+//     kCe = 3,
+// };
 
 // Maximum amount of padding in RFC 3550 is 255 bytes.
 constexpr size_t kMaxPaddingLength = 255;
