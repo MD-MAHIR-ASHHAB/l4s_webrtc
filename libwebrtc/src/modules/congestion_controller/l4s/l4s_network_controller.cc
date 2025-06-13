@@ -20,14 +20,14 @@ L4SNetworkController::L4SNetworkController(
       fallback_to_gcc_(l4s_config.fallback_to_gcc),
       use_ect1_marking_(l4s_config.use_ect1_marking),
       prague_controller_(std::make_unique<L4SPragueController>(env_.field_trials())),
-      probe_controller_(std::make_unique<ProbeController>(config)) {
+      probe_controller_(std::make_unique<ProbeController>(&config.env.field_trials(),
+                                                           env_.event_log())) {
   
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
-    GoogCcConfig gcc_config;
     GoogCcFactoryConfig factory_config;
-    std::unique_ptr<GoogCcNetworkControllerFactory> factory = 
-        std::make_unique<GoogCcNetworkControllerFactory>(factory_config);
+    auto factory = 
+        std::make_unique<GoogCcNetworkControllerFactory>(std::move(factory_config));
     gcc_controller_ = factory->Create(config);
   }
   
@@ -73,11 +73,16 @@ NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
   min_target_rate_ = msg.constraints.min_data_rate;
   max_target_rate_ = msg.constraints.max_data_rate;
   
-  // Create probe clusters
-  if (starting_rate_) {
-    probe_controller_->SetBitrates(*starting_rate_, min_target_rate_.value_or(DataRate::Zero()), 
-                                   max_target_rate_.value_or(DataRate::PlusInfinity()), msg.at_time);
-    update.probe_cluster_configs = probe_controller_->RequestProbe(msg.at_time);
+  // Configure the probe controller with the new bitrates
+  auto probes = probe_controller_->SetBitrates(
+      *starting_rate_, 
+      min_target_rate_.value_or(DataRate::Zero()), 
+      max_target_rate_.value_or(DataRate::PlusInfinity()), 
+      msg.at_time);
+  
+  // Add probe clusters to the update
+  for (const auto& probe : probes) {
+    update.probe_cluster_configs.push_back(probe);
   }
   
   // Forward to GCC if we're using it as fallback
