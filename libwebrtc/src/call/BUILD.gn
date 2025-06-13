@@ -194,6 +194,7 @@ rtc_library("rtp_sender") {
     "../api/transport:goog_cc",
     "../api/transport:network_control",
     "../api/transport/rtp:dependency_descriptor",
+    "../api/transport:l4s_factory",
     "../api/units:data_rate",
     "../api/units:data_size",
     "../api/units:frequency",
