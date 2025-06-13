@@ -371,26 +371,26 @@ TEST(L4STest, SendsEct1AfterRouteChange) {
 TEST(L4STest, UsesL4SControllerWithEcnSupport) {
   // Enable both L4S and RFC 8888 feedback
   test::ScopedFieldTrials field_trials(
-      "WebRTC-L4SController/enabled:true/"
+      "WebRTC-L4SController/enabled:true,use_ect1:true/"  // Add use_ect1:true
       "WebRTC-RFC8888CongestionControlFeedback/Enabled/");
   
   PeerScenario s(*test_info_);
   
   // Create network with proper configuration
-  BuiltInNetworkBehaviorConfig config;
-  config.queue_length_packets = 100;
-  config.queue_delay_ms = 50;
-  config.link_capacity = DataRate::KilobitsPerSec(2000);
+  BuiltInNetworkBehaviorConfig network_config;  // Changed variable name
+  network_config.queue_length_packets = 100;
+  network_config.queue_delay_ms = 50;
+  network_config.link_capacity = DataRate::KilobitsPerSec(2000);
 
   auto ecn_net = s.net()->NodeBuilder()
-      .config(config)
+      .config(network_config)  // Updated variable name
       .Build().node;
   
   // Create clients with proper config
-  PeerScenarioClient::Config config;
-  config.disable_encryption = true;  // Following your working test pattern
-  auto* caller = s.CreateClient(config);
-  auto* callee = s.CreateClient(config);
+  PeerScenarioClient::Config client_config;  // Changed variable name
+  client_config.disable_encryption = true;   // Following your working test pattern
+  auto* caller = s.CreateClient(client_config);  // Updated variable name
+  auto* callee = s.CreateClient(client_config);  // Updated variable name
   
   // Set up routes
   s.net()->CreateRoute(caller->endpoint(), {ecn_net}, callee->endpoint());
