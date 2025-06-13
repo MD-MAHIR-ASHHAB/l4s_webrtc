@@ -377,10 +377,13 @@ TEST(L4STest, UsesL4SControllerWithEcnSupport) {
   PeerScenario s(*test_info_);
   
   // Create network with proper configuration
+  BuiltInNetworkBehaviorConfig config;
+  config.queue_length_packets = 100;
+  config.queue_delay_ms = 50;
+  config.link_capacity = DataRate::KilobitsPerSec(2000);
+
   auto ecn_net = s.net()->NodeBuilder()
-      .capacity(DataRate::KilobitsPerSec(2000))
-      .delay(TimeDelta::Millis(50))
-      .queue_length(100)  // Queue length for potential congestion
+      .config(config)
       .Build().node;
   
   // Create clients with proper config
