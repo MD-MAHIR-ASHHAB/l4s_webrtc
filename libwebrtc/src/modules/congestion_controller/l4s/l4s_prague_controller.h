@@ -4,6 +4,7 @@
 #include <deque>
 #include <optional>
 
+#include "api/field_trials_view.h"  // Add this include
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
