@@ -207,13 +207,3 @@ rtc_library("l4s_factory") {
     "../../modules/congestion_controller:l4s",
   ]
 }
-
-# Add L4S files to existing transport_api target
-sources += [
-  "l4s_factory.h",
-  "l4s_factory.cc",
-]
-
-deps += [
-  "../../modules/congestion_controller/l4s",
-]
