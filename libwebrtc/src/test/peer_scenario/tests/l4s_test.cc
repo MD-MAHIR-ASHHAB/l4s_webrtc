@@ -369,62 +369,59 @@ TEST(L4STest, SendsEct1AfterRouteChange) {
 // Add a new test to verify our implementation
 
 TEST(L4STest, UsesL4SControllerWithEcnSupport) {
+  // Enable both L4S and RFC 8888 feedback
   test::ScopedFieldTrials field_trials(
-      "WebRTC-L4SController/enabled:true/");
+      "WebRTC-L4SController/enabled:true/"
+      "WebRTC-RFC8888CongestionControlFeedback/Enabled/");
   
-  PeerScenario s;
+  PeerScenario s(*test_info_);
   
-  // Create network with ECN support
-  auto* ecn_net = s.net()->CreateEmulatedNetworkNode(
-      BuiltInNetworkBehaviorConfig{
-          .queue_length_packets = 100,
-          .loss_percent = 0,
-          .queue_delay_ms = 50,
-          .link_capacity_kbps = 2000,
-          .allow_ecn_marking = true,  // Enable ECN support
-      });
+  // Create network with proper configuration
+  auto ecn_net = s.net()->NodeBuilder()
+      .capacity(DataRate::KilobitsPerSec(2000))
+      .delay(TimeDelta::Millis(50))
+      .queue_length(100)  // Queue length for potential congestion
+      .Build().node;
   
-  auto* route = s.net()->CreateRoute(ecn_net);
+  // Create clients with proper config
+  PeerScenarioClient::Config config;
+  config.disable_encryption = true;  // Following your working test pattern
+  auto* caller = s.CreateClient(config);
+  auto* callee = s.CreateClient(config);
   
-  // Create and set up clients
-  auto caller = s.CreateClient("caller", CallClient::Config());
-  auto callee = s.CreateClient("callee", CallClient::Config());
+  // Set up routes
+  s.net()->CreateRoute(caller->endpoint(), {ecn_net}, callee->endpoint());
+  s.net()->CreateRoute(callee->endpoint(), {ecn_net}, caller->endpoint());
   
-  // Configure clients to use the route with ECN support
-  s.net()->CreateRoutes(caller->endpoint(), {route}, callee->endpoint());
-  s.net()->CreateRoutes(callee->endpoint(), {route}, caller->endpoint());
-  
-  // Track feedback
+  // Track feedback packets to check for ECN marking
   RtcpFeedbackCounter feedback_counter;
-  s.net()->SetFilter([&feedback_counter](const EmulatedIpPacket& packet) {
+  ecn_net->router()->SetWatcher([&](const EmulatedIpPacket& packet) {
     feedback_counter.Count(packet);
-    return true;
   });
   
-  // Set up call with video
-  auto video = caller->CreateVideo(
-      "video", [](VideoTrackInterface* track) {
-        track->sender()->GetParameters().degradation_preference =
-            DegradationPreference::MAINTAIN_FRAMERATE;
-      });
+  // Set up video
+  PeerScenarioClient::VideoSendTrackConfig video_conf;
+  video_conf.generator.squares_video->framerate = 15;
+  caller->CreateVideo("VIDEO_1", video_conf);
   
-  // Connect and start streaming
-  s.ConnectFull(caller.get(), callee.get());
+  // Connect and start call
+  auto signaling = s.ConnectSignaling(caller, callee, {ecn_net}, {ecn_net});
+  signaling.StartIceSignaling();
   
-  // Let the call run for a while to collect statistics
-  s.ProcessMessagesUntilIdle();
-  s.time_controller()->AdvanceTime(TimeDelta::Seconds(10));
+  std::atomic<bool> offer_exchange_done(false);
+  signaling.NegotiateSdp([&](const SessionDescriptionInterface& answer) {
+    offer_exchange_done = true;
+  });
   
-  // Verify that L4S feedback was used
+  s.WaitAndProcess(&offer_exchange_done);
+  s.ProcessMessages(TimeDelta::Seconds(10));
+  
+  // Verify L4S functionality
   EXPECT_GT(feedback_counter.FeedbackAccordingToRfc8888(), 0);
-  
-  // Verify that we saw some ECT(1) markings
   EXPECT_GT(feedback_counter.ect1(), 0);
   
-  // Get call stats
-  auto caller_stats = GetStatsAndProcess(s, caller.get());
-  
-  // Verify send bitrate adaptation
+  // Verify bitrate adaptation
+  auto caller_stats = GetStatsAndProcess(s, caller);
   DataRate send_bitrate = GetAvailableSendBitrate(caller_stats);
   EXPECT_GE(send_bitrate, DataRate::KilobitsPerSec(100));
 }
