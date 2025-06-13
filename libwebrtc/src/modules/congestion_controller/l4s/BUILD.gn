@@ -1,0 +1,15 @@
+source_set("l4s") {
+  sources = [
+    "l4s_network_controller.h",
+    "l4s_network_controller.cc",
+  ]
+  
+  deps = [
+    "../../../api/transport:network_control",
+    "../../../api/units:data_rate",
+    "../../../api/units:timestamp",
+    "../../rtp_rtcp:rtp_rtcp_format",
+    "../../pacing:pacing",
+    "../goog_cc:goog_cc_factory",  # For fallback support
+  ]
+}
