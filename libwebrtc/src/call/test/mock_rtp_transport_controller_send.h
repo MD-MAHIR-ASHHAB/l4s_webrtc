@@ -57,7 +57,7 @@ class MockRtpTransportControllerSend
               (RtpVideoSenderInterface*),
               (override));
   MOCK_METHOD(void, RegisterSendingRtpStream, (RtpRtcpInterface&), (override)); //l4s mock
-  MOCK_METHOD(void, SetEcnMode, (EcnMode ecn_mode), (override)); // l4s mock for ECN mode
+  MOCK_METHOD(void, SetEcnMode, (EcnMode), (override)); // l4s mock for ECN mode
 
   MOCK_METHOD(bool, IsL4SActive, (), (const, override));
   MOCK_METHOD(void,

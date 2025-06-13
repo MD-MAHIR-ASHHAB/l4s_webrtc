@@ -167,6 +167,7 @@ class RtpTransportControllerSendInterface {
   virtual int ReceivedTransportCcFeedbackCount() const = 0;
   // Update the interface to add a method to check if L4S is active
   virtual bool IsL4SActive() const = 0;
+  virtual void SetEcnMode(EcnMode ecn_mode) = 0;
 };
 
 }  // namespace webrtc
