@@ -20,8 +20,8 @@ L4SNetworkController::L4SNetworkController(
       fallback_to_gcc_(l4s_config.fallback_to_gcc),
       use_ect1_marking_(l4s_config.use_ect1_marking),
       prague_controller_(std::make_unique<L4SPragueController>(env_.field_trials())),
-      probe_controller_(std::make_unique<ProbeController>(&config.env.field_trials(),
-                                                           env_.event_log())) {
+      probe_controller_(std::make_unique<ProbeController>(&config.env.field_trials(), 
+                                                         config.env.event_log())) {
   
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
