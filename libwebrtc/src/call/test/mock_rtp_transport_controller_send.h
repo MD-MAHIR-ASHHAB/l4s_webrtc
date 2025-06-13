@@ -56,7 +56,8 @@ class MockRtpTransportControllerSend
               DestroyRtpVideoSender,
               (RtpVideoSenderInterface*),
               (override));
-  MOCK_METHOD(void, RegisterSendingRtpStream, (RtpRtcpInterface&), (override));
+  MOCK_METHOD(void, RegisterSendingRtpStream, (RtpRtcpInterface&), (override)); //l4s mock
+  MOCK_METHOD(bool, IsL4SActive, (), (const, override));
   MOCK_METHOD(void,
               DeRegisterSendingRtpStream,
               (RtpRtcpInterface&),
