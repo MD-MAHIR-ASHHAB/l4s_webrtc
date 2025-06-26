@@ -25,7 +25,14 @@ namespace webrtc {
 void CongestionControlHandler::SetTargetRate(
     TargetTransferRate new_target_rate) {
   RTC_DCHECK_RUN_ON(&sequenced_checker_);
-  RTC_CHECK(new_target_rate.at_time.IsFinite());
+
+  //timing wrro handling
+
+  if (!new_target_rate.at_time.IsFinite()) {
+  RTC_LOG(LS_WARNING) << "Invalid timestamp in target rate update, using current time";
+  new_target_rate.at_time = env_.clock().CurrentTime();
+  }
+  //RTC_CHECK(new_target_rate.at_time.IsFinite());
   last_incoming_ = new_target_rate;
 }
 
