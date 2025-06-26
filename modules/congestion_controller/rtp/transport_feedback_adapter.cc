@@ -231,6 +231,9 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
+      //result.ecn = EcnMarking::kNotEct; // Transport feedback does not support ECN.
+      result.ecn = EcnMarking::Ect1; // Assume ECT(1) for transport feedback.
+
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -247,8 +250,11 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
+  // return ToTransportFeedback(std::move(packet_result_vector),
+  //                            feedback_receive_time, /*suports_ecn=*/false);
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, /*suports_ecn=*/false);
+                             feedback_receive_time, /*suports_ecn=*/true);
+
 }
 
 std::optional<TransportPacketsFeedback>
