@@ -232,7 +232,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
       //result.ecn = EcnMarking::kNotEct; // Transport feedback does not support ECN.
-      result.ecn = EcnMarking::Ect1; // Assume ECT(1) for transport feedback.
+      result.ecn = EcnMarking::kEct1; // Assume ECT(1) for transport feedback.
 
       packet_result_vector.push_back(result);
     } else {
