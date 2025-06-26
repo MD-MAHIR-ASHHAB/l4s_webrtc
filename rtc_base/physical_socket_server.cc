@@ -380,10 +380,11 @@ int PhysicalSocket::SetOption(Option opt, int value) {
   } else if (opt == OPT_SEND_ECN) {
     ecn_ = value;
     value = dscp_ + (ecn_ & kEcnMask);
-    RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: " 
-                   << (ecn_ == 0 ? "Not-ECT" :
-                       (ecn_ == 1 ? "ECT(1)" :
-                        (ecn_ == 2 ? "ECT(0)" : "CE")));
+    RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
+                     << (ecn_ == 0
+                             ? "Not-ECT"
+                             : (ecn_ == 1 ? "ECT(1)"
+                                          : (ecn_ == 2 ? "ECT(0)" : "CE")));
   }
 #if defined(WEBRTC_POSIX)
   if (sopt == IPV6_TCLASS) {
@@ -529,22 +530,22 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
   socklen_t addr_len = sizeof(addr_storage);
   sockaddr* addr = reinterpret_cast<sockaddr*>(&addr_storage);
 
-if (ecn) {
-  if ((cmsg->cmsg_type == IPV6_TCLASS &&
-       cmsg->cmsg_level == IPPROTO_IPV6) ||
-      (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
-    *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
-    // Add ECN reception logging
-    if (*ecn != EcnMarking::kNotEct) {
-      RTC_LOG(LS_INFO) << "Socket received packet with ECN marking: " 
-                       << (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                           (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-    }
-    else {
-      RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
-    }
-  }
-}
+  // if (ecn) {
+  //   if ((cmsg->cmsg_type == IPV6_TCLASS && cmsg->cmsg_level == IPPROTO_IPV6) ||
+  //       (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
+  //     *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
+  //     // Add ECN reception logging
+  //     if (*ecn != EcnMarking::kNotEct) {
+  //       RTC_LOG(LS_INFO) << "Socket received packet with ECN marking: "
+  //                        << (*ecn == EcnMarking::kEct0
+  //                                ? "ECT(0)"
+  //                                : (*ecn == EcnMarking::kEct1 ? "ECT(1)"
+  //                                                             : "CE"));
+  //     } else {
+  //       RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
+  //     }
+  //   }
+  // }
 
 #if defined(WEBRTC_POSIX)
   int received = 0;
@@ -576,6 +577,16 @@ if (ecn) {
              cmsg->cmsg_level == IPPROTO_IPV6) ||
             (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
           *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
+          // Add ECN reception logging
+          if (*ecn != EcnMarking::kNotEct) {
+            RTC_LOG(LS_INFO)
+                << "Socket received packet with ECN marking: "
+                << (*ecn == EcnMarking::kEct0
+                        ? "ECT(0)"
+                        : (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+          } else {
+            RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
+          }
         }
       }
       if (cmsg->cmsg_level != SOL_SOCKET)
