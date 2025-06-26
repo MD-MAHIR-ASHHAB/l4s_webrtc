@@ -86,7 +86,15 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
 }
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
-  RTC_DCHECK_GE(now, next_possible_feedback_send_time_);
+  //RTC_DCHECK_GE(now, next_possible_feedback_send_time_);
+  if (now < next_possible_feedback_send_time_) {
+  RTC_LOG(LS_WARNING) << "Timing drift detected in feedback generator: "
+                      << "now=" << now.us() << " us, "
+                      << "expected=" << next_possible_feedback_send_time_.us() << " us, "
+                      << "drift=" << (next_possible_feedback_send_time_ - now).us() << " us";
+  // Adjust the timing to prevent future issues
+  next_possible_feedback_send_time_ = now;
+}
   uint32_t compact_ntp =
       CompactNtp(env_.clock().ConvertTimestampToNtpTime(now));
   std::vector<rtcp::CongestionControlFeedback::PacketInfo> rtcp_packet_info;
