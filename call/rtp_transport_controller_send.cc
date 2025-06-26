@@ -151,6 +151,10 @@ RtpTransportControllerSend::RtpTransportControllerSend(
              const PacedPacketInfo& pacing_info) {
         return NotifyBweOfPacedSentPacket(packet, pacing_info);
       });
+
+  // Force enable L4S/ECN support from the start
+  transport_maybe_support_ecn_ = true;
+  sending_packets_as_ect1_ = true;
 }
 
 RtpTransportControllerSend::~RtpTransportControllerSend() {
@@ -680,25 +684,21 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
   }
 }
 
-//added for removing flipping behaviour
 
+// Handle transport feedback packets, which force ECN markings.
 void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     const TransportPacketsFeedback& feedback) {
   
-  // Log ECN support detection - but don't flip state constantly
-  if (feedback.transport_supports_ecn) {
-    RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
-    // If transport supports ECN, ensure we're sending ECT(1)
-    if (!sending_packets_as_ect1_) {
-      sending_packets_as_ect1_ = true;
-      packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
-      RTC_LOG(LS_INFO) << "Enabling ECT(1) marking - transport supports ECN.";
-    }
-  } else if (sending_packets_as_ect1_) {
-    // Only log warning when we're actually sending ECT(1) but transport doesn't support it
-    RTC_LOG(LS_WARNING) << "Transport does NOT support ECN while sending ECT(1).";
-    // Note: Don't disable ECT(1) immediately - let it stabilize
+  // Force ECN to remain enabled - remove all flipping logic
+  if (!sending_packets_as_ect1_) {
+    sending_packets_as_ect1_ = true;
+    packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+    RTC_LOG(LS_INFO) << "L4S: ECT(1) marking enabled and locked.";
   }
+  
+  // Always log as ECN supported to prevent disabling
+  RTC_LOG(LS_VERBOSE) << "Transport ECN support: " 
+                      << (feedback.transport_supports_ecn ? "YES" : "NO");
   
   // Count CE markings in this feedback
   int ce_count = 0;
@@ -722,6 +722,9 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
   UpdateCongestedState();
 }
 
+
+
+// 
 
 
 // void RtpTransportControllerSend::HandleTransportPacketsFeedback(
