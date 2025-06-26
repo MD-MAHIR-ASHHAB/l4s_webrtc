@@ -301,6 +301,13 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       supports_ecn &= packet_info.ecn != EcnMarking::kNotEct;
     }
     result.ecn = packet_info.ecn;
+    if (packet_info.ecn != EcnMarking::kNotEct) {
+    RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
+                    << result.sent_packet.sequence_number
+                    << ": " 
+                    << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                        (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+  }
     packet_result_vector.push_back(result);
   }
 
