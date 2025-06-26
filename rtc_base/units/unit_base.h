@@ -20,7 +20,6 @@
 #include "rtc_base/checks.h"
 #include "rtc_base/numerics/divide_round.h"
 #include "rtc_base/numerics/safe_conversions.h"
-#include "rtc_base/logging.h"
 
 namespace webrtc {
 namespace rtc_units_impl {
@@ -181,17 +180,7 @@ class UnitBase {
     return ToValue<T>() * Factor;
   }
 
-  explicit constexpr UnitBase(int64_t value) : value_(value) {
-    if (value < 0) {
-      // Add logging to identify the source
-      RTC_LOG(LS_ERROR) << "Negative timestamp detected: " << value 
-                        << " from: " << __FILE__ << ":" << __LINE__;
-      // Use fallback value instead of crashing
-      value_ = 0;
-    } else {
-      value_ = value;
-    }
-  }
+  explicit constexpr UnitBase(int64_t value) : value_(value) {}
 
  private:
   template <class RelativeUnit_T>
