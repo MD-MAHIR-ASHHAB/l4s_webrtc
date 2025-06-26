@@ -525,6 +525,23 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
   socklen_t addr_len = sizeof(addr_storage);
   sockaddr* addr = reinterpret_cast<sockaddr*>(&addr_storage);
 
+if (ecn) {
+  if ((cmsg->cmsg_type == IPV6_TCLASS &&
+       cmsg->cmsg_level == IPPROTO_IPV6) ||
+      (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
+    *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
+    // Add ECN reception logging
+    if (*ecn != EcnMarking::kNotEct) {
+      RTC_LOG(LS_INFO) << "Socket received packet with ECN marking: " 
+                       << (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                           (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+    }
+    else {
+      RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
+    }
+  }
+}
+
 #if defined(WEBRTC_POSIX)
   int received = 0;
   iovec iov = {.iov_base = buffer, .iov_len = length};
