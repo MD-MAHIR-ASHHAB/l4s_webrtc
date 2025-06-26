@@ -19,24 +19,13 @@
 #include "modules/pacing/pacing_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
 void CongestionControlHandler::SetTargetRate(
     TargetTransferRate new_target_rate) {
   RTC_DCHECK_RUN_ON(&sequenced_checker_);
-
-  // Timing error handling - use simple counter for invalid timestamps
-  if (!new_target_rate.at_time.IsFinite() || new_target_rate.at_time.us() <= 0) {
-    static int64_t fallback_time_us = 1000000; // Start at 1 second
-    fallback_time_us += 1000; // Increment by 1ms each time
-    
-    RTC_LOG(LS_WARNING) << "Invalid timestamp in target rate update, using fallback: " 
-                        << fallback_time_us << " us";
-    new_target_rate.at_time = Timestamp::Micros(fallback_time_us);
-  }
-  
+  RTC_CHECK(new_target_rate.at_time.IsFinite());
   last_incoming_ = new_target_rate;
 }
 
