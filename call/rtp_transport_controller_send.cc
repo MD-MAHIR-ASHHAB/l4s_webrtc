@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include<atomic>
 
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
@@ -681,18 +682,51 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
 
 void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     const TransportPacketsFeedback& feedback) {
-  if (sending_packets_as_ect1_) {
-    // If transport does not support ECN, packets should not be sent as ECT(1).
-    // TODO: bugs.webrtc.org/42225697 - adapt to ECN feedback and continue to
-    // send packets as ECT(1) if transport is ECN capable.
+  // if (sending_packets_as_ect1_) {
+  //   // If transport does not support ECN, packets should not be sent as ECT(1).
+  //   // TODO: bugs.webrtc.org/42225697 - adapt to ECN feedback and continue to
+  //   // send packets as ECT(1) if transport is ECN capable.
+  //   sending_packets_as_ect1_ = false;
+  //   RTC_LOG(LS_INFO) << " Transport is "
+  //                    << (feedback.transport_supports_ecn ? "" : " not ")
+  //                    << " ECN capable. Stop sending ECT(1).";
+  //   packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+  // }
+  // if (controller_)
+  //   PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
+
+  // Log ECN support detection
+  if (sending_packets_as_ect1_ && !feedback.transport_supports_ecn) {
+    RTC_LOG(LS_WARNING) << "Transport does NOT support ECN. Disabling ECT(1) marking.";
+  } else if (feedback.transport_supports_ecn) {
+    RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
+  }
+  else{
     sending_packets_as_ect1_ = false;
     RTC_LOG(LS_INFO) << " Transport is "
                      << (feedback.transport_supports_ecn ? "" : " not ")
                      << " ECN capable. Stop sending ECT(1).";
     packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
   }
+  
+  // Count CE markings in this feedback
+  int ce_count = 0;
+  for (const auto& packet_result : feedback.packet_feedbacks) {
+    if (packet_result.ecn == EcnMarking::kCe) {
+      ce_count++;
+    }
+  }
+  
+  if (ce_count > 0) {
+    RTC_LOG(LS_INFO) << "Received " << ce_count 
+                     << " CE-marked packets in feedback batch of " 
+                     << feedback.packet_feedbacks.size() << " packets";
+  }
+  
+  // Forward feedback to congestion controller
   if (controller_)
     PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
+
 
   // Only update outstanding data if any packet is first time acked.
   UpdateCongestedState();
@@ -725,7 +759,6 @@ void RtpTransportControllerSend::MaybeCreateControllers() {
   
   NetworkControllerFactoryInterface* factory_to_use;
   if (use_l4s) {
-    RTC_LOG(LS_INFO) << "Creating L4S network controller factory";
     L4SFactoryConfig config;
     config.use_ect1_marking = true;
     config.fallback_to_gcc = true;
@@ -738,6 +771,10 @@ void RtpTransportControllerSend::MaybeCreateControllers() {
 
     config.use_ect1_marking = use_ect1.Get();
     config.fallback_to_gcc = fallback.Get();
+
+    RTC_LOG(LS_INFO) << "Creating L4S network controller factory with "
+                   << "use_ect1=" << (config.use_ect1_marking ? "true" : "false")
+                   << ", fallback_to_gcc=" << (config.fallback_to_gcc ? "true" : "false");
 
     // Create a new L4S factory and use it
     auto l4s_factory = std::make_unique<L4SFactory>(config);
@@ -901,7 +938,19 @@ bool RtpTransportControllerSend::IsL4SActive() const {
   // Check if we've received any L4S feedback compared to transport feedback
   bool has_l4s_feedback = (feedback_count_ > 0 && 
                            transport_cc_feedback_count_ < feedback_count_);
+  
                            
+  static std::atomic<int> log_counter{0};
+  int current_count = log_counter.fetch_add(1, std::memory_order_relaxed);
+  
+  if (current_count % 100 == 0) {
+    RTC_LOG(LS_INFO) << "L4S status: " 
+                     << (sending_packets_as_ect1_ && has_l4s_feedback ? "ACTIVE" : "INACTIVE")
+                     << " (sending_ect1=" << (sending_packets_as_ect1_ ? "yes" : "no")
+                     << ", feedback=" << feedback_count_
+                     << ", l4s_feedback=" << (feedback_count_ - transport_cc_feedback_count_)
+                     << ")";
+  }                         
   // We're using L4S if we're marking packets as ECT(1) and receiving L4S feedback
   return sending_packets_as_ect1_ && has_l4s_feedback;
 }
