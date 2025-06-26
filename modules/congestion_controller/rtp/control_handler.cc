@@ -30,8 +30,7 @@ void CongestionControlHandler::SetTargetRate(
 
   if (!new_target_rate.at_time.IsFinite()) {
   RTC_LOG(LS_WARNING) << "Invalid timestamp in target rate update, using current time";
-  new_target_rate.at_time = webrtc::Timestamp::Micros(
-        rtc::TimeUTCMicros());
+  new_target_rate.at_time = Timestamp::Micros(rtc::TimeMicros());
   }
   //RTC_CHECK(new_target_rate.at_time.IsFinite());
   last_incoming_ = new_target_rate;
