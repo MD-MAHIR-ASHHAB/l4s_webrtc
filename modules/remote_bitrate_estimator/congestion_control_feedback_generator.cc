@@ -29,6 +29,7 @@
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
+#include "rtc_base/logging.h"
 
 namespace webrtc {
 
