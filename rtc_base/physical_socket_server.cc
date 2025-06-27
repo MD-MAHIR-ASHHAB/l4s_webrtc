@@ -364,6 +364,11 @@ int PhysicalSocket::GetOption(Option opt, int* value) {
 }
 
 int PhysicalSocket::SetOption(Option opt, int value) {
+  RTC_LOG(LS_INFO) << "SetOption called with opt=" << opt << " value=" << value;
+
+  // Print a call stack to find the code path resetting ECN.
+  // Note: rtc::GetStackTrace() is available in WebRTC's base library.
+  RTC_LOG(LS_INFO) << rtc::GetStackTrace(10);
   int slevel;
   int sopt;
   if (TranslateOption(opt, &slevel, &sopt) == -1)
