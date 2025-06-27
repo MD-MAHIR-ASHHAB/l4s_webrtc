@@ -209,7 +209,7 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
                                EcnMarking ecn) {
   RtpPacketReceived parsed_packet(&header_extension_map_);
   parsed_packet.set_arrival_time(arrival_time);
-  parsed_packet.set_ecn(ecn);
+  
 
   if (ecn != EcnMarking::kNotEct) {
     RTC_LOG(LS_INFO) << "RTP packet with seq=" 
@@ -218,6 +218,8 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
                      << (ecn == EcnMarking::kEct0 ? "ECT(0)" :
                          (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
   }
+
+  parsed_packet.set_ecn(ecn);
 
   if (!parsed_packet.Parse(std::move(packet))) {
     RTC_LOG(LS_ERROR)
