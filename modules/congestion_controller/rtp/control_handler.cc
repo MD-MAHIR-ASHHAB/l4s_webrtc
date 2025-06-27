@@ -25,6 +25,20 @@ namespace webrtc {
 void CongestionControlHandler::SetTargetRate(
     TargetTransferRate new_target_rate) {
   RTC_DCHECK_RUN_ON(&sequenced_checker_);
+
+  RTC_LOG(LS_INFO) << "=== TRACE: SetTargetRate called === new_target_rate=" << new_target_rate << ", at_time=" << new_target_rate.at_time
+                   << ", target_rate_at_time=" << new_target_rate.at_time.IsFinite();
+
+  // Capture up to 20 stack frames
+  void* callstack[20];
+  int frames = ::backtrace(callstack, 20);
+  char** strs = ::backtrace_symbols(callstack, frames);
+  if (strs != nullptr) {
+    for (int i = 0; i < frames; ++i) {
+      RTC_LOG(LS_INFO) << "BT[" << i << "]: " << strs[i];
+    }
+    free(strs);
+  }
   RTC_CHECK(new_target_rate.at_time.IsFinite());
   last_incoming_ = new_target_rate;
 }

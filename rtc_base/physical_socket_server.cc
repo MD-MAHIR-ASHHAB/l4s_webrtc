@@ -364,20 +364,6 @@ int PhysicalSocket::GetOption(Option opt, int* value) {
 }
 
 int PhysicalSocket::SetOption(Option opt, int value) {
-  RTC_LOG(LS_INFO) << "=== TRACE: SetOption called === opt=" << opt << " value=" << value;
-
-  // Capture up to 20 stack frames
-  void* callstack[20];
-  int frames = ::backtrace(callstack, 20);
-  char** strs = ::backtrace_symbols(callstack, frames);
-  if (strs != nullptr) {
-    for (int i = 0; i < frames; ++i) {
-      RTC_LOG(LS_INFO) << "BT[" << i << "]: " << strs[i];
-    }
-    free(strs);
-  }
-
-  
   int slevel;
   int sopt;
   if (TranslateOption(opt, &slevel, &sopt) == -1)
