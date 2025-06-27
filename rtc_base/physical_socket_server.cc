@@ -378,6 +378,11 @@ int PhysicalSocket::SetOption(Option opt, int value) {
     dscp_ = value << 2;
     value = dscp_ + (ecn_ & kEcnMask);
   } else if (opt == OPT_SEND_ECN) {
+    // L4S OVERRIDE: Force ECT(1) marking for L4S unless explicitly disabled
+    if (value != 0) {
+      value = 1;  // Always use ECT(1) for L4S
+      RTC_LOG(LS_INFO) << "L4S override: Forcing ECN to ECT(1)";
+    }
     ecn_ = value;
     value = dscp_ + (ecn_ & kEcnMask);
     RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
@@ -531,7 +536,8 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
   sockaddr* addr = reinterpret_cast<sockaddr*>(&addr_storage);
 
   // if (ecn) {
-  //   if ((cmsg->cmsg_type == IPV6_TCLASS && cmsg->cmsg_level == IPPROTO_IPV6) ||
+  //   if ((cmsg->cmsg_type == IPV6_TCLASS && cmsg->cmsg_level == IPPROTO_IPV6)
+  //   ||
   //       (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
   //     *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
   //     // Add ECN reception logging

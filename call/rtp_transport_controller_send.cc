@@ -688,9 +688,12 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     // send packets as ECT(1) if transport is ECN capable.
     // sending_packets_as_ect1_ = false;
     sending_packets_as_ect1_ = true;
-    RTC_LOG(LS_INFO) << " Transport is "
-                     << (feedback.transport_supports_ecn ? "" : " not ")
-                     << " ECN capable. Stop sending ECT(1).";
+    RTC_LOG(LS_INFO) << " Transport is ECN capable.";
+    packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+  }
+  else{
+    sending_packets_as_ect1_ = false;
+    RTC_LOG(LS_INFO) << " Transport is not ECN capable.";
     packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
   }
   if (controller_)
