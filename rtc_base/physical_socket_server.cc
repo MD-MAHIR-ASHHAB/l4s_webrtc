@@ -377,7 +377,7 @@ int PhysicalSocket::SetOption(Option opt, int value) {
     // significant.
     dscp_ = value << 2;
     value = dscp_ + (ecn_ & kEcnMask);
-    RTC_LOG(LS_INFO) << value;
+    
   } else if (opt == OPT_SEND_ECN) {
     // L4S OVERRIDE: Force ECT(1) marking for L4S unless explicitly disabled
     if (value != 0) {
@@ -387,6 +387,8 @@ int PhysicalSocket::SetOption(Option opt, int value) {
     
     ecn_ = value;
     value = dscp_ + (ecn_ & kEcnMask);
+    RTC_LOG(LS_INFO) << value;
+    RTC_LOG(LS_INFO) << ecn_;
     RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
                      << (ecn_ == 0
                              ? "Not-ECT"
