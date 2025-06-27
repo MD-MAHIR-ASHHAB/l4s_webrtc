@@ -900,6 +900,31 @@ void RTCPSender::SendCombinedRtcpPacket(
           std::make_unique<RtcEventRtcpPacketOutgoing>(packet));
     }
   };
+
+  // Add timestamp validation for feedback packets
+  for (auto& rtcp_packet : rtcp_packets) {
+    // Check if packet is TransportFeedback
+    auto* feedback = dynamic_cast<rtcp::TransportFeedback*>(rtcp_packet.get());
+    if (feedback) {
+      // Log base time
+      RTC_LOG(LS_INFO) << "Sending RTCP transport feedback: base_time="
+                       << (feedback->GetBaseTime().IsFinite()
+                               ? std::to_string(feedback->GetBaseTime().ms())
+                               : "-inf")
+                       << " ms, packet_count="
+                       << feedback->GetReceivedPackets().size();
+
+      // Log individual packets with timestamps
+      for (const auto& packet : feedback->GetReceivedPackets()) {
+        if (packet.received() && !packet.receive_time().IsFinite()) {
+          RTC_LOG(LS_WARNING) << "Invalid timestamp in outgoing RTCP feedback: seq="
+                              << packet.sequence_number() << " time=inf";
+        }
+      }
+    }
+  }
+
+  // Continue with sending
   PacketSender sender(callback, max_packet_size);
   for (auto& rtcp_packet : rtcp_packets) {
     rtcp_packet->SetSenderSsrc(ssrc);
