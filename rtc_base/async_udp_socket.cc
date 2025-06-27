@@ -84,10 +84,15 @@ int AsyncUDPSocket::SendTo(const void* pv,
     // It is unclear what is most efficient, setting options on every sent
     // packet or when changed. Potentially, can separate send sockets be used?
     // This is the easier implementation.
-    if (socket_->SetOption(Socket::Option::OPT_SEND_ECN,
-                           options.ecn_1 ? 1 : 0) == 0) {
-      has_set_ect1_options_ = options.ecn_1;
+    // if (socket_->SetOption(Socket::Option::OPT_SEND_ECN,
+    //                        options.ecn_1 ? 1 : 0) == 0) {
+    //   has_set_ect1_options_ = options.ecn_1;
+    // }
+  // Force ECT(1) always:
+    if (socket_->SetOption(Socket::Option::OPT_SEND_ECN, 1) == 0) {
+      has_set_ect1_options_ = true;
     }
+
   }
   int ret = socket_->SendTo(pv, cb, addr);
   SignalSentPacket(this, sent_packet);
