@@ -274,6 +274,12 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
     Timestamp at_time) const {
   NetworkControlUpdate update;
   
+
+  if (!at_time.IsFinite()) {
+    RTC_LOG(LS_WARNING) << "Invalid timestamp in L4S controller, using current time";
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  
   // Apply rate constraints
   DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   if (min_target_rate_ && current_rate < *min_target_rate_) {
