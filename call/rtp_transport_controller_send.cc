@@ -697,6 +697,8 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
   }
   if (controller_)
+    RTC_LOG(LS_INFO) << "=== TRACE inside handle: SetTargetRate called === new_target_rate="
+                   << feedback.target_rate.bps();
     PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
 
   // Log ECN support detection
@@ -872,6 +874,8 @@ void RtpTransportControllerSend::PostUpdates(NetworkControlUpdate update) {
     pacer_.CreateProbeClusters(std::move(update.probe_cluster_configs));
   }
   if (update.target_rate) {
+    RTC_LOG(LS_INFO) << "=== TRACE inside post updates: SetTargetRate called === new_target_rate="
+                   << update.target_rate.at_time();
     control_handler_->SetTargetRate(*update.target_rate);
     UpdateControlState();
   }
