@@ -10,6 +10,8 @@
 
 #include "modules/congestion_controller/rtp/control_handler.h"
 
+#include <execinfo.h>
+
 #include <optional>
 
 #include "api/sequence_checker.h"
@@ -19,7 +21,6 @@
 #include "modules/pacing/pacing_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include <execinfo.h>
 
 namespace webrtc {
 
@@ -27,8 +28,10 @@ void CongestionControlHandler::SetTargetRate(
     TargetTransferRate new_target_rate) {
   RTC_DCHECK_RUN_ON(&sequenced_checker_);
 
-  RTC_LOG(LS_INFO) << "=== TRACE: SetTargetRate called === new_target_rate=" << new_target_rate << ", at_time=" << new_target_rate.at_time
-                   << ", target_rate_at_time=" << new_target_rate.at_time.IsFinite();
+  RTC_LOG(LS_INFO) << "=== TRACE: SetTargetRate called === new_target_rate="
+                   << new_target_rate << ", at_time=" << new_target_rate.at_time
+                   << ", target_rate_at_time="
+                   << new_target_rate.at_time.IsFinite();
 
   // Capture up to 20 stack frames
   void* callstack[20];
