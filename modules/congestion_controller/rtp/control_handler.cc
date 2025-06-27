@@ -29,9 +29,7 @@ void CongestionControlHandler::SetTargetRate(
   RTC_DCHECK_RUN_ON(&sequenced_checker_);
 
   RTC_LOG(LS_INFO) << "=== TRACE: SetTargetRate called === new_target_rate="
-                   << new_target_rate << ", at_time=" << new_target_rate.at_time
-                   << ", target_rate_at_time="
-                   << new_target_rate.at_time.IsFinite();
+                   << new_target_rate << ", at_time=" << new_target_rate.at_time.IsFinite();
 
   // Capture up to 20 stack frames
   void* callstack[20];
