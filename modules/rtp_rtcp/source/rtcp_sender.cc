@@ -901,29 +901,31 @@ void RTCPSender::SendCombinedRtcpPacket(
     }
   };
 
-  // Add timestamp validation for feedback packets
+  // Instead of using dynamic_cast, check for TransportFeedback type safely
   for (auto& rtcp_packet : rtcp_packets) {
-    // Check if packet is TransportFeedback
-    auto* feedback = dynamic_cast<rtcp::TransportFeedback*>(rtcp_packet.get());
-    if (feedback) {
+    // Check packet type using RTTI-free approach
+    if (rtcp_packet->GetType() == rtcp::TransportFeedback::kPacketType) {
+      // If this is a transport feedback packet, we can safely use static_cast
+      auto* feedback = static_cast<rtcp::TransportFeedback*>(rtcp_packet.get());
+      
       // Log base time
       RTC_LOG(LS_INFO) << "Sending RTCP transport feedback: base_time="
                        << (feedback->GetBaseTime().IsFinite()
-                               ? std::to_string(feedback->GetBaseTime().ms())
-                               : "-inf")
+                              ? std::to_string(feedback->GetBaseTime().ms())
+                              : "-inf")
                        << " ms, packet_count="
                        << feedback->GetReceivedPackets().size();
-
+      
       // Log individual packets with timestamps
       for (const auto& packet : feedback->GetReceivedPackets()) {
         if (packet.received() && !packet.receive_time().IsFinite()) {
           RTC_LOG(LS_WARNING) << "Invalid timestamp in outgoing RTCP feedback: seq="
-                              << packet.sequence_number() << " time=inf";
+                            << packet.sequence_number() << " time=inf";
         }
       }
     }
   }
-
+  
   // Continue with sending
   PacketSender sender(callback, max_packet_size);
   for (auto& rtcp_packet : rtcp_packets) {
