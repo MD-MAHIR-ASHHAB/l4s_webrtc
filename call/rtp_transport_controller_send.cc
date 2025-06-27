@@ -686,7 +686,8 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     // If transport does not support ECN, packets should not be sent as ECT(1).
     // TODO: bugs.webrtc.org/42225697 - adapt to ECN feedback and continue to
     // send packets as ECT(1) if transport is ECN capable.
-    sending_packets_as_ect1_ = false;
+    // sending_packets_as_ect1_ = false;
+    sending_packets_as_ect1_ = true;
     RTC_LOG(LS_INFO) << " Transport is "
                      << (feedback.transport_supports_ecn ? "" : " not ")
                      << " ECN capable. Stop sending ECT(1).";
