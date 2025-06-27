@@ -378,15 +378,13 @@ int PhysicalSocket::SetOption(Option opt, int value) {
     dscp_ = value << 2;
     value = dscp_ + (ecn_ & kEcnMask);
   } else if (opt == OPT_SEND_ECN) {
-    // L4S OVERRIDE: Force ECT(1) unless explicitly setting to disabled
-    if (value != 0) {
-      value = 1;  // Always use ECT(1) for L4S
-      RTC_LOG(LS_INFO) << "L4S: Forcing ECN to ECT(1)";
-    }
     ecn_ = value;
     value = dscp_ + (ecn_ & kEcnMask);
     RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
-                     << (ecn_ == 0 ? "Not-ECT" : (ecn_ == 1 ? "ECT(1)" : (ecn_ == 2 ? "ECT(0)" : "CE")));
+                     << (ecn_ == 0
+                             ? "Not-ECT"
+                             : (ecn_ == 1 ? "ECT(1)"
+                                          : (ecn_ == 2 ? "ECT(0)" : "CE")));
   }
 #if defined(WEBRTC_POSIX)
   if (sopt == IPV6_TCLASS) {
