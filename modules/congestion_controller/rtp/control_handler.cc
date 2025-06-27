@@ -19,6 +19,7 @@
 #include "modules/pacing/pacing_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include <execinfo.h>
 
 namespace webrtc {
 
