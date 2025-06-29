@@ -59,6 +59,10 @@ class L4SNetworkController : public NetworkControllerInterface {
                                     Timestamp at_time);
   
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
+// Add to the private section of your L4SNetworkController class
+
+  std::optional<Timestamp> last_update_time_;
+  TimeDelta update_interval_ = TimeDelta::Millis(25);
 
   // Environment
   const Environment env_;
