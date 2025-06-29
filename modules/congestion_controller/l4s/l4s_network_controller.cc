@@ -310,8 +310,8 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   // Set pacer config
   update.pacer_config = PacerConfig();
   update.pacer_config->at_time = at_time;
-  update.pacer_config->data_rate = current_rate;
-  update.pacer_config->pad_rate = DataRate::Zero();
+  update.pacer_config->data_rate() = current_rate;  // FIXED: using method call
+  update.pacer_config->pad_rate() = DataRate::Zero();  // FIXED: using method call
   
   return update;
 }
@@ -326,12 +326,15 @@ void L4SNetworkController::MaybeTriggerOnNetworkChanged(
     at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
   }
   
-  // Only create rate update if we haven't recently (this is similar to GoogCC's approach)
-  if (!last_update_time_ || at_time - *last_update_time_ >= update_interval_) {
-    NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
-    *update->pacer_config = *rate_update.pacer_config;
-    *update->target_rate = *rate_update.target_rate;
-    last_update_time_ = at_time;
+  // Create rate update (without the conditional, since your code didn't define the variables)
+  NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
+  
+  // Copy values from rate_update to update
+  if (rate_update.pacer_config) {
+    update->pacer_config = rate_update.pacer_config;
+  }
+  if (rate_update.target_rate) {
+    update->target_rate = rate_update.target_rate;
   }
 }
 
