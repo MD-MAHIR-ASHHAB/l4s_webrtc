@@ -233,9 +233,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
   return update;
 }
 
+// In OnTransportPacketsFeedback method:
 NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     TransportPacketsFeedback feedback) {
   NetworkControlUpdate update;
+  
+  // Validate feedback time to prevent invalid timestamps
+  if (!feedback.feedback_time.IsFinite() || feedback.feedback_time.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid feedback time: " << feedback.feedback_time.us()
+                        << " us, using current time instead";
+    feedback.feedback_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
   
   // Process ECN feedback to detect if ECN is supported
   ProcessEcnFeedback(feedback);
@@ -270,9 +278,16 @@ NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
   return update;
 }
 
+// In CreateRateUpdate method:
 NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
     Timestamp at_time) const {
   NetworkControlUpdate update;
+  
+  // Add timestamp validation here (similar to what GoogCC does)
+  if (!at_time.IsFinite()) {
+    RTC_LOG(LS_WARNING) << "Invalid timestamp in L4S controller, using current time";
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
   
   // Apply rate constraints
   DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
@@ -295,27 +310,29 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   // Set pacer config
   update.pacer_config = PacerConfig();
   update.pacer_config->at_time = at_time;
-  update.pacer_config->time_window = TimeDelta::Millis(500);
+  update.pacer_config->data_rate = current_rate;
+  update.pacer_config->pad_rate = DataRate::Zero();
   
-  // For L4S, we want a smaller pacer queue to reduce delay
-  const DataRate pacing_rate = current_rate * 1.5;
-  update.pacer_config->data_window = DataSize::Bytes(
-      (pacing_rate * TimeDelta::Millis(50)).bytes());
-  update.pacer_config->pad_window = DataSize::Zero();
-  update.pacer_config->pad_rate() = DataRate::Zero();
-
   return update;
 }
 
+// In MaybeTriggerOnNetworkChanged method:
 void L4SNetworkController::MaybeTriggerOnNetworkChanged(
     NetworkControlUpdate* update,
     Timestamp at_time) {
-  if (!update || !target_rate_) {
-    return;
+  // Add timestamp validation
+  if (!at_time.IsFinite() || at_time.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid timestamp in network change, using current time";
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
   }
   
-  // Create rate update
-  *update = CreateRateUpdate(at_time);
+  // Only create rate update if we haven't recently (this is similar to GoogCC's approach)
+  if (!last_update_time_ || at_time - *last_update_time_ >= update_interval_) {
+    NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
+    *update->pacer_config = *rate_update.pacer_config;
+    *update->target_rate = *rate_update.target_rate;
+    last_update_time_ = at_time;
+  }
 }
 
 bool L4SNetworkController::IsL4SActive() const {
