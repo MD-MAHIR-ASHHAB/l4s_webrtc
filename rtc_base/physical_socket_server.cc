@@ -375,9 +375,22 @@ int PhysicalSocket::SetOption(Option opt, int value) {
   } else if (opt == OPT_DSCP) {
     // IP DiffServ  consists of DSCP 6 most significant, ECN 2 least
     // significant.
+    RTC_LOG(LS_VERBOSE) << "PREVIOUSLY -> value: " << value
+                    << " dscp: " << dscp_
+                    << " ecn: " << ecn_;
+
     dscp_ = value << 2;
     value = dscp_ + (ecn_ & kEcnMask);
-  } else if (opt == OPT_SEND_ECN) {
+    
+    RTC_LOG(LS_VERBOSE) << "AFTER -> value: " << value
+                    << " dscp: " << dscp_
+                    << " ecn: " << ecn_;
+
+
+
+  } 
+  
+  else if (opt == OPT_SEND_ECN) {
     RTC_LOG(LS_VERBOSE) << "PREVIOUSLY -> value: " << value
                         << " dscp: " << dscp_
                         << " ecn: " << ecn_;
@@ -387,7 +400,7 @@ int PhysicalSocket::SetOption(Option opt, int value) {
     RTC_LOG(LS_VERBOSE) << "AFTER -> value: " << value
                         << " dscp: " << dscp_
                         << " ecn: " << ecn_;
-                        
+
     RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
                      << (ecn_ == 0
                              ? "Not-ECT"
