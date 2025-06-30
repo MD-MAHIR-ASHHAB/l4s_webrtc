@@ -45,6 +45,9 @@ struct PacketFeedback {
 
   uint32_t ssrc = 0;
   uint16_t rtp_sequence_number = 0;
+  
+  // ECN marking that was applied when this packet was sent
+  EcnMarking sent_ecn_marking = EcnMarking::kNotEct;
 };
 
 class InFlightBytesTracker {
@@ -88,6 +91,9 @@ class TransportFeedbackAdapter {
   void SetNetworkRoute(const NetworkRoute& network_route);
 
   DataSize GetOutstandingData() const;
+  
+  // Set the ECN marking that will be applied to outgoing packets
+  void SetEcnMarking(EcnMarking ecn_marking) { current_ecn_marking_ = ecn_marking; }
 
  private:
   enum class SendTimeHistoryStatus { kNotAdded, kOk, kDuplicate };
@@ -136,6 +142,9 @@ class TransportFeedbackAdapter {
   std::map<SsrcAndRtpSequencenumber, int64_t /*transport_sequence_number*/>
       rtp_to_transport_sequence_number_;
   std::map<int64_t, PacketFeedback> history_;
+  
+  // Current ECN marking being applied to outgoing packets
+  EcnMarking current_ecn_marking_ = EcnMarking::kNotEct;
 };
 
 }  // namespace webrtc

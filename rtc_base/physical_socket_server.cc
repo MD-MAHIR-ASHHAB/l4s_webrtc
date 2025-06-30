@@ -805,12 +805,32 @@ int PhysicalSocket::TranslateOption(Option opt, int* slevel, int* sopt) {
         *sopt = IP_TOS;
       }
       break;
+#elif defined(WEBRTC_WIN)
+      // Windows supports ECN through IP_TOS/IPV6_TCLASS (same as DSCP)
+      if (family_ == AF_INET6) {
+        *slevel = IPPROTO_IPV6;
+        *sopt = IPV6_TCLASS;
+      } else {
+        *slevel = IPPROTO_IP;
+        *sopt = IP_TOS;
+      }
+      break;
 #else
       RTC_LOG(LS_WARNING) << "Socket::OPT_SEND_ECN not supported.";
       return -1;
 #endif
     case OPT_RECV_ECN:
 #if defined(WEBRTC_POSIX)
+      if (family_ == AF_INET6) {
+        *slevel = IPPROTO_IPV6;
+        *sopt = IPV6_RECVTCLASS;
+      } else {
+        *slevel = IPPROTO_IP;
+        *sopt = IP_RECVTOS;
+      }
+      break;
+#elif defined(WEBRTC_WIN)
+      // Windows supports receiving ECN through IP_RECVTOS/IPV6_RECVTCLASS
       if (family_ == AF_INET6) {
         *slevel = IPPROTO_IPV6;
         *sopt = IPV6_RECVTCLASS;

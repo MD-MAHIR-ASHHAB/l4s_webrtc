@@ -116,6 +116,10 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   feedback.sent.pacing_info = pacing_info;
   feedback.ssrc = packet_to_send.Ssrc();
   feedback.rtp_sequence_number = packet_to_send.SequenceNumber();
+  
+  // Set ECN marking that will be applied to this packet
+  // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
+  feedback.sent_ecn_marking = current_ecn_marking_;
 
   while (!history_.empty() &&
          creation_time - history_.begin()->second.creation_time >
@@ -231,6 +235,8 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
+      // Use the ECN marking that was applied when the packet was sent
+      result.ecn = packet_feedback->sent_ecn_marking;
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -247,8 +253,32 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
+  // For Transport Feedback, we need to determine ECN support by checking if any 
+  // ECN-capable packets were successfully received with ECN markings preserved.
+  bool supports_ecn = false;
+  int ecn_marked_sent = 0;
+  int ecn_marked_received = 0;
+  
+  for (const auto& result : packet_result_vector) {
+    if (result.sent_packet.sequence_number > 0) { // Valid packet
+      if (result.ecn != EcnMarking::kNotEct) {
+        ecn_marked_sent++;
+        if (result.receive_time.IsFinite()) {
+          ecn_marked_received++;
+          supports_ecn = true;
+        }
+      }
+    }
+  }
+  
+  RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
+                   << packet_result_vector.size() << " packets, "
+                   << "ECN marked sent: " << ecn_marked_sent
+                   << ", ECN marked received: " << ecn_marked_received
+                   << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
+  
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, /*suports_ecn=*/false);
+                             feedback_receive_time, supports_ecn);
 }
 
 std::optional<TransportPacketsFeedback>
@@ -278,7 +308,7 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
 
   int ignored_packets = 0;
   int failed_lookups = 0;
-  bool supports_ecn = true;
+  bool supports_ecn = false;  // Start with false, set to true if we see any ECN-marked packets successfully delivered
   std::vector<PacketResult> packet_result_vector;
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
@@ -298,7 +328,10 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     result.sent_packet = packet_feedback->sent;
     if (packet_info.arrival_time_offset.IsFinite()) {
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
-      supports_ecn &= packet_info.ecn != EcnMarking::kNotEct;
+      // ECN support is confirmed if we receive any packet with ECN marking
+      if (packet_info.ecn != EcnMarking::kNotEct) {
+        supports_ecn = true;
+      }
     }
     result.ecn = packet_info.ecn;
     if (packet_info.ecn != EcnMarking::kNotEct) {
@@ -327,6 +360,11 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
                                         const PacketResult& rhs) {
     return lhs.sent_packet.sequence_number < rhs.sent_packet.sequence_number;
   });
+  
+  RTC_LOG(LS_INFO) << "Congestion Control Feedback processed: " 
+                   << packet_result_vector.size() << " packets, "
+                   << "ECN support detected: " << (supports_ecn ? "YES" : "NO");
+  
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn);
 }

@@ -401,7 +401,10 @@ void RtpTransportControllerSend::OnNetworkRouteChanged(
         network_route.connected, network_route.packet_overhead));
     if (transport_maybe_support_ecn_) {
       sending_packets_as_ect1_ = true;
+      ecn_detection_attempts_ = 0;  // Reset detection attempts for new route
       packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+      // Update transport feedback adapter to track ECN markings
+      transport_feedback_adapter_.SetEcnMarking(EcnMarking::kEct1);
     }
     NetworkRouteChange msg;
     msg.at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
@@ -647,7 +650,11 @@ void RtpTransportControllerSend::
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   transport_maybe_support_ecn_ = true;
   sending_packets_as_ect1_ = true;
+  ecn_detection_attempts_ = 0;  // Reset detection attempts
   packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+  
+  // Update transport feedback adapter to track ECN markings
+  transport_feedback_adapter_.SetEcnMarking(EcnMarking::kEct1);
 }
 
 void RtpTransportControllerSend::OnTransportFeedback(
@@ -685,11 +692,23 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
   // Log ECN support detection and update ECT(1) sending if necessary.
   if (sending_packets_as_ect1_) {
     if (!feedback.transport_supports_ecn) {
-      RTC_LOG(LS_WARNING) << "Transport does NOT support ECN. Disabling ECT(1) marking.";
-      sending_packets_as_ect1_ = false;
-      packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+      ecn_detection_attempts_++;
+      RTC_LOG(LS_WARNING) << "Transport does NOT support ECN in feedback attempt " 
+                          << ecn_detection_attempts_ << "/" << kMaxEcnDetectionAttempts 
+                          << ". " << (ecn_detection_attempts_ >= kMaxEcnDetectionAttempts 
+                                    ? "Disabling ECT(1) marking." 
+                                    : "Continuing to try...");
+      
+      // Only disable ECN after several attempts to allow for startup delays
+      if (ecn_detection_attempts_ >= kMaxEcnDetectionAttempts) {
+        sending_packets_as_ect1_ = false;
+        packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+        // Update transport feedback adapter to track ECN markings
+        transport_feedback_adapter_.SetEcnMarking(EcnMarking::kNotEct);
+      }
     } else {
-      RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
+      RTC_LOG(LS_INFO) << "Transport confirmed to support ECN after " << ecn_detection_attempts_ << " attempts.";
+      ecn_detection_attempts_ = 0; // Reset counter on successful detection
     }
   } else if (feedback.transport_supports_ecn) {
     RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
@@ -952,6 +971,9 @@ void RtpTransportControllerSend::SetEcnMarking(EcnMarking ecn_marking) {
 
   // Update all registered RTP modules with the new ECN marking
   packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+  
+  // Update transport feedback adapter to track ECN markings
+  transport_feedback_adapter_.SetEcnMarking(ecn_marking);
 
   RTC_LOG(LS_INFO) << "RTP transport controller ECN marking set to: "
                    << (ecn_marking == EcnMarking::kEct0 ? "ECT(0)" :
