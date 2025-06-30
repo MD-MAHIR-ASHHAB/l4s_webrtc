@@ -682,55 +682,44 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
 
 void RtpTransportControllerSend::HandleTransportPacketsFeedback(
     const TransportPacketsFeedback& feedback) {
-  // if (sending_packets_as_ect1_) {
-  //   // If transport does not support ECN, packets should not be sent as ECT(1).
-  //   // TODO: bugs.webrtc.org/42225697 - adapt to ECN feedback and continue to
-  //   // send packets as ECT(1) if transport is ECN capable.
-  //   sending_packets_as_ect1_ = false;
-  //   RTC_LOG(LS_INFO) << " Transport is "
-  //                    << (feedback.transport_supports_ecn ? "" : " not ")
-  //                    << " ECN capable. Stop sending ECT(1).";
-  //   packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
-  // }
-  // if (controller_)
-  //   PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
-
-  // Log ECN support detection
-  if (sending_packets_as_ect1_ && !feedback.transport_supports_ecn) {
-    RTC_LOG(LS_WARNING) << "Transport does NOT support ECN. Disabling ECT(1) marking.";
+  // Log ECN support detection and update ECT(1) sending if necessary.
+  if (sending_packets_as_ect1_) {
+    if (!feedback.transport_supports_ecn) {
+      RTC_LOG(LS_WARNING) << "Transport does NOT support ECN. Disabling ECT(1) marking.";
+      sending_packets_as_ect1_ = false;
+      packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
+    } else {
+      RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
+    }
   } else if (feedback.transport_supports_ecn) {
     RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
+  } else {
+    RTC_LOG(LS_INFO) << "Transport is not ECN capable. ECT(1) marking disabled.";
   }
-  else{
-    sending_packets_as_ect1_ = false;
-    RTC_LOG(LS_INFO) << " Transport is "
-                     << (feedback.transport_supports_ecn ? "" : " not ")
-                     << " ECN capable. Stop sending ECT(1).";
-    packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
-  }
-  
-  // Count CE markings in this feedback
+
+  // Count CE-marked packets in this feedback batch.
   int ce_count = 0;
   for (const auto& packet_result : feedback.packet_feedbacks) {
     if (packet_result.ecn == EcnMarking::kCe) {
       ce_count++;
     }
   }
-  
+  // Log the number of CE-marked packets.
   if (ce_count > 0) {
     RTC_LOG(LS_INFO) << "Received " << ce_count 
                      << " CE-marked packets in feedback batch of " 
-                     << feedback.packet_feedbacks.size() << " packets";
+                     << feedback.packet_feedbacks.size() << " packets.";
   }
-  
-  // Forward feedback to congestion controller
-  if (controller_)
+
+  // Forward feedback to congestion controller if present.
+  if (controller_) {
     PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
+  }
 
-
-  // Only update outstanding data if any packet is first time acked.
+  // Update congestion state based on this feedback.
   UpdateCongestedState();
 }
+
 
 void RtpTransportControllerSend::OnRemoteNetworkEstimate(
     NetworkStateEstimate estimate) {
