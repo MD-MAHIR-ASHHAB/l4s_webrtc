@@ -19,7 +19,7 @@
 
 #include "absl/functional/any_invocable.h"
 #include "api/array_view.h"
-#include "api/ecn_marking.h"
+#include "api/transport/ecn_marking.h"
 #include "api/rtp_headers.h"
 #include "api/sequence_checker.h"
 #include "api/transport/network_types.h"
