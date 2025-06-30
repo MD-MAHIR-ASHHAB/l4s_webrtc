@@ -113,6 +113,7 @@ class ABSL_DEPRECATED("") ModuleRtpRtcpImpl
 
   // Sets ECN marking mode for outgoing RTP packets
   void SetRfc8888Feedback(bool use_ect1) override;
+  void SetEcnMarking(EcnMarking ecn_marking) override;
 
   RTCPSender::FeedbackState GetFeedbackState();
 
