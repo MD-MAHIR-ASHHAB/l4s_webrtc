@@ -88,17 +88,30 @@ void PacketRouter::RegisterNotifyBweCallback(
   notify_bwe_callback_ = std::move(callback);
 }
 
-void PacketRouter::ConfigureForRfc8888Feedback(bool use_ect1) {
-  RTC_DCHECK_RUN_ON(&thread_checker_);
-  sending_as_ect1_ = use_ect1;
+void PacketRouter::ConfigureForRfc8888Feedback(bool send_rtp_packets_as_ect1) {
+  // RTC_DCHECK_RUN_ON(&thread_checker_);
+  // sending_as_ect1_ = send_rtp_packets_as_ect1;
 
-  // Update ECN mode for all registered modules
-  for (auto* rtp_module : rtp_modules_) {
-    rtp_module->SetRfc8888Feedback(use_ect1);
+  // // Update ECN mode for all registered modules
+  // for (RtpRtcpInterface* rtp_module : send_modules_list_) {
+  //   rtp_module->SetRfc8888Feedback(send_rtp_packets_as_ect1);
+  // }
+
+  // RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
+  //                  << (send_rtp_packets_as_ect1 ? "enabled" : "disabled");
+
+
+  RTC_DCHECK_RUN_ON(&thread_checker_);
+  use_cc_feedback_according_to_rfc8888_ = true;
+  send_rtp_packets_as_ect1_ = send_rtp_packets_as_ect1;
+
+  for (RtpRtcpInterface* rtp_module : send_modules_list_) {
+    rtp_module->SetRfc8888Feedback(send_rtp_packets_as_ect1);
   }
 
-  RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
-                   << (use_ect1 ? "enabled" : "disabled");
+    RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
+                   << (send_rtp_packets_as_ect1 ? "enabled" : "disabled");
+
 }
 
 void PacketRouter::AddSendRtpModuleToMap(RtpRtcpInterface* rtp_module,
