@@ -80,6 +80,12 @@ int AsyncUDPSocket::SendTo(const void* pv,
   SentPacketInfo sent_packet(options.packet_id, TimeMillis(),
                              options.info_signaled_after_sent);
   CopySocketInformationToPacketInfo(cb, *this, &sent_packet.info);
+                            
+  RTC_LOG(LS_VERBOSE) << "Options:"
+                      << " ecn_1=" << options.ecn_1
+                      << " SEND ECN option=" << OPT_SEND_ECN
+                      << " RECV ECN option=" << OPT_RECV_ECN;
+
   if (has_set_ect1_options_ != options.ecn_1) {
     // It is unclear what is most efficient, setting options on every sent
     // packet or when changed. Potentially, can separate send sockets be used?
