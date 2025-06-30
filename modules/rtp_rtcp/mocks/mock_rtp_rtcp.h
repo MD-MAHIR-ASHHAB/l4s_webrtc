@@ -193,7 +193,7 @@ class MockRtpRtcpInterface : public RtpRtcpInterface {
   MOCK_METHOD(RTPSender*, RtpSender, (), (override));
   MOCK_METHOD(const RTPSender*, RtpSender, (), (const, override));
   MOCK_METHOD(void, SetEcnMarking, (EcnMarking), (override)); // l4s ecn mock
-
+  MOCK_METHOD(void, SetRfc8888Feedback, (bool use_ect1), (override));
 };
 
 }  // namespace webrtc
