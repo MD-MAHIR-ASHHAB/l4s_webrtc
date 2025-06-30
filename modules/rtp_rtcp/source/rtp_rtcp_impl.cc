@@ -739,10 +739,15 @@ const RTPSender* ModuleRtpRtcpImpl::RtpSender() const {
 
 // Add support for ECN marking
 
-void ModuleRtpRtcpImpl::SetEcnMode(EcnMode ecn_mode) {
+void ModuleRtpRtcpImpl::SetRfc8888Feedback(bool use_ect1) {
+  EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNotEct;
   if (rtp_sender_) {
-    rtp_sender_->packet_generator.SetEcnMode(ecn_mode);
+    rtp_sender_->packet_generator.SetEcnMode(ecn_marking);
   }
+  
+  RTC_LOG(LS_INFO) << "ModuleRtpRtcpImpl2: Setting ECN marking to: " 
+                   << (use_ect1 ? "ECT(1)" : "Not-ECT") 
+                   << " for RFC 8888 feedback";
 }
 
 }  // namespace webrtc
