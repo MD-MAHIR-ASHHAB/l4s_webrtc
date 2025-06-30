@@ -26,7 +26,7 @@
 #include "api/units/time_delta.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "api/transport/network_types.h"
-#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"  // For ECNMode
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"  // For EcnMarking
 #include "modules/include/module_fec_types.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp.h"

@@ -102,7 +102,7 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
 
   void SetNonSenderRttMeasurement(bool enabled) override;
 
-  //L4s ecnmode setup
+  //L4s EcnMarking setup
 
   void SetEcnMarking(EcnMarking ecn_marking) override;
 

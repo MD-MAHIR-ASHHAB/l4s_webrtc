@@ -739,14 +739,14 @@ const RTPSender* ModuleRtpRtcpImpl::RtpSender() const {
 
 // Add support for ECN marking
 
-void ModuleRtpRtcpImpl2::SetEcnMarking(EcnMarking ecn_marking) {
+void ModuleRtpRtcpImpl::SetEcnMarking(EcnMarking ecn_marking) {
   // Forward to the packet generator if rtp_sender_ exists
   if (rtp_sender_) {
     rtp_sender_->packet_generator.SetEcnMarking(ecn_marking);
   }
 }
 
-void ModuleRtpRtcpImpl2::SetRfc8888Feedback(bool use_ect1) {
+void ModuleRtpRtcpImpl::SetRfc8888Feedback(bool use_ect1) {
   EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNotEct;
   if (rtp_sender_) {
     rtp_sender_->packet_generator.SetEcnMarking(ecn_marking);

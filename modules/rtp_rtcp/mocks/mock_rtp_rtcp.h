@@ -192,7 +192,7 @@ class MockRtpRtcpInterface : public RtpRtcpInterface {
               (override));
   MOCK_METHOD(RTPSender*, RtpSender, (), (override));
   MOCK_METHOD(const RTPSender*, RtpSender, (), (const, override));
-  MOCK_METHOD(void, SetEcnMode, (EcnMode), (override)); // l4s ecn mock
+  MOCK_METHOD(void, SetEcnMarking, (EcnMarking), (override)); // l4s ecn mock
 
 };
 

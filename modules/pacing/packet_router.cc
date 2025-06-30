@@ -437,7 +437,7 @@ void PacketRouter::DetermineActiveRembModule() {
 
 //   // Set ECN mode if we're using RFC 8888 feedback with ECT(1) marking
 //   if (sending_as_ect1_) {
-//     rtp_module->SetEcnMode(EcnMode::kEct1);
+//     rtp_module->SetEcnMarking(EcnMarking::kEct1);
 //   }
 
 //   rtp_module->SetRtcpEventObserver(this);
