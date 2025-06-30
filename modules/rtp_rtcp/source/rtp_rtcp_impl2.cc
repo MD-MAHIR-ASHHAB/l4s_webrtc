@@ -837,7 +837,7 @@ void ModuleRtpRtcpImpl2::SetEcnMarking(EcnMarking ecn_marking) {
 }
 
 void ModuleRtpRtcpImpl2::SetRfc8888Feedback(bool use_ect1) {
-  EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNoEcn;
+  EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNotEct;
   rtp_sender_->SetEcnMarking(ecn_marking);
 
   RTC_LOG(LS_INFO) << "ModuleRtpRtcpImpl2: Setting ECN marking to: "

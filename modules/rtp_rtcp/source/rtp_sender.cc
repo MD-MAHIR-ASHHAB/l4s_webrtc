@@ -26,6 +26,7 @@
 #include "api/rtp_headers.h"
 #include "api/rtp_packet_sender.h"
 #include "api/units/time_delta.h"
+#include "api/transport/ecn_marking.h"
 #include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_rtp_packet_outgoing.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
@@ -555,9 +556,9 @@ std::unique_ptr<RtpPacketToSend> RTPSender::AllocatePacket(
   }
   // Set ECN marking if enabled - the actual ECN marking will be set at the socket level
   // Store the ECN marking intention in the packet
-  if (ecn_mode_ == EcnMode::kEct0) {
+  if (ecn_marking_ == EcnMarking::kEct0) {
     packet->SetEcnMarking(EcnMarking::kEct0);
-  } else if (ecn_mode_ == EcnMode::kEct1) {
+  } else if (ecn_marking_ == EcnMarking::kEct1) {
     packet->SetEcnMarking(EcnMarking::kEct1);
   }
   
