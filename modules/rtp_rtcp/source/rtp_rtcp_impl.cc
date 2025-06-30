@@ -742,7 +742,7 @@ const RTPSender* ModuleRtpRtcpImpl::RtpSender() const {
 void ModuleRtpRtcpImpl::SetRfc8888Feedback(bool use_ect1) {
   EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNotEct;
   if (rtp_sender_) {
-    rtp_sender_->packet_generator.SetEcnMode(ecn_marking);
+    rtp_sender_->packet_generator.SetEcnMarking(ecn_marking);
   }
   
   RTC_LOG(LS_INFO) << "ModuleRtpRtcpImpl2: Setting ECN marking to: " 
