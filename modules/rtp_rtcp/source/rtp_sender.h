@@ -22,6 +22,7 @@
 #include "absl/strings/string_view.h"
 #include "api/array_view.h"
 #include "api/environment/environment.h"
+#include "api/ecn_marking.h"
 #include "api/rtp_packet_sender.h"
 #include "modules/rtp_rtcp/include/flexfec_sender.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
@@ -37,14 +38,6 @@ namespace webrtc {
 class FrameEncryptorInterface;
 class RateLimiter;
 class RtpPacketToSend;
-
-// // Explicit Congestion Notification mode
-// enum class EcnMode {
-//     kNotEct = 0,
-//     kEct1 = 1,
-//     kEct0 = 2,
-//     kCe = 3,
-// };
 
 // Maximum amount of padding in RFC 3550 is 255 bytes.
 constexpr size_t kMaxPaddingLength = 255;
@@ -163,7 +156,7 @@ class RTPSender {
   RtpState GetRtxRtpState() const RTC_LOCKS_EXCLUDED(send_mutex_);
 
   // Sets ECN marking mode for outgoing packets
-  void SetEcnMode(EcnMode ecn_mode);
+  void SetEcnMarking(EcnMarking ecn_marking);
 
  private:
   std::unique_ptr<RtpPacketToSend> BuildRtxPacket(
@@ -218,7 +211,7 @@ class RTPSender {
 
   RateLimiter* const retransmission_rate_limiter_;
 
-  EcnMode ecn_mode_ = EcnMode::kNotEct;
+  EcnMarking ecn_marking_ = EcnMarking::kNotEct;
 };
 
 }  // namespace webrtc

@@ -955,18 +955,18 @@ bool RtpTransportControllerSend::IsL4SActive() const {
   return sending_packets_as_ect1_ && has_l4s_feedback;
 }
 
-void RtpTransportControllerSend::SetEcnMode(EcnMode ecn_mode) {
+void RtpTransportControllerSend::SetEcnMarking(EcnMarking ecn_marking) {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  
-  // Store the ECN mode setting
-  sending_packets_as_ect1_ = (ecn_mode == EcnMode::kEct1);
-  
-  // Update all registered RTP modules with the new ECN mode
+
+  // Store the ECN marking setting
+  sending_packets_as_ect1_ = (ecn_marking == EcnMarking::kEct1);
+
+  // Update all registered RTP modules with the new ECN marking
   packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
-  
-  RTC_LOG(LS_INFO) << "RTP transport controller ECN mode set to: " 
-                   << (ecn_mode == EcnMode::kEct0 ? "ECT(0)" :
-                       ecn_mode == EcnMode::kEct1 ? "ECT(1)" : "No ECN");
+
+  RTC_LOG(LS_INFO) << "RTP transport controller ECN marking set to: "
+                   << (ecn_marking == EcnMarking::kEct0 ? "ECT(0)" :
+                       ecn_marking == EcnMarking::kEct1 ? "ECT(1)" : "No ECN");
 }
 
 }  // namespace webrtc

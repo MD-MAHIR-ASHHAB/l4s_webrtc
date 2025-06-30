@@ -784,7 +784,7 @@ int PhysicalSocket::TranslateOption(Option opt, int* slevel, int* sopt) {
       }
       break;
 #else
-      RTC_LOG(LS_WARNING) << "Socket::OPT_SEND_ESN not supported.";
+      RTC_LOG(LS_WARNING) << "Socket::OPT_SEND_ECN not supported.";
       return -1;
 #endif
     case OPT_RECV_ECN:

@@ -829,11 +829,11 @@ void RTPSender::UpdateHeaderSizes() {
   }
 }
 
-void RTPSender::SetEcnMode(EcnMode ecn_mode) {
+void RTPSender::SetEcnMarking(EcnMarking ecn_marking) {
   MutexLock lock(&send_mutex_);
-  ecn_mode_ = ecn_mode;
-  RTC_LOG(LS_INFO) << "RTP Sender ECN mode set to: "
-                   << (ecn_mode_ == EcnMode::kEct0 ? "ECT(0)" :
-                       ecn_mode_ == EcnMode::kEct1 ? "ECT(1)" : "No ECN"); //need to lookup for exact value
+  ecn_marking_ = ecn_marking;
+  RTC_LOG(LS_INFO) << "RTP Sender ECN marking set to: "
+                   << (ecn_marking_ == EcnMarking::kEct0 ? "ECT(0)" :
+                       ecn_marking_ == EcnMarking::kEct1 ? "ECT(1)" : "KnotECT"); //need to lookup for exact value
 }
 }  // namespace webrtc

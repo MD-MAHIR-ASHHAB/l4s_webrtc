@@ -27,6 +27,7 @@
 #include "api/task_queue/task_queue_base.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "api/ecn_marking.h"
 #include "api/video/video_bitrate_allocation.h"
 #include "modules/include/module_fec_types.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
@@ -103,7 +104,7 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
 
   //L4s ecnmode setup
 
-  void SetEcnMode(EcnMode ecn_mode) override;
+  void SetEcnMarking(EcnMarking ecn_marking) override;
 
 
   uint32_t SSRC() const override { return rtcp_sender_.SSRC(); }
@@ -295,6 +296,8 @@ class ModuleRtpRtcpImpl2 final : public RtpRtcpInterface,
   // Called when `rtcp_sender_` informs of the next RTCP instant. The method may
   // be called on various sequences, and is called under a RTCPSenderLock.
   void ScheduleRtcpSendEvaluation(TimeDelta duration);
+
+  void SetRfc8888Feedback(bool use_ect1) override;
 
   // Helper method combating too early delayed calls from task queues.
   // TODO(bugs.webrtc.org/12889): Consider removing this function when the issue

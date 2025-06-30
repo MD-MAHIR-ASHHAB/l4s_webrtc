@@ -19,6 +19,7 @@
 
 #include "absl/functional/any_invocable.h"
 #include "api/array_view.h"
+#include "api/ecn_marking.h"
 #include "api/rtp_headers.h"
 #include "api/sequence_checker.h"
 #include "api/transport/network_types.h"
@@ -92,8 +93,8 @@ void PacketRouter::ConfigureForRfc8888Feedback(bool use_ect1) {
   sending_as_ect1_ = use_ect1;
 
   // Update ECN mode for all registered modules
-  for (RtpRtcpInterface* rtp_module : send_modules_list_) {
-    rtp_module->SetEcnMode(use_ect1 ? EcnMode::kEct1 : EcnMode::kNotEct);
+  for (auto* rtp_module : rtp_modules_) {
+    rtp_module->SetRfc8888Feedback(use_ect1);
   }
 
   RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "

@@ -829,11 +829,23 @@ void ModuleRtpRtcpImpl2::ScheduleMaybeSendRtcpAtOrAfterTimestamp(
       duration.RoundUpTo(TimeDelta::Millis(1)));
 }
 
-void ModuleRtpRtcpImpl2::SetEcnMode(EcnMode ecn_mode) {
+void ModuleRtpRtcpImpl2::SetEcnMarking(EcnMarking ecn_marking) {
   // Forward to the packet generator if rtp_sender_ exists
   if (rtp_sender_) {
-    rtp_sender_->packet_generator.SetEcnMode(ecn_mode);
+    rtp_sender_->packet_generator.SetEcnMarking(ecn_marking);
   }
 }
+
+void ModuleRtpRtcpImpl2::SetRfc8888Feedback(bool use_ect1) {
+  EcnMarking ecn_marking = use_ect1 ? EcnMarking::kEct1 : EcnMarking::kNoEcn;
+  rtp_sender_->SetEcnMarking(ecn_marking);
+
+  RTC_LOG(LS_INFO) << "ModuleRtpRtcpImpl2: Setting ECN marking to: "
+                   << (use_ect1 ? "ECT(1)" : "No ECN")
+                   << " for RFC 8888 feedback";
+}
+
+
+
 
 }  // namespace webrtc
