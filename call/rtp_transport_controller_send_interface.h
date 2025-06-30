@@ -27,6 +27,7 @@
 #include "api/transport/bitrate_settings.h"
 #include "api/transport/network_control.h"
 #include "api/transport/network_types.h"
+#include "api/transport/ecn_marking.h"
 #include "api/units/timestamp.h"
 #include "call/rtp_config.h"
 #include "common_video/frame_counts.h"
@@ -167,7 +168,7 @@ class RtpTransportControllerSendInterface {
   virtual int ReceivedTransportCcFeedbackCount() const = 0;
   // Update the interface to add a method to check if L4S is active
   virtual bool IsL4SActive() const = 0;
-  virtual void SetEcnMode(EcnMode ecn_mode) = 0;
+  virtual void SetEcnMarking(EcnMarking ecn_marking) = 0;
 };
 
 }  // namespace webrtc
