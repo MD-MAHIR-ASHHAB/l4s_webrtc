@@ -269,9 +269,14 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       
       // Scale down the increase by 10x to be very conservative
       increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.1);
-      
+      // Scale down the increase by 10x to be little bit conservative
+      increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.5);
       // Very tight bounds: max 2% increase per update
       increase_factor = std::clamp(increase_factor, 1.0, 1.02);
+      
+      // Not Very tight bounds: max 5% increase per update
+      increase_factor = std::clamp(increase_factor, 1.0, 1.05);
+    
     }
     
     DataRate increased_rate = base_rate * increase_factor;
@@ -296,8 +301,8 @@ DataSize L4SPragueController::CalculateCongestionWindow() const {
   
   // Calculate base congestion window (BDP)
   // Base it on a reasonable link capacity for interactive media
-  DataRate base_rate = DataRate::KilobitsPerSec(1000);  // 1 Mbps base
-  
+  DataRate base_rate = DataRate::KilobitsPerSec(10000);  // 10 Mbps base
+  // DataRate base_rate = DataRate::KilobitsPerSec(1000);  // 1 Mbps base (for testing)
   DataSize bdp = base_rate * base_rtt;
   
   // Apply the initial window multiplier
