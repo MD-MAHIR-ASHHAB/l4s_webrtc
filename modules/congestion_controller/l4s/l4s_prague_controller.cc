@@ -135,9 +135,13 @@ void L4SPragueController::UpdateEcnFeedback(
 void L4SPragueController::UpdateRtt(TimeDelta rtt) {
   rtt_ = rtt;
 
+  // Log raw RTT for debugging
+  RTC_LOG(LS_INFO) << "Prague: Raw RTT measurement: " << rtt.ms() << "ms";
+
   // Update min_rtt_estimate with more realistic floor
   // Prevent unrealistically low RTT estimates that can cause issues
-  TimeDelta realistic_rtt = std::max(rtt, TimeDelta::Millis(1)); // At least 1ms
+  // Use 10ms minimum for realistic network scenarios (LAN: 1-10ms, WAN: 10-500ms)
+  TimeDelta realistic_rtt = std::max(rtt, TimeDelta::Millis(10)); // At least 10ms
   
   if (!min_rtt_estimate_ || realistic_rtt < *min_rtt_estimate_) {
     min_rtt_estimate_ = realistic_rtt;

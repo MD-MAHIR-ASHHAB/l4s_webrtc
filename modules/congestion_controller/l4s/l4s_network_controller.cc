@@ -400,11 +400,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // Consider BWE estimates when determining capacity limits
     DataRate bwe_based_limit = max_realistic_bandwidth_;
-    if (last_acknowledged_rate_ > DataRate::Zero()) {
-      bwe_based_limit = std::min(bwe_based_limit, last_acknowledged_rate_ * 1.2); // 20% above acked rate
-    }
+    
+    // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      bwe_based_limit = std::min(bwe_based_limit, last_delay_based_estimate_ * 1.1); // 10% above delay estimate
+      bwe_based_limit = std::min(bwe_based_limit, last_delay_based_estimate_ * 0.8); // 80% of delay estimate for safety
+    }
+    
+    // Only apply acknowledged rate limit if it's significantly higher than delay estimate
+    // (acknowledged rate represents current usage, not capacity)
+    if (last_acknowledged_rate_ > DataRate::Zero() && 
+        last_acknowledged_rate_ > last_delay_based_estimate_ * 2) {
+      bwe_based_limit = std::min(bwe_based_limit, last_acknowledged_rate_ * 1.5); // 50% above acked rate
     }
     
     RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: " << bwe_based_limit.bps() 
