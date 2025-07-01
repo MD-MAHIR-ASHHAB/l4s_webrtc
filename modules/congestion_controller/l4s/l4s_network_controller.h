@@ -18,6 +18,7 @@
 // GCC-inspired bandwidth estimation integration
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 
 namespace webrtc {
@@ -104,6 +105,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
   std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
+  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   
   // Bandwidth estimation tracking
   DataRate last_acknowledged_rate_ = DataRate::Zero();

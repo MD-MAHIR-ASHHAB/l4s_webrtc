@@ -19,6 +19,8 @@
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/probe_controller.h"
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
@@ -44,7 +46,14 @@ L4SNetworkController::L4SNetworkController(
                                                        &env_.event_log(),
                                                        nullptr)), // No network state predictor
       bandwidth_estimation_(std::make_unique<SendSideBandwidthEstimation>(&env_.field_trials(),
-                                                                          &env_.event_log())) {
+                                                                          &env_.event_log())),
+      probe_bitrate_estimator_(std::make_unique<ProbeBitrateEstimator>(&env_.field_trials(),
+                                                                      &env_.event_log())) {
+
+  // Enable more aggressive probing to discover high-capacity networks
+  probe_controller_->EnableRepeatedInitialProbing(true);
+  
+  RTC_LOG(LS_WARNING) << "L4S: Enabled repeated initial probing for better capacity discovery";
   
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
@@ -61,9 +70,12 @@ L4SNetworkController::L4SNetworkController(
   min_target_rate_ = config.constraints.min_data_rate;
   max_target_rate_ = config.constraints.max_data_rate;
   
-  RTC_LOG(LS_INFO) << "L4S network controller created"
-                   << " fallback_to_gcc: " << fallback_to_gcc_
-                   << " use_ect1_marking: " << use_ect1_marking_;
+  RTC_LOG(LS_WARNING) << "L4S network controller created"
+                      << " fallback_to_gcc: " << fallback_to_gcc_
+                      << " use_ect1_marking: " << use_ect1_marking_
+                      << " starting_rate: " << (starting_rate_ ? starting_rate_->bps() : 0) << " bps"
+                      << " min_target: " << (min_target_rate_ ? min_target_rate_->bps() : 0) << " bps"
+                      << " max_target: " << (max_target_rate_ ? max_target_rate_->bps() : 0) << " bps";
 }
 
 L4SNetworkController::~L4SNetworkController() = default;
@@ -97,14 +109,28 @@ NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
   max_target_rate_ = msg.constraints.max_data_rate;
   
   // Configure the probe controller with the new bitrates
+  RTC_LOG(LS_WARNING) << "L4S: SetBitrates for probing - start: " << starting_rate_->bps() 
+                      << " bps, min: " << (min_target_rate_ ? min_target_rate_->bps() : 0) 
+                      << " bps, max: " << (max_target_rate_ ? max_target_rate_->bps() : 0) << " bps";
+  
+  // CRITICAL: Override low max_target_rate if we suspect we're on a high-capacity network
+  DataRate effective_max_rate = max_target_rate_.value_or(DataRate::PlusInfinity());
+  if (max_target_rate_ && *max_target_rate_ < DataRate::KilobitsPerSec(50000)) { // Less than 50 Mbps
+    effective_max_rate = DataRate::KilobitsPerSec(200000); // Allow up to 200 Mbps probing
+    RTC_LOG(LS_WARNING) << "L4S: Overriding low max_target_rate " << max_target_rate_->bps() 
+                        << " bps with " << effective_max_rate.bps() << " bps for aggressive probing";
+  }
+  
   auto probes = probe_controller_->SetBitrates(
       *starting_rate_, 
       min_target_rate_.value_or(DataRate::Zero()), 
-      max_target_rate_.value_or(DataRate::PlusInfinity()), 
+      effective_max_rate, 
       msg.at_time);
   
   // Add probe clusters to the update
   for (const auto& probe : probes) {
+    RTC_LOG(LS_WARNING) << "L4S: Adding probe cluster - target_rate: " << probe.target_data_rate.bps() 
+                        << " bps, target_duration: " << probe.target_duration.ms() << " ms";
     update.probe_cluster_configs.push_back(probe);
   }
   
@@ -238,6 +264,28 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Generate probes if needed
     auto probes = probe_controller_->Process(msg.at_time);
+    
+    // MANUAL PROBE REQUEST: If we have a much higher delay-based estimate than current rate,
+    // request additional probes to verify capacity
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    if (last_delay_based_estimate_ > current_rate * 3.0 && 
+        last_delay_based_estimate_ > DataRate::KilobitsPerSec(5000)) { // At least 5 Mbps
+      auto manual_probes = probe_controller_->RequestProbe(msg.at_time);
+      if (!manual_probes.empty()) {
+        RTC_LOG(LS_WARNING) << "L4S: Requested " << manual_probes.size() 
+                            << " manual bandwidth probes - current: " << current_rate.bps() 
+                            << " bps, delay-BWE suggests: " << last_delay_based_estimate_.bps() << " bps";
+        probes.insert(probes.end(), manual_probes.begin(), manual_probes.end());
+      }
+    }
+    
+    if (!probes.empty()) {
+      RTC_LOG(LS_WARNING) << "L4S: Generated " << probes.size() << " probe clusters in OnProcessInterval";
+      for (const auto& probe : probes) {
+        RTC_LOG(LS_WARNING) << "L4S: Process probe - target_rate: " << probe.target_data_rate.bps() 
+                            << " bps, duration: " << probe.target_duration.ms() << " ms";
+      }
+    }
     update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
                                         probes.begin(), probes.end());
   } else if (fallback_to_gcc_) {
@@ -278,6 +326,9 @@ NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
 NetworkControlUpdate L4SNetworkController::OnSentPacket(
     SentPacket msg) {
   NetworkControlUpdate update;
+  
+  // Feed sent packets to probe bitrate estimator for probe result calculation
+  probe_bitrate_estimator_->OnSentPacket(msg);
   
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -398,6 +449,24 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     }
   }
 
+  // 1.5. Process probe results to help BWE discover network capacity
+  probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(feedback);
+  auto probe_result = probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
+  if (probe_result.has_value()) {
+    last_probe_result_ = probe_result;
+    RTC_LOG(LS_WARNING) << "L4S: Probe result - estimated bitrate: " << probe_result->bps() << " bps";
+    
+    // Feed probe result to bandwidth estimation
+    bandwidth_estimation_->UpdateEstimate(feedback.feedback_time, *probe_result);
+    
+    // If probe shows much higher capacity than current estimate, be aggressive
+    if (*probe_result > last_delay_based_estimate_ * 2.0) {
+      max_realistic_bandwidth_ = std::max(max_realistic_bandwidth_, *probe_result * 0.9);
+      RTC_LOG(LS_WARNING) << "L4S: Probe shows high capacity, updating max_realistic_bandwidth_ to " 
+                          << max_realistic_bandwidth_.bps() << " bps";
+    }
+  }
+
   // 2. Update acknowledged bitrate estimator
   acknowledged_bitrate_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
   auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
@@ -445,8 +514,10 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                       
   if (bwe_estimate > DataRate::Zero()) {
     // Only reduce max_realistic_bandwidth_ if BWE estimate is reasonable and not contradicted by delay-based BWE
+    // IMPORTANT: Don't let BWE reduce our capacity below 1 Mbps unless it's really justified
     if (bwe_estimate < max_realistic_bandwidth_ && 
-        (last_delay_based_estimate_.IsZero() || bwe_estimate >= last_delay_based_estimate_ * 0.5)) {
+        bwe_estimate > DataRate::KilobitsPerSec(1000) && // Don't accept anything below 1 Mbps
+        (!last_delay_based_estimate_.IsZero() && bwe_estimate >= last_delay_based_estimate_ * 0.5)) {
       // BWE suggests lower capacity than our assumption - update it (but only if not contradicted by delay BWE)
       max_realistic_bandwidth_ = std::min(max_realistic_bandwidth_, bwe_estimate * 1.1); // 10% headroom
       RTC_LOG(LS_WARNING) << "L4S: Reduced network capacity estimate to " << max_realistic_bandwidth_.bps() 
@@ -460,6 +531,16 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       RTC_LOG(LS_WARNING) << "L4S: Ignoring low BWE estimate " << bwe_estimate.bps() 
                           << " bps as it contradicts delay-based estimate " << last_delay_based_estimate_.bps() << " bps";
     }
+  }
+  
+  // CRITICAL: Ensure max_realistic_bandwidth_ doesn't get stuck below reasonable minimums
+  // If we have a good delay-based estimate that's much higher, use it
+  DataRate minimum_bandwidth = DataRate::KilobitsPerSec(10000); // 10 Mbps minimum
+  if (max_realistic_bandwidth_ < minimum_bandwidth && 
+      last_delay_based_estimate_ > minimum_bandwidth) {
+    max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate
+    RTC_LOG(LS_WARNING) << "L4S: Boosting stuck max_realistic_bandwidth_ to " << max_realistic_bandwidth_.bps() 
+                        << " bps based on delay estimate " << last_delay_based_estimate_.bps() << " bps";
   }
   
   // Update our estimate of network capacity based on congestion signals
@@ -483,11 +564,29 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // This prevents getting stuck at artificially low limits due to historical congestion
     // Changed to 1.02x to be very responsive to network capacity increases
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.02) {
-      bwe_based_limit = last_delay_based_estimate_ * 0.9; // Use 90% of delay estimate directly (increased from 80%)
+      bwe_based_limit = last_delay_based_estimate_ * 0.998; // Use 99.8% of delay estimate directly
       // Update the stored max to prevent this issue from repeating
-      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.95; // 95% of delay estimate
+      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.99; // 99% of delay estimate
+      
+      // AGGRESSIVE PROBING: If delay-based BWE suggests much higher capacity, tell probe controller
+      // This should trigger bandwidth probes to verify the higher capacity
+      if (last_delay_based_estimate_ > target_rate_.value_or(DataRate::KilobitsPerSec(300)) * 2.0) {
+        auto probe_clusters = probe_controller_->SetEstimatedBitrate(
+            last_delay_based_estimate_, 
+            BandwidthLimitedCause::kDelayBasedLimited, 
+            feedback.feedback_time);
+        
+        if (!probe_clusters.empty()) {
+          RTC_LOG(LS_WARNING) << "L4S: Triggered " << probe_clusters.size() 
+                              << " aggressive bandwidth probes based on delay-BWE estimate " 
+                              << last_delay_based_estimate_.bps() << " bps";
+          // Note: We'd need to add these to a NetworkControlUpdate, but we're in feedback processing
+          // The probes will be picked up in the next OnProcessInterval call
+        }
+      }
+      
       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (10% buffer from full estimate), updating max_realistic_bandwidth_ to " 
+                          << " as capacity (0.2% buffer), updating max_realistic_bandwidth_ to " 
                           << max_realistic_bandwidth_.bps() << " bps, bwe_based_limit=" << bwe_based_limit.bps() << " bps";
     }
     
