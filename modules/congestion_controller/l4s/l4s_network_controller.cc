@@ -1,36 +1,28 @@
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
-// GCC bandwidth estimation includes
-#include "api/transport/bandwidth_usage.h"
-#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
-#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
-#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
-#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
-
 #include <algorithm>
 #include <memory>
 #include <numeric>
 #include <utility>
 
-#include "api/transport/goog_cc_factory.h"
-#include "api/transport/goog_cc_factory.h"  // Added for GoogCcFactory
-#include "api/transport/network_types.h"
-#include "api/units/timestamp.h"
-#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
-#include "rtc_base/logging.h"
-
-
 #include "absl/strings/match.h"
 #include "api/field_trials_view.h"
 #include "api/rtc_event_log/rtc_event_log.h"
-
+#include "api/transport/bandwidth_usage.h"
+#include "api/transport/goog_cc_factory.h"
+#include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
-
+#include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
+#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
+#include "rtc_base/logging.h"
 #include "system_wrappers/include/metrics.h"
 
 
@@ -152,8 +144,11 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     // This prevents getting stuck at artificially low limits due to historical congestion
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
+      // IMPORTANT: Update the stored max to prevent getting stuck in this condition
+      max_realistic_bandwidth_ = last_delay_based_estimate_;
       RTC_LOG(LS_WARNING) << "L4S: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (much higher than stored max " << max_realistic_bandwidth_.bps() << ")";
+                          << " as capacity (much higher than stored max), updated max_realistic_bandwidth_ to " 
+                          << max_realistic_bandwidth_.bps() << " bps";
     }
     
     RTC_LOG(LS_WARNING) << "L4S OnProcessInterval BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
@@ -443,8 +438,11 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // This prevents getting stuck at artificially low limits due to historical congestion
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
+      // Update the stored max to prevent this issue from repeating
+      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.9; // 90% of delay estimate
       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (much higher than stored max " << max_realistic_bandwidth_.bps() << ")";
+                          << " as capacity (much higher than stored max), updating max_realistic_bandwidth_ to " 
+                          << max_realistic_bandwidth_.bps() << " bps";
     }
     
     RTC_LOG(LS_WARNING) << "L4S BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
