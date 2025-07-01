@@ -34,6 +34,16 @@ void L4SPragueController::UpdateEcnFeedback(
     return;
   
   Timestamp now = feedback.feedback_time;
+  
+  // Add timestamp validation
+  if (!now.IsFinite() || now.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid feedback timestamp in Prague controller: " << now.us() << " us";
+    return;
+  }
+  
+  // Log timestamp values before processing
+  RTC_LOG(LS_INFO) << "Prague UpdateEcnFeedback: now=" << now.us() 
+                   << " us, last_update_time=" << last_update_time_.us() << " us";
 
   // Count ECT and CE packets in this feedback
   size_t ect_packets = 0;
@@ -63,11 +73,30 @@ void L4SPragueController::UpdateEcnFeedback(
   ecn_window_.push_back({now, ect_packets, ce_packets});
   
   // Remove old entries from window
-  while (!ecn_window_.empty() && 
-         now - ecn_window_.front().time > rtt_filter_time_) {
-    total_ect_packets_ -= ecn_window_.front().ect_count;
-    total_ce_packets_ -= ecn_window_.front().ce_count;
-    ecn_window_.pop_front();
+  while (!ecn_window_.empty()) {
+    TimeDelta age = now - ecn_window_.front().time;
+    
+    // Log values before age calculation check
+    RTC_LOG(LS_INFO) << "Prague ECN window cleanup: now=" << now.us() 
+                     << " us, front_time=" << ecn_window_.front().time.us() 
+                     << " us, age=" << (age.IsFinite() ? std::to_string(age.ms()) + "ms" : "non-finite");
+    
+    // Add safety check for age calculation
+    if (!age.IsFinite()) {
+      RTC_LOG(LS_WARNING) << "Invalid age calculation in ECN window cleanup, clearing window";
+      ecn_window_.clear();
+      total_ect_packets_ = ect_packets;
+      total_ce_packets_ = ce_packets;
+      break;
+    }
+    
+    if (age > rtt_filter_time_) {
+      total_ect_packets_ -= ecn_window_.front().ect_count;
+      total_ce_packets_ -= ecn_window_.front().ce_count;
+      ecn_window_.pop_front();
+    } else {
+      break;
+    }
   }
   
   // Calculate new CE ratio
@@ -94,6 +123,16 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   if (!active_ || !rtt_)
     return std::nullopt;
   
+  // Add timestamp validation
+  if (!now.IsFinite() || now.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid timestamp in Prague controller: " << now.us() << " us";
+    return std::nullopt;
+  }
+  
+  // Log timestamp values before calculations
+  RTC_LOG(LS_INFO) << "Prague GetTargetRate: now=" << now.us() 
+                   << " us, last_update_time=" << last_update_time_.us() << " us";
+  
   // Use at least the minimum RTT
   TimeDelta current_rtt = rtt_.value();
   if (min_rtt_estimate_.has_value()) {
@@ -102,8 +141,40 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   
   // Calculate the base rate using the congestion window
   DataSize cwnd = CalculateCongestionWindow();
-  DataRate base_rate = DataRate::BitsPerSec(
-      (cwnd.bytes() * 8 * 1000) / current_rtt.ms());
+  
+  // Add safety checks to prevent division by zero or overflow
+  if (current_rtt.ms() <= 0) {
+    RTC_LOG(LS_WARNING) << "Invalid RTT in Prague controller: " << current_rtt.ms() << "ms, using default rate";
+    return DataRate::KilobitsPerSec(300);  // Default fallback rate
+  }
+  
+  // Prevent potential overflow in multiplication
+  int64_t cwnd_bits = static_cast<int64_t>(cwnd.bytes()) * 8;
+  int64_t rtt_ms = current_rtt.ms();
+  
+  // Log values before calculation to debug potential unit_base.h assertion
+  RTC_LOG(LS_INFO) << "Prague controller rate calculation: cwnd=" << cwnd.bytes() 
+                   << " bytes, cwnd_bits=" << cwnd_bits 
+                   << ", rtt_ms=" << rtt_ms;
+  
+  // Check for potential overflow
+  if (cwnd_bits > (std::numeric_limits<int64_t>::max() / 1000)) {
+    RTC_LOG(LS_WARNING) << "Potential overflow in rate calculation, using default rate";
+    return DataRate::KilobitsPerSec(300);
+  }
+  
+  int64_t rate_bps = (cwnd_bits * 1000) / rtt_ms;
+  
+  // Log the calculated rate before creating DataRate object
+  RTC_LOG(LS_INFO) << "Prague controller calculated rate_bps=" << rate_bps;
+  
+  // Ensure the result is positive and reasonable
+  if (rate_bps <= 0) {
+    RTC_LOG(LS_WARNING) << "Invalid rate calculation result: " << rate_bps << " bps, using default";
+    return DataRate::KilobitsPerSec(300);
+  }
+  
+  DataRate base_rate = DataRate::BitsPerSec(rate_bps);
   
   // Apply Prague's scalable congestion control formula
   if (ecn_ce_ratio_ > 0) {
@@ -115,10 +186,42 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   
   // If no congestion, increase additively based on RTT
   TimeDelta time_since_update = now - last_update_time_;
+  
+  // Add safety check for time calculation
+  if (!time_since_update.IsFinite()) {
+    RTC_LOG(LS_WARNING) << "Invalid time_since_update calculation in Prague controller";
+    return base_rate;
+  }
+  
   if (time_since_update > TimeDelta::Zero()) {
     // Additive increase proportional to 1/RTT (RTT-fairness)
+    double rtt_seconds = current_rtt.seconds();
+    
+    // Log values before calculations
+    RTC_LOG(LS_INFO) << "Prague controller time calculation: time_since_update=" 
+                     << time_since_update.ms() << "ms, rtt_seconds=" << rtt_seconds;
+    
+    if (rtt_seconds <= 0) {
+      RTC_LOG(LS_WARNING) << "Invalid RTT seconds: " << rtt_seconds;
+      return base_rate;
+    }
+    
     double increase_factor = 1.0 + 
-        (time_since_update.ms() / (1000.0 * current_rtt.seconds()));
+        (time_since_update.ms() / (1000.0 * rtt_seconds));
+    
+    // Log the calculated increase factor
+    RTC_LOG(LS_INFO) << "Prague controller increase_factor=" << increase_factor;
+    
+    // Ensure increase factor is reasonable (prevent extreme values)
+    if (increase_factor < 0.5 || increase_factor > 2.0) {
+      RTC_LOG(LS_WARNING) << "Extreme increase factor: " << increase_factor << ", clamping";
+      increase_factor = std::clamp(increase_factor, 0.5, 2.0);
+    }
+    
+    // Log before applying the increase factor
+    RTC_LOG(LS_INFO) << "Prague controller applying increase: base_rate=" 
+                     << base_rate.bps() << " bps, factor=" << increase_factor;
+    
     return base_rate * increase_factor;
   }
   

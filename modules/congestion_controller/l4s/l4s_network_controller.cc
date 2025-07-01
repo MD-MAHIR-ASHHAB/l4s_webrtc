@@ -245,20 +245,33 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     feedback.feedback_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
   }
   
+  // Log feedback details before processing
+  RTC_LOG(LS_INFO) << "L4S OnTransportPacketsFeedback: feedback_time=" 
+                   << feedback.feedback_time.us() << " us, packet_count=" 
+                   << feedback.packet_feedbacks.size();
+  
   // Process ECN feedback to detect if ECN is supported
   ProcessEcnFeedback(feedback);
+  
+  // Log before updating Prague controller
+  RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback";
   
   // Update Prague controller with ECN feedback
   prague_controller_->UpdateEcnFeedback(feedback);
   
   // Get updated target rate if L4S is active
   if (IsL4SActive()) {
+    RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time);
     if (prague_rate) {
+      RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
+    } else {
+      RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
     }
   } else if (fallback_to_gcc_) {
+    RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
     // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
   }
