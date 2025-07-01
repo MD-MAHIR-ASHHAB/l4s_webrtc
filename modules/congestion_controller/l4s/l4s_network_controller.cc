@@ -145,14 +145,31 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     RTC_LOG(LS_WARNING) << "L4S DEBUG: Starting cycle with current_rate=" << current_rate.bps() 
                         << " bps (from target_rate_=" << (target_rate_ ? target_rate_->bps() : -1) << ")";
     
-    // Consider BWE estimates for capacity limiting
+    // Consider BWE estimates for capacity limiting (consistent with OnTransportPacketsFeedback)
     DataRate bwe_based_limit = max_realistic_bandwidth_;
-    if (last_acknowledged_rate_ > DataRate::Zero()) {
-      bwe_based_limit = std::min(bwe_based_limit, last_acknowledged_rate_ * 1.2);
-    }
+    
+    RTC_LOG(LS_WARNING) << "L4S OnProcessInterval BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
+                        << ", last_delay_based_estimate_=" << last_delay_based_estimate_.bps()
+                        << ", last_acknowledged_rate_=" << last_acknowledged_rate_.bps();
+    
+    // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      bwe_based_limit = std::min(bwe_based_limit, last_delay_based_estimate_ * 1.1);
+      DataRate delay_limit = last_delay_based_estimate_ * 0.8; // 80% of delay estimate for safety
+      bwe_based_limit = std::min(bwe_based_limit, delay_limit);
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied delay-based limit=" << delay_limit.bps() 
+                          << " (80% of " << last_delay_based_estimate_.bps() << ")";
     }
+    
+    // Only apply acknowledged rate limit if it's significantly higher than delay estimate
+    if (last_acknowledged_rate_ > DataRate::Zero() && 
+        last_acknowledged_rate_ > last_delay_based_estimate_ * 2) {
+      DataRate acked_limit = last_acknowledged_rate_ * 1.5; // 50% above acked rate
+      bwe_based_limit = std::min(bwe_based_limit, acked_limit);
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied acknowledged rate limit=" << acked_limit.bps() 
+                          << " (150% of " << last_acknowledged_rate_.bps() << ")";
+    }
+    
+    RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Final BWE-based capacity limit: " << bwe_based_limit.bps() << " bps";
     
     // Respect BWE-informed bandwidth limitations
     if (current_rate > bwe_based_limit) {
