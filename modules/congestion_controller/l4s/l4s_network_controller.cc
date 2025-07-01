@@ -139,6 +139,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Consider BWE estimates for capacity limiting (consistent with OnTransportPacketsFeedback)
     DataRate bwe_based_limit = max_realistic_bandwidth_;
+    RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Initial bwe_based_limit=" << bwe_based_limit.bps() << " bps";
     
     // CRITICAL FIX: If delay-based estimate is higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
@@ -177,16 +178,17 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       
       bwe_based_limit = std::min(bwe_based_limit, delay_limit);
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied delay-based limit=" << delay_limit.bps() 
-                          << " (based on " << last_delay_based_estimate_.bps() << ")";
+                          << " (based on " << last_delay_based_estimate_.bps() << "), bwe_based_limit now=" << bwe_based_limit.bps();
     }
     
-    // Only apply acknowledged rate limit if it's significantly higher than delay estimate
+    // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a better capacity indicator
+    // Only apply acknowledged rate limit if it's MUCH higher than delay estimate (rare case)
     if (last_acknowledged_rate_ > DataRate::Zero() && 
-        last_acknowledged_rate_ > last_delay_based_estimate_ * 2) {
+        last_acknowledged_rate_ > last_delay_based_estimate_ * 5) { // Very high threshold to rarely trigger
       DataRate acked_limit = last_acknowledged_rate_ * 1.5; // 50% above acked rate
       bwe_based_limit = std::min(bwe_based_limit, acked_limit);
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied acknowledged rate limit=" << acked_limit.bps() 
-                          << " (150% of " << last_acknowledged_rate_.bps() << ")";
+                          << " (150% of " << last_acknowledged_rate_.bps() << "), bwe_based_limit now=" << bwe_based_limit.bps();
     }
     
     RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Final BWE-based capacity limit: " << bwe_based_limit.bps() << " bps";
@@ -200,6 +202,9 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
                           << " bps instead of current " << current_rate.bps() << " bps (BWE limit: " 
                           << bwe_based_limit.bps() << " bps)";
     }
+    
+    RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Passing rate_for_prague=" << rate_for_prague.bps() 
+                        << " to Prague (current=" << current_rate.bps() << ", bwe_limit=" << bwe_based_limit.bps() << ")";
     
     auto prague_rate = prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
     if (prague_rate) {
@@ -502,10 +507,10 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                           << " (based on " << last_delay_based_estimate_.bps() << ")";
     }
     
-    // Only apply acknowledged rate limit if it's significantly higher than delay estimate
-    // (acknowledged rate represents current usage, not capacity)
+    // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a better capacity indicator
+    // Only apply acknowledged rate limit if it's MUCH higher than delay estimate (rare case)
     if (last_acknowledged_rate_ > DataRate::Zero() && 
-        last_acknowledged_rate_ > last_delay_based_estimate_ * 2) {
+        last_acknowledged_rate_ > last_delay_based_estimate_ * 5) { // Very high threshold to rarely trigger
       DataRate acked_limit = last_acknowledged_rate_ * 1.5; // 50% above acked rate
       bwe_based_limit = std::min(bwe_based_limit, acked_limit);
       RTC_LOG(LS_INFO) << "L4S BWE Debug: Applied acknowledged rate limit=" << acked_limit.bps() 
