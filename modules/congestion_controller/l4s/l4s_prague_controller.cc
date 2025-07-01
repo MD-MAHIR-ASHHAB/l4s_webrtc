@@ -279,12 +279,12 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
 
   if (time_since_update > TimeDelta::Zero()) {
-    // Rate limit updates to prevent excessive increases (minimum 25ms between
-    // rate increases for very aggressive behavior)
-    if (time_since_update < TimeDelta::Millis(25)) {
+    // Rate limit updates to prevent excessive increases (minimum 15ms between
+    // rate increases for faster ramp-up, reduced from 25ms for better video quality)
+    if (time_since_update < TimeDelta::Millis(15)) {
       RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
                        << time_since_update.ms()
-                       << "ms < 25ms), returning base rate " << base_rate.bps()
+                       << "ms < 15ms), returning base rate " << base_rate.bps()
                        << " bps";
       return base_rate;
     }
@@ -350,8 +350,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       // // Very tight bounds: max 2% increase per update
       // increase_factor = std::clamp(increase_factor, 1.0, 1.02);
 
-      // More aggressive bounds for faster ramp-up: max 3% increase per update
-      increase_factor = std::clamp(increase_factor, 1.0, 1.03);
+      // More aggressive bounds for faster ramp-up: max 5% increase per update (increased from 3% for faster video quality)
+      increase_factor = std::clamp(increase_factor, 1.0, 1.05);
 
       // Log when we actually increase (only if meaningful)
       if (increase_factor > 1.001) {
