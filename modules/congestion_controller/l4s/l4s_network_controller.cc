@@ -148,6 +148,14 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     // Consider BWE estimates for capacity limiting (consistent with OnTransportPacketsFeedback)
     DataRate bwe_based_limit = max_realistic_bandwidth_;
     
+    // CRITICAL FIX: If delay-based estimate is much higher than our stored max, use delay-based estimate
+    // This prevents getting stuck at artificially low limits due to historical congestion
+    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
+      bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
+      RTC_LOG(LS_WARNING) << "L4S: Using delay-based estimate " << last_delay_based_estimate_.bps() 
+                          << " as capacity (much higher than stored max " << max_realistic_bandwidth_.bps() << ")";
+    }
+    
     RTC_LOG(LS_WARNING) << "L4S OnProcessInterval BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
                         << ", last_delay_based_estimate_=" << last_delay_based_estimate_.bps()
                         << ", last_acknowledged_rate_=" << last_acknowledged_rate_.bps();
@@ -397,11 +405,18 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
 
   // 4. Update our network capacity estimate based on BWE results
   DataRate bwe_estimate = bandwidth_estimation_->target_rate();
-  if (bwe_estimate > DataRate::Zero() && bwe_estimate < max_realistic_bandwidth_) {
-    // BWE suggests lower capacity than our assumption - update it
-    max_realistic_bandwidth_ = std::min(max_realistic_bandwidth_, bwe_estimate * 1.1); // 10% headroom
-    RTC_LOG(LS_INFO) << "L4S: Updated network capacity estimate to " << max_realistic_bandwidth_.bps() 
-                     << " bps based on BWE estimate " << bwe_estimate.bps() << " bps";
+  if (bwe_estimate > DataRate::Zero()) {
+    if (bwe_estimate < max_realistic_bandwidth_) {
+      // BWE suggests lower capacity than our assumption - update it
+      max_realistic_bandwidth_ = std::min(max_realistic_bandwidth_, bwe_estimate * 1.1); // 10% headroom
+      RTC_LOG(LS_INFO) << "L4S: Reduced network capacity estimate to " << max_realistic_bandwidth_.bps() 
+                       << " bps based on BWE estimate " << bwe_estimate.bps() << " bps";
+    } else if (bwe_estimate > max_realistic_bandwidth_ * 1.5) {
+      // BWE suggests significantly higher capacity - allow gradual increase
+      max_realistic_bandwidth_ = std::min(bwe_estimate * 0.8, max_realistic_bandwidth_ * 1.2); // Conservative increase
+      RTC_LOG(LS_INFO) << "L4S: Increased network capacity estimate to " << max_realistic_bandwidth_.bps() 
+                       << " bps based on higher BWE estimate " << bwe_estimate.bps() << " bps";
+    }
   }
   
   // Update our estimate of network capacity based on congestion signals
