@@ -1,6 +1,7 @@
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
 // GCC bandwidth estimation includes
+#include "api/transport/bandwidth_usage.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
@@ -352,7 +353,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     last_delay_based_estimate_ = delay_result.target_bitrate;
     bandwidth_estimation_->UpdateDelayBasedEstimate(feedback.feedback_time, delay_result.target_bitrate);
     
-    RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: " << delay_result.target_bitrate.bps() << " bps";
+    // Log delay-based congestion state for debugging
+    const char* state_str = "UNKNOWN";
+    switch (delay_result.delay_detector_state) {
+      case BandwidthUsage::kBwNormal: state_str = "NORMAL"; break;
+      case BandwidthUsage::kBwUnderusing: state_str = "UNDERUSING"; break;
+      case BandwidthUsage::kBwOverusing: state_str = "OVERUSING"; break;
+    }
+    
+    RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: " << delay_result.target_bitrate.bps() 
+                     << " bps, state: " << state_str 
+                     << ", recovered: " << (delay_result.recovered_from_overuse ? "YES" : "NO");
   }
 
   // 4. Update our network capacity estimate based on BWE results

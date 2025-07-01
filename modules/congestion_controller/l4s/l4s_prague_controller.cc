@@ -1,9 +1,10 @@
 /*
- * L4S/Prague Controller Improvements:
+ * L4S/Prague Controller - GCC-Aligned Implementation:
+ * - Uses GCC's minimum bitrate (5 kbps) and timing intervals (300ms)
+ * - ECN-based congestion detection (like GCC's loss-based detection)
+ * - GCC-style rate clamping and overflow protection
+ * - Removed RTT inflation detection (GCC doesn't use this approach)
  * - Network capacity cap: 200 Mbps (realistic limit)
- * - Conservative growth: 1% max increase (down from 5%)
- * - RTT-based congestion detection
- * - Prevents overflow crashes from unrealistic rates
  */
 
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
@@ -12,6 +13,7 @@
 #include <cmath>
 
 #include "api/field_trials_view.h"
+#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -133,9 +135,13 @@ void L4SPragueController::UpdateEcnFeedback(
 void L4SPragueController::UpdateRtt(TimeDelta rtt) {
   rtt_ = rtt;
 
-  // Update min_rtt_estimate
-  if (!min_rtt_estimate_ || rtt < *min_rtt_estimate_) {
-    min_rtt_estimate_ = rtt;
+  // Update min_rtt_estimate with more realistic floor
+  // Prevent unrealistically low RTT estimates that can cause issues
+  TimeDelta realistic_rtt = std::max(rtt, TimeDelta::Millis(1)); // At least 1ms
+  
+  if (!min_rtt_estimate_ || realistic_rtt < *min_rtt_estimate_) {
+    min_rtt_estimate_ = realistic_rtt;
+    RTC_LOG(LS_INFO) << "Prague: Updated min RTT estimate to " << min_rtt_estimate_->ms() << "ms";
   }
 }
 
@@ -204,52 +210,45 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     current_rtt = std::max(current_rtt, min_rtt_estimate_.value());
   }
 
-  // Apply Prague's scalable congestion control formula
-  // RTT-based congestion detection (complementary to ECN)
-  bool rtt_congestion_detected = false;
-  if (min_rtt_estimate_.has_value()) {
-    TimeDelta min_rtt = min_rtt_estimate_.value();
-    TimeDelta current_rtt_val = rtt_.value();
-
-    // If current RTT is significantly higher than minimum RTT, consider it
-    // congestion
-    double rtt_inflation =
-        static_cast<double>(current_rtt_val.ms()) / min_rtt.ms();
-    if (rtt_inflation > 1.5) {  // 50% RTT increase indicates congestion
-      rtt_congestion_detected = true;
-      RTC_LOG(LS_INFO) << "Prague: RTT-based congestion detected. Min RTT="
-                       << min_rtt.ms()
-                       << "ms, Current RTT=" << current_rtt_val.ms()
-                       << "ms, inflation=" << rtt_inflation;
+  // Apply Prague's scalable congestion control formula based on ECN signals
+  // Similar to how GCC uses loss-based signals, but we use ECN marking
+  if (ecn_ce_ratio_ > 0) {
+    // Rate limit reductions to prevent death spiral (GCC-style timing)
+    TimeDelta time_since_last_reduction = now - last_reduction_time_;
+    const TimeDelta kBweDecreaseInterval = TimeDelta::Millis(300); // GCC's decrease interval
+    
+    if (time_since_last_reduction.IsFinite() && time_since_last_reduction < kBweDecreaseInterval) {
+      RTC_LOG(LS_INFO) << "Prague: Rate reduction rate-limited (last reduction " 
+                       << time_since_last_reduction.ms() << "ms ago, need " 
+                       << kBweDecreaseInterval.ms() << "ms), returning base rate " 
+                       << base_rate.bps() << " bps";
+      return base_rate;
     }
-  }
-
-  // Apply Prague's scalable congestion control formula
-  if (ecn_ce_ratio_ > 0 || rtt_congestion_detected) {
-    // If we have congestion signals (ECN or RTT-based), apply the Prague
-    // reduction
+    
+    // ECN-based reduction (similar to GCC's loss-based reduction)
     double reduction_factor = 1.0 - (alpha_.Get() * ecn_ce_ratio_);
-
-    // Additional reduction for RTT-based congestion
-    if (rtt_congestion_detected && ecn_ce_ratio_ == 0) {
-      reduction_factor =
-          0.9;  // 10% reduction for RTT congestion when no ECN marks
-    }
-
     reduction_factor = std::max(reduction_factor, beta_.Get());
 
-    RTC_LOG(LS_INFO) << "Prague: Applying congestion reduction. "
+    RTC_LOG(LS_INFO) << "Prague: Applying ECN-based congestion reduction. "
                      << "CE ratio=" << (ecn_ce_ratio_ * 100.0) << "%, "
-                     << "RTT congestion="
-                     << (rtt_congestion_detected ? "YES" : "NO") << ", "
                      << "reduction_factor=" << reduction_factor << ", "
                      << "base_rate=" << base_rate.bps() << " bps";
 
     DataRate reduced_rate = base_rate * reduction_factor;
+    
+    // GCC-style minimum rate enforcement
+    if (reduced_rate < kCongestionControllerMinBitrate) {
+      RTC_LOG(LS_WARNING) << "Prague: Rate would drop to " << reduced_rate.bps() 
+                          << " bps, enforcing GCC minimum " << kCongestionControllerMinBitrate.bps() << " bps";
+      reduced_rate = kCongestionControllerMinBitrate;
+    }
 
     RTC_LOG(LS_INFO) << "Prague: Rate reduced from " << base_rate.bps()
                      << " to " << reduced_rate.bps()
-                     << " bps due to congestion";
+                     << " bps due to ECN congestion";
+
+    // Update last reduction time
+    last_reduction_time_ = now;
 
     return reduced_rate;
   }
@@ -385,6 +384,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 
     DataRate increased_rate = DataRate::BitsPerSec(new_rate_bps);
 
+    // GCC-style final rate clamping: ensure we never go below minimum
+    increased_rate = std::max(kCongestionControllerMinBitrate, increased_rate);
+
     RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
                      << increased_rate.bps()
                      << " bps (factor=" << increase_factor << ")";
@@ -392,7 +394,15 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     return increased_rate;
   }
 
-  return base_rate;
+  // GCC-style final rate clamping: ensure we never go below minimum  
+  DataRate final_rate = std::max(kCongestionControllerMinBitrate, base_rate);
+  
+  if (final_rate != base_rate) {
+    RTC_LOG(LS_INFO) << "Prague: Applied minimum rate clamp, returning " 
+                     << final_rate.bps() << " bps instead of " << base_rate.bps() << " bps";
+  }
+  
+  return final_rate;
 }
 
 bool L4SPragueController::IsActive() const {
@@ -461,26 +471,32 @@ DataSize L4SPragueController::CalculateCongestionWindow() const {
 }  // namespace webrtc
 
 /*
-**Summary of L4S/Prague Improvements Made:**
+**Summary of L4S/Prague Controller - GCC-Aligned Implementation:**
 
-1. **Reduced Rate Cap**: Changed from 1.5 Gbps to 200 Mbps realistic network
-limit
-2. **Conservative Growth**: Reduced max increase from 5% to 1% per update
-3. **RTT-based Congestion Detection**: Added detection for 50%+ RTT inflation
-4. **Network Capacity Estimation**: Dynamic capacity estimation based on
-congestion signals
-5. **Double-checking**: Both Prague controller and L4S network controller
-enforce bandwidth limits
+**GCC-Style Safety Mechanisms:**
+1. **Minimum Rate Protection**: Uses GCC's kCongestionControllerMinBitrate (5 kbps)
+2. **Rate Limiting**: Uses GCC's kBweDecreaseInterval (300ms between reductions)
+3. **Target Rate Clamping**: Always ensures rate >= minimum like GCC's target_rate()
+4. **Overflow Protection**: Prevents crashes from unrealistic rates
 
-**Key Changes:**
-- Max realistic bandwidth: 200 Mbps (instead of unlimited)
-- Increase factor scaling: 0.2x (instead of 0.5x)
-- Max increase per update: 1% (instead of 5%)
-- RTT inflation threshold: 1.5x (50% increase triggers congestion detection)
-- Network capacity learning: Reduces estimate when congestion detected below
-assumed capacity
+**L4S-Specific Features:**
+1. **ECN-Based Detection**: Uses CE marking ratio (like GCC uses loss ratio)
+2. **Prague Algorithm**: Scalable congestion control with alpha/beta parameters
+3. **Network Capacity Cap**: 200 Mbps realistic upper limit
+4. **Conservative Growth**: 1% max increase per update
 
-These changes should prevent the rate from growing beyond your 100 Mbps network
-capacity and provide more realistic, stable congestion control behavior.
+**Key Architectural Similarities to GCC:**
+- Multiple protection layers (minimum rate + timing + clamping)
+- Time-based rate limiting to prevent death spirals
+- Conservative reduction factors
+- Explicit congestion signaling (ECN vs loss/delay)
+
+**Major Difference from Previous Version:**
+- REMOVED RTT inflation detection (GCC doesn't use this approach)
+- Focus on ECN signals only, like GCC focuses on loss/delay signals
+- Aligned timing intervals and minimum rates with GCC standards
+
+This implementation should behave as robustly as GCC while providing L4S/Prague's
+scalable congestion control benefits through ECN marking.
 
 */
