@@ -266,15 +266,18 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   // For Transport Feedback, we need to determine ECN support by checking if any 
   // ECN-capable packets were successfully received with ECN markings preserved.
   bool supports_ecn = false;
-  int ecn_marked_sent = 0;
-  int ecn_marked_received = 0;
+
+  // Uncomment the following lines to enable logging of ECN marking counts
+  //int ecn_marked_sent = 0;
+  //int ecn_marked_received = 0;
   
   for (const auto& result : packet_result_vector) {
     // Only process packets that were actually received (have finite receive times)
     if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
       if (result.ecn != EcnMarking::kNotEct) {
-        ecn_marked_sent++;
-        ecn_marked_received++;
+        // Uncomment the following lines to enable logging of ECN marking counts
+        //ecn_marked_sent++;
+        //ecn_marked_received++;
         supports_ecn = true;
       }
     }
