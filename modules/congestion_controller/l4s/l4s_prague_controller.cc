@@ -216,9 +216,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
   
   if (time_since_update > TimeDelta::Zero()) {
-    // Rate limit updates to prevent excessive increases (minimum 50ms between rate increases for more aggressive behavior)
-    if (time_since_update < TimeDelta::Millis(50)) {
-      RTC_LOG(LS_INFO) << "Prague: Too frequent update (" << time_since_update.ms() << "ms < 50ms), returning base rate " << base_rate.bps() << " bps";
+    // Rate limit updates to prevent excessive increases (minimum 25ms between rate increases for very aggressive behavior)
+    if (time_since_update < TimeDelta::Millis(25)) {
+      RTC_LOG(LS_INFO) << "Prague: Too frequent update (" << time_since_update.ms() << "ms < 25ms), returning base rate " << base_rate.bps() << " bps";
       return base_rate;
     }
     
@@ -257,8 +257,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     //   }
     // }
     
-    // Only increase if RTT is reasonable (>= 5ms) and time since update is significant
-    if (rtt_seconds >= 0.005 && time_since_update.ms() >= 50) {
+    // Only increase if RTT is reasonable (>= 1ms) and time since update is significant
+    if (rtt_seconds >= 0.001 && time_since_update.ms() >= 25) {
       RTC_LOG(LS_INFO) << "Prague: RTT and time conditions met, calculating increase. RTT=" << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
       // Target: very small increase per RTT (much more conservative than TCP)
       DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte packets
@@ -288,7 +288,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
         RTC_LOG(LS_INFO) << "Prague: Small increase factor (" << increase_factor << "), not logging";
       }
     } else {
-      RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT=" << rtt_seconds << "s (need >=0.005), time=" << time_since_update.ms() << "ms (need >=50)";
+      RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT=" << rtt_seconds << "s (need >=0.001), time=" << time_since_update.ms() << "ms (need >=25)";
     }
     
     DataRate increased_rate = base_rate * increase_factor;
