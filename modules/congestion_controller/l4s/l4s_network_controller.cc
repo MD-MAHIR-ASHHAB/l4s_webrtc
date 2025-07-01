@@ -356,9 +356,18 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // Log delay-based congestion state for debugging
     const char* state_str = "UNKNOWN";
     switch (delay_result.delay_detector_state) {
-      case BandwidthUsage::kBwNormal: state_str = "NORMAL"; break;
-      case BandwidthUsage::kBwUnderusing: state_str = "UNDERUSING"; break;
-      case BandwidthUsage::kBwOverusing: state_str = "OVERUSING"; break;
+      case BandwidthUsage::kBwNormal: 
+        state_str = "NORMAL"; 
+        break;
+      case BandwidthUsage::kBwUnderusing: 
+        state_str = "UNDERUSING"; 
+        break;
+      case BandwidthUsage::kBwOverusing: 
+        state_str = "OVERUSING"; 
+        break;
+      case BandwidthUsage::kLast:
+        state_str = "INVALID"; 
+        break;
     }
     
     RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: " << delay_result.target_bitrate.bps() 
