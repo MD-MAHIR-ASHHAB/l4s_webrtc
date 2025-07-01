@@ -293,6 +293,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     
     DataRate increased_rate = base_rate * increase_factor;
     
+    RTC_LOG(LS_INFO) << "Prague: Returning increased_rate=" << increased_rate.bps() << " bps (factor=" << increase_factor << ")";
+    
     return increased_rate;
   }
   
