@@ -217,7 +217,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       // Too frequent updates, return current rate without increase
     //   return base_rate;
     // Rate limit updates to prevent excessive increases (minimum 200ms between rate increases)
-    if (time_since_update < TimeDelta::Millis(200)) {
+    if (time_since_update < TimeDelta::Millis(100)) {
       // Too frequent updates, return current rate without increase
       return base_rate;
     }
