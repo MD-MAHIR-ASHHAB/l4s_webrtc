@@ -233,7 +233,7 @@ void PacketRouter::SendPacket(std::unique_ptr<RtpPacketToSend> packet,
     packet->set_send_as_ect1();
     static std::atomic<int> ect1_packet_count{0};
     int current_count = ect1_packet_count.fetch_add(1, std::memory_order_relaxed);
-    if (current_count % 100 == 0) {  // Log every 100th packet to reduce verbosity
+    if (current_count % 1000 == 0) {  // Log every 1000th packet to reduce verbosity
       RTC_LOG(LS_INFO) << "PacketRouter: Marked packet #" << current_count << " as ECT(1)";
     }
   } else {
