@@ -43,11 +43,11 @@ void L4SPragueController::UpdateEcnFeedback(
   
   // Log timestamp values before processing - with safety check for MinusInfinity
   if (last_update_time_.IsFinite()) {
-    RTC_LOG(LS_INFO) << "Prague UpdateEcnFeedback: now=" << now.us() 
-                     << " us, last_update_time=" << last_update_time_.us() << " us";
+    // RTC_LOG(LS_INFO) << "Prague UpdateEcnFeedback: now=" << now.us() 
+    //                  << " us, last_update_time=" << last_update_time_.us() << " us";
   } else {
-    RTC_LOG(LS_INFO) << "Prague UpdateEcnFeedback: now=" << now.us() 
-                     << " us, last_update_time=MinusInfinity (not initialized)";
+    // RTC_LOG(LS_INFO) << "Prague UpdateEcnFeedback: now=" << now.us() 
+    //                  << " us, last_update_time=MinusInfinity (not initialized)";
   }
 
   // Count ECT and CE packets in this feedback
@@ -82,9 +82,9 @@ void L4SPragueController::UpdateEcnFeedback(
     TimeDelta age = now - ecn_window_.front().time;
     
     // Log values before age calculation check
-    RTC_LOG(LS_INFO) << "Prague ECN window cleanup: now=" << now.us() 
-                     << " us, front_time=" << ecn_window_.front().time.us() 
-                     << " us, age=" << (age.IsFinite() ? std::to_string(age.ms()) + "ms" : "non-finite");
+    // RTC_LOG(LS_INFO) << "Prague ECN window cleanup: now=" << now.us() 
+    //                  << " us, front_time=" << ecn_window_.front().time.us() 
+    //                  << " us, age=" << (age.IsFinite() ? std::to_string(age.ms()) + "ms" : "non-finite");
     
     // Add safety check for age calculation
     if (!age.IsFinite()) {
@@ -136,11 +136,11 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   
   // Log timestamp values before calculations - with safety check for MinusInfinity
   if (last_update_time_.IsFinite()) {
-    RTC_LOG(LS_INFO) << "Prague GetTargetRate: now=" << now.us() 
-                     << " us, last_update_time=" << last_update_time_.us() << " us";
+    // RTC_LOG(LS_INFO) << "Prague GetTargetRate: now=" << now.us() 
+    //                  << " us, last_update_time=" << last_update_time_.us() << " us";
   } else {
-    RTC_LOG(LS_INFO) << "Prague GetTargetRate: now=" << now.us() 
-                     << " us, last_update_time=MinusInfinity (not initialized)";
+    // RTC_LOG(LS_INFO) << "Prague GetTargetRate: now=" << now.us() 
+    //                  << " us, last_update_time=MinusInfinity (not initialized)";
   }
   
   // Use at least the minimum RTT
@@ -163,9 +163,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   int64_t rtt_ms = current_rtt.ms();
   
   // Log values before calculation to debug potential unit_base.h assertion
-  RTC_LOG(LS_INFO) << "Prague controller rate calculation: cwnd=" << cwnd.bytes() 
-                   << " bytes, cwnd_bits=" << cwnd_bits 
-                   << ", rtt_ms=" << rtt_ms;
+  // RTC_LOG(LS_INFO) << "Prague controller rate calculation: cwnd=" << cwnd.bytes() 
+  //                  << " bytes, cwnd_bits=" << cwnd_bits 
+  //                  << ", rtt_ms=" << rtt_ms;
   
   // Check for potential overflow
   if (cwnd_bits > (std::numeric_limits<int64_t>::max() / 1000)) {
@@ -176,7 +176,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   int64_t rate_bps = (cwnd_bits * 1000) / rtt_ms;
   
   // Log the calculated rate before creating DataRate object
-  RTC_LOG(LS_INFO) << "Prague controller calculated rate_bps=" << rate_bps;
+  // RTC_LOG(LS_INFO) << "Prague controller calculated rate_bps=" << rate_bps;
   
   // Ensure the result is positive and reasonable
   if (rate_bps <= 0) {
@@ -187,8 +187,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   DataRate base_rate = DataRate::BitsPerSec(rate_bps);
   
   // Log the created DataRate value and its internal representation
-  RTC_LOG(LS_INFO) << "Prague controller created DataRate: bps=" << base_rate.bps()
-                   << ", IsFinite=" << (base_rate.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague controller created DataRate: bps=" << base_rate.bps()
+  //                  << ", IsFinite=" << (base_rate.IsFinite() ? "true" : "false");
   
   // Apply Prague's scalable congestion control formula
   if (ecn_ce_ratio_ > 0) {
@@ -197,20 +197,20 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     reduction_factor = std::max(reduction_factor, beta_.Get());
     
     // Log values before applying reduction
-    RTC_LOG(LS_INFO) << "Prague applying congestion reduction: base_rate_bps=" << base_rate.bps()
-                     << ", reduction_factor=" << reduction_factor
-                     << ", alpha=" << alpha_.Get()
-                     << ", ecn_ce_ratio=" << ecn_ce_ratio_
-                     << ", base_rate.IsFinite()=" << (base_rate.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague applying congestion reduction: base_rate_bps=" << base_rate.bps()
+    //                  << ", reduction_factor=" << reduction_factor
+    //                  << ", alpha=" << alpha_.Get()
+    //                  << ", ecn_ce_ratio=" << ecn_ce_ratio_
+    //                  << ", base_rate.IsFinite()=" << (base_rate.IsFinite() ? "true" : "false");
     
     // Log before the multiplication that might trigger unit_base.h assertion
-    RTC_LOG(LS_INFO) << "Prague PRE-REDUCTION-RATE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
-                     << ", reduction_factor=" << reduction_factor;
+    // RTC_LOG(LS_INFO) << "Prague PRE-REDUCTION-RATE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
+    //                  << ", reduction_factor=" << reduction_factor;
     
     DataRate reduced_rate = base_rate * reduction_factor;
     
-    RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-RATE-MULTIPLY: reduced_rate.bps()=" << reduced_rate.bps()
-                     << ", IsFinite=" << (reduced_rate.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-RATE-MULTIPLY: reduced_rate.bps()=" << reduced_rate.bps()
+    //                  << ", IsFinite=" << (reduced_rate.IsFinite() ? "true" : "false");
     
     return reduced_rate;
   }
@@ -218,7 +218,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   // If no congestion, increase additively based on RTT
   // Add safety check for uninitialized last_update_time
   if (!last_update_time_.IsFinite()) {
-    RTC_LOG(LS_INFO) << "Prague controller: last_update_time not initialized, returning base rate";
+    // RTC_LOG(LS_INFO) << "Prague controller: last_update_time not initialized, returning base rate";
     return base_rate;
   }
   
@@ -235,12 +235,12 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     double rtt_seconds = current_rtt.seconds<double>();  // Use double precision
     
     // Log values before calculations
-    RTC_LOG(LS_INFO) << "Prague controller time calculation: time_since_update=" 
-                     << time_since_update.ms() << "ms, rtt_seconds=" << rtt_seconds;
+    // RTC_LOG(LS_INFO) << "Prague controller time calculation: time_since_update=" 
+    //                  << time_since_update.ms() << "ms, rtt_seconds=" << rtt_seconds;
     
     // Use a minimum RTT of 1ms (0.001 seconds) to avoid division by zero
     if (rtt_seconds <= 0.001) {
-      RTC_LOG(LS_INFO) << "RTT too small (" << rtt_seconds << "s), using minimum 0.001s";
+      // RTC_LOG(LS_INFO) << "RTT too small (" << rtt_seconds << "s), using minimum 0.001s";
       rtt_seconds = 0.001;  // 1ms minimum
     }
     
@@ -248,7 +248,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
         (time_since_update.ms() / (1000.0 * rtt_seconds));
     
     // Log the calculated increase factor
-    RTC_LOG(LS_INFO) << "Prague controller increase_factor=" << increase_factor;
+    // RTC_LOG(LS_INFO) << "Prague controller increase_factor=" << increase_factor;
     
     // Ensure increase factor is reasonable (prevent extreme values)
     if (increase_factor < 0.5 || increase_factor > 2.0) {
@@ -257,25 +257,25 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     }
     
     // Log before applying the increase factor
-    RTC_LOG(LS_INFO) << "Prague controller applying increase: base_rate=" 
-                     << base_rate.bps() << " bps, factor=" << increase_factor
-                     << ", base_rate.IsFinite()=" << (base_rate.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague controller applying increase: base_rate=" 
+    //                  << base_rate.bps() << " bps, factor=" << increase_factor
+    //                  << ", base_rate.IsFinite()=" << (base_rate.IsFinite() ? "true" : "false");
     
     // Log before another multiplication that might trigger unit_base.h assertion
-    RTC_LOG(LS_INFO) << "Prague PRE-INCREASE-RATE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
-                     << ", increase_factor=" << increase_factor;
+    // RTC_LOG(LS_INFO) << "Prague PRE-INCREASE-RATE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
+    //                  << ", increase_factor=" << increase_factor;
     
     DataRate increased_rate = base_rate * increase_factor;
     
-    RTC_LOG(LS_INFO) << "Prague POST-INCREASE-RATE-MULTIPLY: increased_rate.bps()=" << increased_rate.bps()
-                     << ", IsFinite=" << (increased_rate.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague POST-INCREASE-RATE-MULTIPLY: increased_rate.bps()=" << increased_rate.bps()
+    //                  << ", IsFinite=" << (increased_rate.IsFinite() ? "true" : "false");
     
     return increased_rate;
   }
   
   // Log the final base_rate before returning
-  RTC_LOG(LS_INFO) << "Prague returning base_rate_bps=" << base_rate.bps()
-                   << ", IsFinite=" << (base_rate.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague returning base_rate_bps=" << base_rate.bps()
+  //                  << ", IsFinite=" << (base_rate.IsFinite() ? "true" : "false");
   
   return base_rate;
 }
@@ -286,7 +286,7 @@ bool L4SPragueController::IsActive() const {
 
 DataSize L4SPragueController::CalculateCongestionWindow() const {
   if (!rtt_ || !min_rtt_estimate_) {
-    RTC_LOG(LS_INFO) << "Prague CalculateCongestionWindow: using default 2 packets (no RTT data)";
+    // RTC_LOG(LS_INFO) << "Prague CalculateCongestionWindow: using default 2 packets (no RTT data)";
     return DataSize::Bytes(1500 * 2);  // Default: 2 packets
   }
   
@@ -294,68 +294,68 @@ DataSize L4SPragueController::CalculateCongestionWindow() const {
   TimeDelta base_rtt = *min_rtt_estimate_;
   
   // Log RTT values before calculations
-  RTC_LOG(LS_INFO) << "Prague CalculateCongestionWindow: base_rtt_ms=" << base_rtt.ms()
-                   << ", current_rtt_ms=" << (rtt_ ? rtt_->ms() : -1);
+  // RTC_LOG(LS_INFO) << "Prague CalculateCongestionWindow: base_rtt_ms=" << base_rtt.ms()
+  //                  << ", current_rtt_ms=" << (rtt_ ? rtt_->ms() : -1);
   
   // Calculate base congestion window (BDP)
   // Base it on a reasonable link capacity for interactive media
   DataRate base_rate = DataRate::KilobitsPerSec(1000);  // 1 Mbps base
   
   // Log before multiplication that might trigger unit_base.h assertion
-  RTC_LOG(LS_INFO) << "Prague BDP calculation PRE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
-                   << ", base_rtt.us()=" << base_rtt.us()
-                   << ", base_rtt.ms()=" << base_rtt.ms()
-                   << ", base_rate.IsFinite()=" << base_rate.IsFinite()
-                   << ", base_rtt.IsFinite()=" << base_rtt.IsFinite();
+  // RTC_LOG(LS_INFO) << "Prague BDP calculation PRE-MULTIPLY: base_rate.bps()=" << base_rate.bps()
+  //                  << ", base_rtt.us()=" << base_rtt.us()
+  //                  << ", base_rtt.ms()=" << base_rtt.ms()
+  //                  << ", base_rate.IsFinite()=" << base_rate.IsFinite()
+  //                  << ", base_rtt.IsFinite()=" << base_rtt.IsFinite();
   
   DataSize bdp = base_rate * base_rtt;
   
   // Log after potential problematic multiplication
-  RTC_LOG(LS_INFO) << "Prague BDP calculation POST-MULTIPLY: bdp.bytes()=" << bdp.bytes()
-                   << ", bdp.IsFinite()=" << (bdp.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague BDP calculation POST-MULTIPLY: bdp.bytes()=" << bdp.bytes()
+  //                  << ", bdp.IsFinite()=" << (bdp.IsFinite() ? "true" : "false");
   
   // Log intermediate calculations
-  RTC_LOG(LS_INFO) << "Prague BDP calculation: base_rate_bps=" << base_rate.bps()
-                   << ", bdp_bytes=" << bdp.bytes()
-                   << ", init_cwnd_factor=" << init_cwnd_.Get();
+  // RTC_LOG(LS_INFO) << "Prague BDP calculation: base_rate_bps=" << base_rate.bps()
+  //                  << ", bdp_bytes=" << bdp.bytes()
+  //                  << ", init_cwnd_factor=" << init_cwnd_.Get();
   
   // Apply the initial window multiplier
   // Log before another potential problematic multiplication
-  RTC_LOG(LS_INFO) << "Prague before init_cwnd multiplication: bdp.bytes()=" << bdp.bytes()
-                   << ", init_cwnd=" << init_cwnd_.Get()
-                   << ", bdp.IsFinite()=" << (bdp.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague before init_cwnd multiplication: bdp.bytes()=" << bdp.bytes()
+  //                  << ", init_cwnd=" << init_cwnd_.Get()
+  //                  << ", bdp.IsFinite()=" << (bdp.IsFinite() ? "true" : "false");
   
   DataSize cwnd = bdp * init_cwnd_;
   
-  RTC_LOG(LS_INFO) << "Prague after init_cwnd multiplication: cwnd.bytes()=" << cwnd.bytes()
-                   << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague after init_cwnd multiplication: cwnd.bytes()=" << cwnd.bytes()
+  //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
   
   // Apply reduction based on CE marking ratio
   if (ecn_ce_ratio_ > 0) {
     double reduction = std::max(1.0 - ecn_ce_ratio_, beta_.Get());
-    RTC_LOG(LS_INFO) << "Prague applying congestion window reduction: ratio=" << ecn_ce_ratio_
-                     << ", reduction_factor=" << reduction
-                     << ", cwnd_before=" << cwnd.bytes();
+    // RTC_LOG(LS_INFO) << "Prague applying congestion window reduction: ratio=" << ecn_ce_ratio_
+    //                  << ", reduction_factor=" << reduction
+    //                  << ", cwnd_before=" << cwnd.bytes();
     
     // Log before another multiplication that might be problematic
-    RTC_LOG(LS_INFO) << "Prague PRE-REDUCTION-MULTIPLY: cwnd.bytes()=" << cwnd.bytes()
-                     << ", reduction=" << reduction
-                     << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague PRE-REDUCTION-MULTIPLY: cwnd.bytes()=" << cwnd.bytes()
+    //                  << ", reduction=" << reduction
+    //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
     
     cwnd = cwnd * reduction;
     
-    RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-MULTIPLY: cwnd.bytes()=" << cwnd.bytes()
-                     << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
+    // RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-MULTIPLY: cwnd.bytes()=" << cwnd.bytes()
+    //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" : "false");
   }
   
   // Ensure minimum congestion window (2 packets)
-  RTC_LOG(LS_INFO) << "Prague before std::max: cwnd.bytes()=" << cwnd.bytes()
-                   << ", min_cwnd=3000 bytes";
+  // RTC_LOG(LS_INFO) << "Prague before std::max: cwnd.bytes()=" << cwnd.bytes()
+  //                  << ", min_cwnd=3000 bytes";
   
   DataSize final_cwnd = std::max(cwnd, DataSize::Bytes(1500 * 2));
   
-  RTC_LOG(LS_INFO) << "Prague final cwnd.bytes()=" << final_cwnd.bytes()
-                   << ", final_cwnd.IsFinite()=" << (final_cwnd.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "Prague final cwnd.bytes()=" << final_cwnd.bytes()
+  //                  << ", final_cwnd.IsFinite()=" << (final_cwnd.IsFinite() ? "true" : "false");
   
   return final_cwnd;
 }

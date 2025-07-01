@@ -246,32 +246,32 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   }
   
   // Log feedback details before processing
-  RTC_LOG(LS_INFO) << "L4S OnTransportPacketsFeedback: feedback_time=" 
-                   << feedback.feedback_time.us() << " us, packet_count=" 
-                   << feedback.packet_feedbacks.size();
+  // RTC_LOG(LS_INFO) << "L4S OnTransportPacketsFeedback: feedback_time=" 
+  //                  << feedback.feedback_time.us() << " us, packet_count=" 
+  //                  << feedback.packet_feedbacks.size();
   
   // Process ECN feedback to detect if ECN is supported
   ProcessEcnFeedback(feedback);
   
   // Log before updating Prague controller
-  RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback";
+  // RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback";
   
   // Update Prague controller with ECN feedback
   prague_controller_->UpdateEcnFeedback(feedback);
   
   // Get updated target rate if L4S is active
   if (IsL4SActive()) {
-    RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
+    // RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time);
     if (prague_rate) {
-      RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
+      // RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
     } else {
-      RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
+      // RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
     }
   } else if (fallback_to_gcc_) {
-    RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
+    // RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
     // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
   }
@@ -297,39 +297,39 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   NetworkControlUpdate update;
   
   // Log input timestamp value before IsFinite check
-  RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: input at_time.us()=" << at_time.us() 
-                   << " at_time.ms()=" << at_time.ms()
-                   << " IsFinite()=" << at_time.IsFinite();
+  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: input at_time.us()=" << at_time.us() 
+  //                  << " at_time.ms()=" << at_time.ms()
+  //                  << " IsFinite()=" << at_time.IsFinite();
   
   // Add timestamp validation here (similar to what GoogCC does)
   if (!at_time.IsFinite()) {
     RTC_LOG(LS_WARNING) << "Invalid timestamp in L4S controller, using current time";
     int64_t current_time_ms = env_.clock().TimeInMilliseconds();
-    RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: current_time_ms=" << current_time_ms;
+    // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: current_time_ms=" << current_time_ms;
     at_time = Timestamp::Millis(current_time_ms);
-    RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: new at_time.us()=" << at_time.us();
+    // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: new at_time.us()=" << at_time.us();
   }
   
   // Apply rate constraints
   DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
   // Log the raw values before applying constraints and creating units
-  RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_bps=" 
-                   << (target_rate_ ? target_rate_->bps() : -1)
-                   << ", current_rate_bps=" << current_rate.bps()
-                   << ", at_time_us=" << at_time.us();
+  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_bps=" 
+  //                  << (target_rate_ ? target_rate_->bps() : -1)
+  //                  << ", current_rate_bps=" << current_rate.bps()
+  //                  << ", at_time_us=" << at_time.us();
   
   if (min_target_rate_ && current_rate < *min_target_rate_) {
-    RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " << min_target_rate_->bps() << " bps";
+    // RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " << min_target_rate_->bps() << " bps";
     current_rate = *min_target_rate_;
   }
   if (max_target_rate_ && current_rate > *max_target_rate_) {
-    RTC_LOG(LS_INFO) << "L4S applying max_target_rate: " << max_target_rate_->bps() << " bps";
+    // RTC_LOG(LS_INFO) << "L4S applying max_target_rate: " << max_target_rate_->bps() << " bps";
     current_rate = *max_target_rate_;
   }
   
   // Log final rate before creating update objects
-  RTC_LOG(LS_INFO) << "L4S final current_rate_bps=" << current_rate.bps();
+  // RTC_LOG(LS_INFO) << "L4S final current_rate_bps=" << current_rate.bps();
   
   // Set target rate and bandwidth estimate
   update.target_rate = TargetTransferRate();
@@ -339,43 +339,43 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   update.target_rate->network_estimate.loss_rate_ratio = 0.0f;
   
   // Log before creating TimeDelta objects that might cause unit_base.h assertion
-  RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(50) for round_trip_time";
+  // RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(50) for round_trip_time";
   update.target_rate->network_estimate.round_trip_time = TimeDelta::Millis(50);
   
-  RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(500) for bwe_period";
+  // RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(500) for bwe_period";
   update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
   
   update.target_rate->target_rate = current_rate;
   
   // Set pacer config
-  RTC_LOG(LS_INFO) << "L4S before creating PacerConfig";
+  // RTC_LOG(LS_INFO) << "L4S before creating PacerConfig";
   update.pacer_config = PacerConfig();
   update.pacer_config->at_time = at_time;
   
   // Log before setting pacer config values
-  RTC_LOG(LS_INFO) << "L4S before setting pacer config with current_rate: " << current_rate.bps() << " bps";
+  // RTC_LOG(LS_INFO) << "L4S before setting pacer config with current_rate: " << current_rate.bps() << " bps";
   
   // Set time window (e.g., 10ms)
   TimeDelta time_window = TimeDelta::Millis(10);
-  RTC_LOG(LS_INFO) << "L4S setting time_window: " << time_window.ms() << " ms";
+  // RTC_LOG(LS_INFO) << "L4S setting time_window: " << time_window.ms() << " ms";
   update.pacer_config->time_window = time_window;
   
   // Calculate data window based on current rate
   // Log before the multiplication that might trigger unit_base.h assertion
-  RTC_LOG(LS_INFO) << "L4S PRE-DATA-WINDOW-MULTIPLY: current_rate.bps()=" << current_rate.bps()
-                   << ", time_window.ms()=" << time_window.ms()
-                   << ", time_window.us()=" << time_window.us()
-                   << ", current_rate.IsFinite()=" << (current_rate.IsFinite() ? "true" : "false")
-                   << ", time_window.IsFinite()=" << (time_window.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "L4S PRE-DATA-WINDOW-MULTIPLY: current_rate.bps()=" << current_rate.bps()
+  //                  << ", time_window.ms()=" << time_window.ms()
+  //                  << ", time_window.us()=" << time_window.us()
+  //                  << ", current_rate.IsFinite()=" << (current_rate.IsFinite() ? "true" : "false")
+  //                  << ", time_window.IsFinite()=" << (time_window.IsFinite() ? "true" : "false");
   
   DataSize data_window = current_rate * time_window;
   
-  RTC_LOG(LS_INFO) << "L4S POST-DATA-WINDOW-MULTIPLY: data_window.bytes()=" << data_window.bytes()
-                   << ", data_window.IsFinite()=" << (data_window.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "L4S POST-DATA-WINDOW-MULTIPLY: data_window.bytes()=" << data_window.bytes()
+  //                  << ", data_window.IsFinite()=" << (data_window.IsFinite() ? "true" : "false");
   update.pacer_config->data_window = data_window;
   
   // Set pad window to zero
-  RTC_LOG(LS_INFO) << "L4S setting pad_window to zero";
+  // RTC_LOG(LS_INFO) << "L4S setting pad_window to zero";
   update.pacer_config->pad_window = DataSize::Zero();
   
   return update;
@@ -392,15 +392,15 @@ void L4SNetworkController::MaybeTriggerOnNetworkChanged(
   }
   
   // Log timestamp values before calling CreateRateUpdate
-  RTC_LOG(LS_INFO) << "L4S MaybeTriggerOnNetworkChanged: at_time_us=" << at_time.us()
-                   << ", IsFinite=" << (at_time.IsFinite() ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "L4S MaybeTriggerOnNetworkChanged: at_time_us=" << at_time.us()
+  //                  << ", IsFinite=" << (at_time.IsFinite() ? "true" : "false");
   
   // Create rate update (without the conditional, since your code didn't define the variables)
-  RTC_LOG(LS_INFO) << "L4S calling CreateRateUpdate";
+  // RTC_LOG(LS_INFO) << "L4S calling CreateRateUpdate";
   NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
   
   // Log after CreateRateUpdate completes
-  RTC_LOG(LS_INFO) << "L4S CreateRateUpdate completed successfully";
+  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate completed successfully";
   
   // Copy values from rate_update to update
   if (rate_update.pacer_config) {
