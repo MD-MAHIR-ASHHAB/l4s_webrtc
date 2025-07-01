@@ -350,8 +350,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       // // Very tight bounds: max 2% increase per update
       // increase_factor = std::clamp(increase_factor, 1.0, 1.02);
 
-      // Conservative bounds for real networks: max 1% increase per update
-      increase_factor = std::clamp(increase_factor, 1.0, 1.01);
+      // More aggressive bounds for faster ramp-up: max 3% increase per update
+      increase_factor = std::clamp(increase_factor, 1.0, 1.03);
 
       // Log when we actually increase (only if meaningful)
       if (increase_factor > 1.001) {

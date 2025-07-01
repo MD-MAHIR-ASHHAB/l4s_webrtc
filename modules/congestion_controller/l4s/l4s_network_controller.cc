@@ -158,17 +158,17 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start conservatively at 90% of delay estimate, but allow gradual approach to full estimate
-      DataRate delay_limit = last_delay_based_estimate_ * 0.9; // Base conservative limit
+      // Start at 95% of delay estimate for faster ramp-up, but allow gradual approach to full estimate
+      DataRate delay_limit = last_delay_based_estimate_ * 0.95; // Increased from 0.9 to 0.95 for faster ramp-up
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
       if (current_rate >= delay_limit * 0.90 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
-        // Allow up to 90% of delay estimate if we're close to the 80% limit
-        // Use the larger of: (90% of delay estimate) or (current rate + small increment)
-        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
-                                            current_rate + DataRate::BitsPerSec(10000));
+        // Allow up to 95% of delay estimate if we're close to the base limit
+        // Use the larger of: (95% of delay estimate) or (current rate + larger increment for faster ramp-up)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.95, 
+                                            current_rate + DataRate::BitsPerSec(20000)); // Increased from 10k to 20k
         delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
@@ -191,16 +191,17 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Final BWE-based capacity limit: " << bwe_based_limit.bps() << " bps";
     
-    // Respect BWE-informed bandwidth limitations
-    if (current_rate > bwe_based_limit) {
-      RTC_LOG(LS_WARNING) << "L4S: Current rate " << current_rate.bps() 
-                          << " exceeds BWE-informed limit " << bwe_based_limit.bps() 
-                          << ", capping rate";
-      current_rate = bwe_based_limit;
-      target_rate_ = current_rate;
+    // Allow Prague to increase up to BWE-based limit, even if current rate is lower
+    // This prevents getting stuck when current rate is below the available capacity
+    // Made more aggressive: 98% instead of 95% for faster ramp-up
+    DataRate rate_for_prague = std::min(std::max(current_rate, bwe_based_limit * 0.98), bwe_based_limit);
+    if (rate_for_prague > current_rate) {
+      RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate " << rate_for_prague.bps() 
+                          << " bps instead of current " << current_rate.bps() << " bps (BWE limit: " 
+                          << bwe_based_limit.bps() << " bps)";
     }
     
-    auto prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_rate);
+    auto prague_rate = prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
     if (prague_rate) {
       // Double-check the Prague controller's output against BWE-informed limits
       if (prague_rate.value() > bwe_based_limit) {
@@ -479,17 +480,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start conservatively at 90% of delay estimate, but allow gradual approach to full estimate
-      DataRate delay_limit = last_delay_based_estimate_ * 0.9; // Base conservative limit
+      // Start at 95% of delay estimate for faster ramp-up, but allow gradual approach to full estimate
+      DataRate delay_limit = last_delay_based_estimate_ * 0.95; // Increased from 0.9 to 0.95 for faster ramp-up
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
       if (current_rate >= delay_limit * 0.90 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
-        // Allow up to 90% of delay estimate if we're close to the 90% limit
-        // Use the larger of: (90% of delay estimate) or (current rate + small increment)
-        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
-                                            current_rate + DataRate::BitsPerSec(10000));
+        // Allow up to 95% of delay estimate if we're close to the base limit
+        // Use the larger of: (95% of delay estimate) or (current rate + larger increment for faster ramp-up)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.95, 
+                                            current_rate + DataRate::BitsPerSec(20000)); // Increased from 10k to 20k
         delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
@@ -515,16 +516,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                         << " bps (acked: " << last_acknowledged_rate_.bps() 
                         << ", delay: " << last_delay_based_estimate_.bps() << ")";
     
-    // Respect BWE-informed bandwidth limitations before passing to Prague
-    if (current_rate > bwe_based_limit) {
-      RTC_LOG(LS_WARNING) << "L4S: Current rate " << current_rate.bps() 
-                          << " exceeds BWE-informed limit " << bwe_based_limit.bps() 
-                          << ", capping rate";
-      current_rate = bwe_based_limit;
-      target_rate_ = current_rate;
+    // Allow Prague to increase up to BWE-based limit, even if current rate is lower
+    // This prevents getting stuck when current rate is below the available capacity
+    // Made more aggressive: 98% instead of 95% for faster ramp-up
+    DataRate rate_for_prague = std::min(std::max(current_rate, bwe_based_limit * 0.98), bwe_based_limit);
+    if (rate_for_prague > current_rate) {
+      RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate " << rate_for_prague.bps() 
+                          << " bps instead of current " << current_rate.bps() << " bps (BWE limit: " 
+                          << bwe_based_limit.bps() << " bps)";
     }
     
-    auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time, current_rate);
+    auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time, rate_for_prague);
     if (prague_rate) {
       // Double-check Prague's output against BWE-informed bandwidth limits
       if (prague_rate.value() > bwe_based_limit) {
