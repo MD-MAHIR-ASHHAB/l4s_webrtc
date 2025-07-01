@@ -28,7 +28,7 @@ class L4SPragueController {
   void UpdateRtt(TimeDelta rtt);
 
   // Calculates the target send rate based on current rate
-  std::optional<DataRate> GetTargetRate(Timestamp now, DataRate current_rate) const;
+  std::optional<DataRate> GetTargetRate(Timestamp now, DataRate current_rate);
 
   // Determines if the controller is active
   bool IsActive() const;

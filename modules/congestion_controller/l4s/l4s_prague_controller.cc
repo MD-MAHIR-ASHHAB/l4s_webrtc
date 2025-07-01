@@ -147,7 +147,7 @@ void L4SPragueController::UpdateRtt(TimeDelta rtt) {
 
 std::optional<DataRate> L4SPragueController::GetTargetRate(
     Timestamp now,
-    DataRate current_rate) const {
+    DataRate current_rate) {
   if (!active_ || !rtt_)
     return std::nullopt;
 
