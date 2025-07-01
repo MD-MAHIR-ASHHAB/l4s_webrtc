@@ -196,9 +196,14 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     return reduced_rate;
   }
   
-  // If no congestion, increase additively based on RTT
+  // If no congestion, try to increase additively based on RTT
+  RTC_LOG(LS_INFO) << "Prague: No congestion (CE ratio=0), checking for additive increase";
+  
+  // If no congestion, try to increase additively based on RTT
+  RTC_LOG(LS_INFO) << "Prague: No congestion (CE ratio=0), checking for additive increase";
   // Add safety check for uninitialized last_update_time
   if (!last_update_time_.IsFinite()) {
+    RTC_LOG(LS_INFO) << "Prague: last_update_time not initialized, returning base rate " << base_rate.bps() << " bps";
     return base_rate;
   }
   
@@ -211,14 +216,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
   
   if (time_since_update > TimeDelta::Zero()) {
-
-    // // Rate limit updates to prevent excessive increases (minimum 200ms between rate increases)
-    // if (time_since_update < TimeDelta::Millis(50)) {
-      // Too frequent updates, return current rate without increase
-    //   return base_rate;
     // Rate limit updates to prevent excessive increases (minimum 100ms between rate increases)
     if (time_since_update < TimeDelta::Millis(100)) {
-      // Too frequent updates, return current rate without increase
+      RTC_LOG(LS_INFO) << "Prague: Too frequent update (" << time_since_update.ms() << "ms < 100ms), returning base rate " << base_rate.bps() << " bps";
       return base_rate;
     }
     
@@ -259,6 +259,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     
     // Only increase if RTT is reasonable (>= 5ms) and time since update is significant
     if (rtt_seconds >= 0.005 && time_since_update.ms() >= 100) {
+      RTC_LOG(LS_INFO) << "Prague: RTT and time conditions met, calculating increase. RTT=" << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
       // Target: very small increase per RTT (much more conservative than TCP)
       DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte packets
       DataSize current_cwnd = CalculateCongestionWindow();
@@ -283,7 +284,11 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
                          << ", base_rate=" << base_rate.bps() << " bps"
                          << ", new_rate=" << (base_rate.bps() * increase_factor) << " bps"
                          << ", rtt=" << rtt_seconds << "s, update_interval=" << time_since_update.ms() << "ms";
+      } else {
+        RTC_LOG(LS_INFO) << "Prague: Small increase factor (" << increase_factor << "), not logging";
       }
+    } else {
+      RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT=" << rtt_seconds << "s (need >=0.005), time=" << time_since_update.ms() << "ms (need >=100)";
     }
     
     DataRate increased_rate = base_rate * increase_factor;
