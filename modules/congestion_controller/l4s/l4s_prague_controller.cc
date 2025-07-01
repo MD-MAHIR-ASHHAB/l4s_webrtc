@@ -257,6 +257,12 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
   
   if (time_since_update > TimeDelta::Zero()) {
+    // Rate limit updates to prevent excessive increases (minimum 50ms between rate increases)
+    if (time_since_update < TimeDelta::Millis(50)) {
+      // Too frequent updates, return current rate without increase
+      return base_rate;
+    }
+    
     // Additive increase proportional to 1/RTT (RTT-fairness)
     double rtt_seconds = current_rtt.seconds<double>();  // Use double precision
     
@@ -270,16 +276,24 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       rtt_seconds = 0.001;  // 1ms minimum
     }
     
-    double increase_factor = 1.0 + 
-        (time_since_update.ms() / (1000.0 * rtt_seconds));
+    // Calculate a more conservative additive increase
+    // Target: increase by ~1 packet per RTT (similar to TCP)
+    DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte packets
+    DataSize current_cwnd = CalculateCongestionWindow();
+    
+    // Calculate increase as: (packet_size / current_cwnd) * (time_since_update / rtt)
+    double increase_per_rtt = packet_size.bytes() / static_cast<double>(current_cwnd.bytes());
+    double rtt_cycles = time_since_update.ms() / (rtt_seconds * 1000.0);
+    double increase_factor = 1.0 + (increase_per_rtt * rtt_cycles);
     
     // Log the calculated increase factor
     // RTC_LOG(LS_INFO) << "Prague controller increase_factor=" << increase_factor;
     
     // Ensure increase factor is reasonable (prevent extreme values)
-    if (increase_factor < 0.5 || increase_factor > 2.0) {
-      RTC_LOG(LS_WARNING) << "Extreme increase factor: " << increase_factor << ", clamping";
-      increase_factor = std::clamp(increase_factor, 0.5, 2.0);
+    if (increase_factor < 0.99 || increase_factor > 1.05) {  // Very conservative: max 5% increase
+      RTC_LOG(LS_WARNING) << "Extreme increase factor: " << increase_factor << ", clamping (time_since_update=" 
+                          << time_since_update.ms() << "ms, rtt=" << rtt_seconds << "s)";
+      increase_factor = std::clamp(increase_factor, 0.99, 1.05);  // Clamp to 1% decrease to 5% increase
     }
     
     // Log before applying the increase factor
