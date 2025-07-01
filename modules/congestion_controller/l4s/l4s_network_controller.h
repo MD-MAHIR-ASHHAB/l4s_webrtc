@@ -15,6 +15,11 @@
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
+// GCC-inspired bandwidth estimation integration
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
+
 namespace webrtc {
 
 struct L4SControllerConfig {
@@ -59,7 +64,7 @@ class L4SNetworkController : public NetworkControllerInterface {
                                     Timestamp at_time);
   
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
-// Add to the private section of your L4SNetworkController class
+  void UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback);
 
   std::optional<Timestamp> last_update_time_;
   TimeDelta update_interval_ = TimeDelta::Millis(25);
@@ -90,7 +95,40 @@ class L4SNetworkController : public NetworkControllerInterface {
   
   // For fallback to GCC if needed
   std::unique_ptr<NetworkControllerInterface> gcc_controller_;
+
+  // Add bandwidth estimation integration to the private section
+  std::optional<DataRate> estimated_bandwidth_;
+  DataRate max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // 100 Mbps default reasonable limit
+
+  // GCC-inspired bandwidth estimation components  
+  std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
+  std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
+  std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
+  
+  // Bandwidth estimation tracking
+  DataRate last_acknowledged_rate_ = DataRate::Zero();
+  DataRate last_delay_based_estimate_ = DataRate::Zero();
+  std::optional<DataRate> last_probe_result_;
+  
+  // Enhanced RTT tracking (similar to GCC)
+  std::deque<int64_t> feedback_max_rtts_;
+  TimeDelta last_estimated_round_trip_time_ = TimeDelta::PlusInfinity();
 };
+
+/*
+ * L4S Network Controller with GCC-Inspired Bandwidth Estimation
+ * 
+ * Comprehensive Improvements:
+ * 1. Integrated GCC's acknowledged bitrate estimator for actual throughput measurement
+ * 2. Added delay-based BWE for detecting network congestion through packet delays  
+ * 3. Enhanced RTT tracking with moving window analysis (like GCC)
+ * 4. Network capacity estimation that learns from actual network behavior
+ * 5. BWE-informed rate capping that respects real network conditions
+ * 6. Prague controller integration with proper bandwidth constraints
+ * 
+ * This prevents the 100 Mbps VM network from being overdriven to 2+ Gbps
+ * by providing realistic network capacity estimates and proper feedback loops.
+ */
 
 }  // namespace webrtc
 

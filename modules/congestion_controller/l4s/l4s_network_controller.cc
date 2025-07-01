@@ -1,7 +1,14 @@
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
+// GCC bandwidth estimation includes
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
+#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
+
 #include <algorithm>
 #include <memory>
+#include <numeric>
 #include <utility>
 
 #include "api/transport/goog_cc_factory.h"
@@ -36,7 +43,14 @@ L4SNetworkController::L4SNetworkController(
       use_ect1_marking_(l4s_config.use_ect1_marking),
       prague_controller_(std::make_unique<L4SPragueController>(env_.field_trials())),
       probe_controller_(std::make_unique<ProbeController>(&config.env.field_trials(), 
-                                                         &config.env.event_log())) {
+                                                         &config.env.event_log())),
+      // Initialize GCC-style bandwidth estimation components
+      acknowledged_bitrate_estimator_(
+          std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials())),
+      delay_based_bwe_(std::make_unique<DelayBasedBwe>(&env_.field_trials(), 
+                                                       &env_.event_log())),
+      bandwidth_estimation_(std::make_unique<SendSideBandwidthEstimation>(&env_.field_trials(),
+                                                                          &env_.event_log())) {
   
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
@@ -125,8 +139,34 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
   // Get rate from Prague controller if active
   if (IsL4SActive()) {
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    
+    // Consider BWE estimates for capacity limiting
+    DataRate bwe_based_limit = max_realistic_bandwidth_;
+    if (last_acknowledged_rate_ > DataRate::Zero()) {
+      bwe_based_limit = std::min(bwe_based_limit, last_acknowledged_rate_ * 1.2);
+    }
+    if (last_delay_based_estimate_ > DataRate::Zero()) {
+      bwe_based_limit = std::min(bwe_based_limit, last_delay_based_estimate_ * 1.1);
+    }
+    
+    // Respect BWE-informed bandwidth limitations
+    if (current_rate > bwe_based_limit) {
+      RTC_LOG(LS_WARNING) << "L4S: Current rate " << current_rate.bps() 
+                          << " exceeds BWE-informed limit " << bwe_based_limit.bps() 
+                          << ", capping rate";
+      current_rate = bwe_based_limit;
+      target_rate_ = current_rate;
+    }
+    
     auto prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_rate);
     if (prague_rate) {
+      // Double-check the Prague controller's output against BWE-informed limits
+      if (prague_rate.value() > bwe_based_limit) {
+        RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps() 
+                            << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
+        prague_rate = bwe_based_limit;
+      }
+      
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
     }
@@ -254,6 +294,78 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   // Process ECN feedback to detect if ECN is supported
   ProcessEcnFeedback(feedback);
   
+  // GCC-style bandwidth estimation integration
+  
+  // 1. Calculate RTT metrics (like GCC does)
+  TimeDelta max_feedback_rtt = TimeDelta::MinusInfinity();
+  TimeDelta min_propagation_rtt = TimeDelta::PlusInfinity();
+  Timestamp max_recv_time = Timestamp::MinusInfinity();
+
+  std::vector<PacketResult> feedbacks = feedback.ReceivedWithSendInfo();
+  for (const auto& fb : feedbacks)
+    max_recv_time = std::max(max_recv_time, fb.receive_time);
+
+  for (const auto& fb : feedbacks) {
+    TimeDelta feedback_rtt = feedback.feedback_time - fb.sent_packet.send_time;
+    TimeDelta min_pending_time = max_recv_time - fb.receive_time;
+    TimeDelta propagation_rtt = feedback_rtt - min_pending_time;
+    max_feedback_rtt = std::max(max_feedback_rtt, feedback_rtt);
+    min_propagation_rtt = std::min(min_propagation_rtt, propagation_rtt);
+  }
+
+  // Update RTT estimates in bandwidth estimation
+  if (max_feedback_rtt.IsFinite()) {
+    feedback_max_rtts_.push_back(max_feedback_rtt.ms());
+    const size_t kMaxFeedbackRttWindow = 32;
+    if (feedback_max_rtts_.size() > kMaxFeedbackRttWindow)
+      feedback_max_rtts_.pop_front();
+    
+    bandwidth_estimation_->UpdatePropagationRtt(feedback.feedback_time, min_propagation_rtt);
+    
+    // Calculate mean RTT for delay-based BWE
+    if (!feedback_max_rtts_.empty()) {
+      int64_t sum_rtt_ms = std::accumulate(feedback_max_rtts_.begin(), feedback_max_rtts_.end(), static_cast<int64_t>(0));
+      int64_t mean_rtt_ms = sum_rtt_ms / feedback_max_rtts_.size();
+      delay_based_bwe_->OnRttUpdate(TimeDelta::Millis(mean_rtt_ms));
+      
+      // Update Prague controller with RTT
+      prague_controller_->UpdateRtt(TimeDelta::Millis(mean_rtt_ms));
+    }
+  }
+
+  // 2. Update acknowledged bitrate estimator
+  acknowledged_bitrate_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
+  auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
+  if (acknowledged_bitrate) {
+    last_acknowledged_rate_ = *acknowledged_bitrate;
+    bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate, feedback.feedback_time);
+    
+    RTC_LOG(LS_INFO) << "L4S: Acknowledged bitrate estimate: " << acknowledged_bitrate->bps() << " bps";
+  }
+
+  // 3. Run delay-based BWE to get capacity estimate
+  DelayBasedBwe::Result delay_result = delay_based_bwe_->IncomingPacketFeedbackVector(
+      feedback, acknowledged_bitrate, last_probe_result_, std::nullopt, false);
+  
+  if (delay_result.updated) {
+    last_delay_based_estimate_ = delay_result.target_bitrate;
+    bandwidth_estimation_->UpdateDelayBasedEstimate(feedback.feedback_time, delay_result.target_bitrate);
+    
+    RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: " << delay_result.target_bitrate.bps() << " bps";
+  }
+
+  // 4. Update our network capacity estimate based on BWE results
+  DataRate bwe_estimate = bandwidth_estimation_->target_rate();
+  if (bwe_estimate > DataRate::Zero() && bwe_estimate < max_realistic_bandwidth_) {
+    // BWE suggests lower capacity than our assumption - update it
+    max_realistic_bandwidth_ = std::min(max_realistic_bandwidth_, bwe_estimate * 1.1); // 10% headroom
+    RTC_LOG(LS_INFO) << "L4S: Updated network capacity estimate to " << max_realistic_bandwidth_.bps() 
+                     << " bps based on BWE estimate " << bwe_estimate.bps() << " bps";
+  }
+  
+  // Update our estimate of network capacity based on congestion signals
+  UpdateNetworkCapacityEstimate(feedback);
+  
   // Log before updating Prague controller
   // RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback";
   
@@ -264,8 +376,38 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   if (IsL4SActive()) {
     RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    
+    // Consider BWE estimates when determining capacity limits
+    DataRate bwe_based_limit = max_realistic_bandwidth_;
+    if (last_acknowledged_rate_ > DataRate::Zero()) {
+      bwe_based_limit = std::min(bwe_based_limit, last_acknowledged_rate_ * 1.2); // 20% above acked rate
+    }
+    if (last_delay_based_estimate_ > DataRate::Zero()) {
+      bwe_based_limit = std::min(bwe_based_limit, last_delay_based_estimate_ * 1.1); // 10% above delay estimate
+    }
+    
+    RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: " << bwe_based_limit.bps() 
+                     << " bps (acked: " << last_acknowledged_rate_.bps() 
+                     << ", delay: " << last_delay_based_estimate_.bps() << ")";
+    
+    // Respect BWE-informed bandwidth limitations before passing to Prague
+    if (current_rate > bwe_based_limit) {
+      RTC_LOG(LS_WARNING) << "L4S: Current rate " << current_rate.bps() 
+                          << " exceeds BWE-informed limit " << bwe_based_limit.bps() 
+                          << ", capping rate";
+      current_rate = bwe_based_limit;
+      target_rate_ = current_rate;
+    }
+    
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time, current_rate);
     if (prague_rate) {
+      // Double-check Prague's output against BWE-informed bandwidth limits
+      if (prague_rate.value() > bwe_based_limit) {
+        RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps() 
+                            << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
+        prague_rate = bwe_based_limit;
+      }
+      
       RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
       RTC_LOG(LS_INFO) << "L4S setting target_rate_ from " << (target_rate_ ? target_rate_->bps() : -1) << " to " << prague_rate->bps() << " bps";
       target_rate_ = prague_rate;
@@ -456,6 +598,33 @@ void L4SNetworkController::ProcessEcnFeedback(
     ecn_capable_network_ = (ce_count_ > 0) || 
                            (static_cast<double>(ect_count_) / 
                             (ect_count_ + ce_count_) > 0.8);
+  }
+}
+
+void L4SNetworkController::UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback) {
+  // Simple heuristic: if we consistently get high RTTs or CE marks at certain rates,
+  // update our estimate of realistic network capacity
+  
+  DataRate current_sending_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  
+  // If we see CE marking or high RTT increases, the network might be at capacity
+  size_t ce_packets = 0;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kCe) {
+      ce_packets++;
+    }
+  }
+  
+  if (ce_packets > 0 && current_sending_rate < max_realistic_bandwidth_) {
+    // We're getting congestion signals below our assumed capacity limit
+    // This might indicate the actual network capacity is lower
+    DataRate new_estimate = current_sending_rate * 0.9; // 10% below where we see congestion
+    if (new_estimate < max_realistic_bandwidth_) {
+      max_realistic_bandwidth_ = new_estimate;
+      RTC_LOG(LS_INFO) << "L4S: Reducing network capacity estimate to " 
+                       << max_realistic_bandwidth_.bps() << " bps based on congestion at " 
+                       << current_sending_rate.bps() << " bps";
+    }
   }
 }
 
