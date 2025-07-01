@@ -292,7 +292,23 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT=" << rtt_seconds << "s (need >=0.001), time=" << time_since_update.ms() << "ms (need >=25)";
     }
     
-    DataRate increased_rate = base_rate * increase_factor;
+    // Overflow protection: prevent integer overflow in rate calculations
+    const int64_t max_safe_rate_bps = 1500000000; // 1.5 Gbps - safe upper limit
+    
+    if (base_rate.bps() > max_safe_rate_bps) {
+      RTC_LOG(LS_WARNING) << "Prague: Rate " << base_rate.bps() << " exceeds safe limit " 
+                          << max_safe_rate_bps << ", capping to prevent overflow";
+      return DataRate::BitsPerSec(max_safe_rate_bps);
+    }
+    
+    // Check if multiplication would cause overflow
+    int64_t new_rate_bps = static_cast<int64_t>(base_rate.bps() * increase_factor);
+    if (new_rate_bps > max_safe_rate_bps || new_rate_bps < 0) {
+      RTC_LOG(LS_WARNING) << "Prague: Calculated rate " << new_rate_bps << " would overflow or exceed limit, capping to " << max_safe_rate_bps;
+      return DataRate::BitsPerSec(max_safe_rate_bps);
+    }
+    
+    DataRate increased_rate = DataRate::BitsPerSec(new_rate_bps);
     
     RTC_LOG(LS_INFO) << "Prague: Returning increased_rate=" << increased_rate.bps() << " bps (factor=" << increase_factor << ")";
     
