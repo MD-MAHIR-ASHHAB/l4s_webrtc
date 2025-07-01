@@ -185,10 +185,12 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       }
       
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Final delay_limit=" << delay_limit.bps() 
-                          << ", bwe_based_limit before min=" << bwe_based_limit.bps();
-      bwe_based_limit = std::min(bwe_based_limit, delay_limit);
-      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied delay-based limit=" << delay_limit.bps() 
-                          << " (based on " << last_delay_based_estimate_.bps() << "), bwe_based_limit now=" << bwe_based_limit.bps();
+                          << ", bwe_based_limit before applying delay limit=" << bwe_based_limit.bps();
+      // Use delay_limit as the primary capacity indicator (it's based on actual network capacity measurement)
+      // Don't artificially reduce it further - the delay-based BWE is our best estimate of available capacity
+      bwe_based_limit = delay_limit;
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based limit=" << delay_limit.bps() 
+                          << " (based on " << last_delay_based_estimate_.bps() << ") as final bwe_based_limit=" << bwe_based_limit.bps();
     }
     
     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a better capacity indicator
@@ -512,9 +514,11 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                             << last_delay_based_estimate_.bps() << " bps)";
       }
       
-      bwe_based_limit = std::min(bwe_based_limit, delay_limit);
-      RTC_LOG(LS_INFO) << "L4S BWE Debug: Applied delay-based limit=" << delay_limit.bps() 
-                          << " (based on " << last_delay_based_estimate_.bps() << ")";
+      // Use delay_limit as the primary capacity indicator (it's based on actual network capacity measurement)
+      // Don't artificially reduce it further - the delay-based BWE is our best estimate of available capacity
+      bwe_based_limit = delay_limit;
+      RTC_LOG(LS_INFO) << "L4S BWE Debug: Using delay-based limit=" << delay_limit.bps() 
+                          << " (based on " << last_delay_based_estimate_.bps() << ") as final bwe_based_limit=" << bwe_based_limit.bps();
     }
     
     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a better capacity indicator
