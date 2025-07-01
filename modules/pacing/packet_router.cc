@@ -239,9 +239,9 @@ void PacketRouter::SendPacket(std::unique_ptr<RtpPacketToSend> packet,
   } else {
     static std::atomic<int> non_ect1_packet_count{0};
     int current_count = non_ect1_packet_count.fetch_add(1, std::memory_order_relaxed);
-    if (current_count % 100 == 0) {  // Log every 100th packet to reduce verbosity
-      RTC_LOG(LS_INFO) << "PacketRouter: NOT marking packet #" << current_count 
-                       << " as ECT(1) (send_rtp_packets_as_ect1_=" 
+    if (current_count % 1000 == 0) {  // Log every 1000th packet to reduce verbosity
+      RTC_LOG(LS_INFO) << "PacketRouter: NOT marking packet #" << current_count
+                       << " as ECT(1) (send_rtp_packets_as_ect1_="
                        << (send_rtp_packets_as_ect1_ ? "true" : "false") << ")";
     }
   }
