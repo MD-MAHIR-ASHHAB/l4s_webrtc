@@ -165,8 +165,10 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       if (current_rate >= delay_limit * 0.95 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
         // Allow up to 90% of delay estimate if we're close to the 80% limit
-        delay_limit = std::min(last_delay_based_estimate_ * 0.9, 
-                              current_rate + DataRate::BitsPerSec(5000)); // Small increment
+        // Use the larger of: (90% of delay estimate) or (current rate + small increment)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
+                                            current_rate + DataRate::BitsPerSec(5000));
+        delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
                             << last_delay_based_estimate_.bps() << " bps)";
@@ -423,8 +425,10 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                       << " bps, max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() << " bps";
                       
   if (bwe_estimate > DataRate::Zero()) {
-    if (bwe_estimate < max_realistic_bandwidth_) {
-      // BWE suggests lower capacity than our assumption - update it
+    // Only reduce max_realistic_bandwidth_ if BWE estimate is reasonable and not contradicted by delay-based BWE
+    if (bwe_estimate < max_realistic_bandwidth_ && 
+        (last_delay_based_estimate_.IsZero() || bwe_estimate >= last_delay_based_estimate_ * 0.5)) {
+      // BWE suggests lower capacity than our assumption - update it (but only if not contradicted by delay BWE)
       max_realistic_bandwidth_ = std::min(max_realistic_bandwidth_, bwe_estimate * 1.1); // 10% headroom
       RTC_LOG(LS_WARNING) << "L4S: Reduced network capacity estimate to " << max_realistic_bandwidth_.bps() 
                           << " bps based on BWE estimate " << bwe_estimate.bps() << " bps";
@@ -433,6 +437,9 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       max_realistic_bandwidth_ = std::min(bwe_estimate * 0.8, max_realistic_bandwidth_ * 1.2); // Conservative increase
       RTC_LOG(LS_WARNING) << "L4S: Increased network capacity estimate to " << max_realistic_bandwidth_.bps() 
                           << " bps based on higher BWE estimate " << bwe_estimate.bps() << " bps";
+    } else if (bwe_estimate < last_delay_based_estimate_ * 0.5) {
+      RTC_LOG(LS_WARNING) << "L4S: Ignoring low BWE estimate " << bwe_estimate.bps() 
+                          << " bps as it contradicts delay-based estimate " << last_delay_based_estimate_.bps() << " bps";
     }
   }
   
@@ -478,8 +485,10 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       if (current_rate >= delay_limit * 0.95 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
         // Allow up to 90% of delay estimate if we're close to the 80% limit
-        delay_limit = std::min(last_delay_based_estimate_ * 0.9, 
-                              current_rate + DataRate::BitsPerSec(5000)); // Small increment
+        // Use the larger of: (90% of delay estimate) or (current rate + small increment)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
+                                            current_rate + DataRate::BitsPerSec(5000));
+        delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
                             << last_delay_based_estimate_.bps() << " bps)";
