@@ -146,7 +146,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.05) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
       // IMPORTANT: Update the stored max to prevent getting stuck in this condition
-      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.9; // Conservative but higher than current
+      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.95; // Conservative but higher than current
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based estimate " << last_delay_based_estimate_.bps() 
                           << " as capacity (20% higher than stored max " << (max_realistic_bandwidth_ / 0.9).bps() 
                           << "), updated max_realistic_bandwidth_ to " << max_realistic_bandwidth_.bps() << " bps";
@@ -158,17 +158,17 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start conservatively at 80% of delay estimate, but allow gradual approach to full estimate
-      DataRate delay_limit = last_delay_based_estimate_ * 0.8; // Base conservative limit
+      // Start conservatively at 90% of delay estimate, but allow gradual approach to full estimate
+      DataRate delay_limit = last_delay_based_estimate_ * 0.9; // Base conservative limit
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
-      if (current_rate >= delay_limit * 0.95 && 
+      if (current_rate >= delay_limit * 0.90 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
         // Allow up to 90% of delay estimate if we're close to the 80% limit
         // Use the larger of: (90% of delay estimate) or (current rate + small increment)
         DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
-                                            current_rate + DataRate::BitsPerSec(5000));
+                                            current_rate + DataRate::BitsPerSec(10000));
         delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
@@ -467,7 +467,7 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.05) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
       // Update the stored max to prevent this issue from repeating
-      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.9; // 90% of delay estimate
+      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.95; // 95% of delay estimate
       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based estimate " << last_delay_based_estimate_.bps() 
                           << " as capacity (20% higher than stored max), updating max_realistic_bandwidth_ to " 
                           << max_realistic_bandwidth_.bps() << " bps";
@@ -479,17 +479,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start conservatively at 80% of delay estimate, but allow gradual approach to full estimate
-      DataRate delay_limit = last_delay_based_estimate_ * 0.8; // Base conservative limit
+      // Start conservatively at 90% of delay estimate, but allow gradual approach to full estimate
+      DataRate delay_limit = last_delay_based_estimate_ * 0.9; // Base conservative limit
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
-      if (current_rate >= delay_limit * 0.95 && 
+      if (current_rate >= delay_limit * 0.90 && 
           last_delay_based_estimate_ > delay_limit * 1.1) {
-        // Allow up to 90% of delay estimate if we're close to the 80% limit
+        // Allow up to 90% of delay estimate if we're close to the 90% limit
         // Use the larger of: (90% of delay estimate) or (current rate + small increment)
         DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.9, 
-                                            current_rate + DataRate::BitsPerSec(5000));
+                                            current_rate + DataRate::BitsPerSec(10000));
         delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
         RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Allowing closer approach to delay estimate, "
                             << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
