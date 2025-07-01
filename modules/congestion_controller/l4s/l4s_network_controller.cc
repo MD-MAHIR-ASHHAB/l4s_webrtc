@@ -165,22 +165,22 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start at 99.5% of delay estimate for faster ramp-up (increased from 98% for better video quality)
-      DataRate delay_limit = last_delay_based_estimate_ * 0.995;
+      // Start at 99.8% of delay estimate for very aggressive ramp-up (increased from 99.5% to get even closer)
+      DataRate delay_limit = last_delay_based_estimate_ * 0.998;
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Initial delay_limit=" << delay_limit.bps() 
-                          << " (99.5% of " << last_delay_based_estimate_.bps() << ")";
+                          << " (99.8% of " << last_delay_based_estimate_.bps() << ")";
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
       if (current_rate >= delay_limit * 0.85 && // Reduced from 0.90 to 0.85 to trigger faster
           last_delay_based_estimate_ > delay_limit * 1.05) { // Reduced from 1.1 to 1.05 to trigger faster
-        // Allow up to 99% of delay estimate if we're close to the base limit (increased from 95% to 99%)
-        // Use the larger of: (99% of delay estimate) or (current rate + larger increment for faster ramp-up)
-        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.99, 
+        // Allow up to 100% of delay estimate if we're very close to the limit (increased from 99% to 100%)
+        // Use the larger of: (100% of delay estimate) or (current rate + larger increment for faster ramp-up)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_, 
                                             current_rate + DataRate::BitsPerSec(50000)); // Increased from 20k to 50k for faster ramp-up
-        delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
-        RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Allowing closer approach to delay estimate, "
-                            << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
+        delay_limit = progressive_limit; // Use full estimate when close
+        RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Allowing full delay estimate approach, "
+                            << "new limit=" << delay_limit.bps() << " bps (100% of estimate=" 
                             << last_delay_based_estimate_.bps() << " bps)";
       }
       
@@ -497,20 +497,20 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // Use delay-based estimate as primary capacity indicator (it measures network capacity)
     if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Start at 99.5% of delay estimate for faster ramp-up (increased from 98% for better video quality)
-      DataRate delay_limit = last_delay_based_estimate_ * 0.995;
+      // Start at 99.8% of delay estimate for very aggressive ramp-up (increased from 99.5% to get even closer)
+      DataRate delay_limit = last_delay_based_estimate_ * 0.998;
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
       if (current_rate >= delay_limit * 0.85 && // Reduced from 0.90 to 0.85 to trigger faster
           last_delay_based_estimate_ > delay_limit * 1.05) { // Reduced from 1.1 to 1.05 to trigger faster
-        // Allow up to 99% of delay estimate if we're close to the base limit (increased from 95% to 99%)
-        // Use the larger of: (99% of delay estimate) or (current rate + larger increment for faster ramp-up)
-        DataRate progressive_limit = std::max(last_delay_based_estimate_ * 0.99, 
+        // Allow up to 100% of delay estimate if we're very close to the limit (increased from 99% to 100%)
+        // Use the larger of: (100% of delay estimate) or (current rate + larger increment for faster ramp-up)
+        DataRate progressive_limit = std::max(last_delay_based_estimate_, 
                                             current_rate + DataRate::BitsPerSec(50000)); // Increased from 20k to 50k for faster ramp-up
-        delay_limit = std::min(progressive_limit, last_delay_based_estimate_); // Never exceed full estimate
-        RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Allowing closer approach to delay estimate, "
-                            << "new limit=" << delay_limit.bps() << " bps (vs full estimate=" 
+        delay_limit = progressive_limit; // Use full estimate when close
+        RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Allowing full delay estimate approach, "
+                            << "new limit=" << delay_limit.bps() << " bps (100% of estimate=" 
                             << last_delay_based_estimate_.bps() << " bps)";
       }
       
