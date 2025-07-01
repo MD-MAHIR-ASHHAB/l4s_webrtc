@@ -176,12 +176,12 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
 
   // Get rate from Prague controller if active
   if (IsL4SActive()) {
-    DataRate current_rate_for_transport =
+    DataRate current_rate_for_transport_ =
         target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
     RTC_LOG(LS_INFO)
-        << "L4S DEBUG: Starting cycle with current_rate_for_transport="
-        << current_rate_for_transport.bps() << " bps (from target_rate_="
+        << "L4S DEBUG: Starting cycle with current_rate_for_transport_="
+        << current_rate_for_transport_.bps() << " bps (from target_rate_="
         << (target_rate_ ? target_rate_->bps() : -1) << ")";
 
     // Consider BWE estimates for capacity limiting (consistent with
@@ -238,7 +238,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
 
       // If current rate is close to the conservative limit and there's
       // headroom, allow approaching closer to the full delay estimate
-      if (current_rate_for_transport >=
+      if (current_rate_for_transport_ >=
               delay_limit *
                   0.85 &&  // Reduced from 0.90 to 0.85 to trigger faster
           last_delay_based_estimate_ >
@@ -249,7 +249,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         // estimate) or (current rate + larger increment for faster ramp-up)
         DataRate progressive_limit = std::max(
             last_delay_based_estimate_,
-            current_rate_for_transport +
+            current_rate_for_transport_ +
                 DataRate::BitsPerSec(
                     50000));  // Increased from 20k to 50k for faster ramp-up
         delay_limit = progressive_limit;  // Use full estimate when close
@@ -300,12 +300,12 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     // available capacity Made more aggressive: 99.5% instead of 98% for faster
     // ramp-up and better video quality
     DataRate rate_for_prague =
-        std::min(std::max(current_rate_for_transport, bwe_based_limit * 0.995),
+        std::min(std::max(current_rate_for_transport_, bwe_based_limit * 0.995),
                  bwe_based_limit);
-    if (rate_for_prague > current_rate_for_transport) {
+    if (rate_for_prague > current_rate_for_transport_) {
       RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
                           << rate_for_prague.bps() << " bps instead of current "
-                          << current_rate_for_transport.bps()
+                          << current_rate_for_transport_.bps()
                           << " bps (BWE limit: " << bwe_based_limit.bps()
                           << " bps)";
     }
@@ -313,7 +313,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     RTC_LOG(LS_WARNING)
         << "L4S OnProcessInterval DEBUG: Passing rate_for_prague="
         << rate_for_prague.bps()
-        << " to Prague (current=" << current_rate_for_transport.bps()
+        << " to Prague (current=" << current_rate_for_transport_.bps()
         << ", bwe_limit=" << bwe_based_limit.bps() << ")";
 
     auto prague_rate =
@@ -539,9 +539,9 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   // 1.5. Process probe results to help BWE discover network capacity
   // probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(feedback);
   for (const auto& packet_feedback : feedback.packet_feedbacks) {
-    if (packet_feedback.sent_packet.has_value()) {
+    if (packet_feedback.sent_packet.send_time.IsFinite()) {
       PacketResult packet_result;
-      packet_result.sent_packet = packet_feedback.sent_packet.value();
+      packet_result.sent_packet = packet_feedback.sent_packet;
       packet_result.receive_time = packet_feedback.receive_time;
       probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_result);
     }
