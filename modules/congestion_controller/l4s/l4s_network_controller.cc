@@ -265,6 +265,7 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time);
     if (prague_rate) {
       RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
+      RTC_LOG(LS_INFO) << "L4S setting target_rate_ from " << (target_rate_ ? target_rate_->bps() : -1) << " to " << prague_rate->bps() << " bps";
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
     } else {
@@ -313,11 +314,9 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   // Apply rate constraints
   DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
-  // Log the raw values before applying constraints and creating units
-  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_bps=" 
-  //                  << (target_rate_ ? target_rate_->bps() : -1)
-  //                  << ", current_rate_bps=" << current_rate.bps()
-  //                  << ", at_time_us=" << at_time.us();
+  RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_stored=" 
+                   << (target_rate_ ? target_rate_->bps() : -1) << " bps"
+                   << ", current_rate=" << current_rate.bps() << " bps";
   
   if (min_target_rate_ && current_rate < *min_target_rate_) {
     // RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " << min_target_rate_->bps() << " bps";
