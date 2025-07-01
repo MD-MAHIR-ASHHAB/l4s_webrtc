@@ -262,6 +262,13 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     auto prague_rate =
         prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
     if (prague_rate) {
+      // CRITICAL: Validate Prague controller output before using it
+      if (!prague_rate->IsFinite() || prague_rate->bps() <= 0) {
+        RTC_LOG(LS_WARNING) << "L4S: Prague controller returned invalid rate " 
+                            << prague_rate->bps() << " bps in OnProcessInterval, using fallback";
+        prague_rate = DataRate::KilobitsPerSec(300);
+      }
+
       // Double-check the Prague controller's output against BWE-informed limits
       if (prague_rate.value() > bwe_based_limit) {
         RTC_LOG(LS_WARNING)
@@ -563,6 +570,13 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // Consider BWE estimates when determining capacity limits
     DataRate bwe_based_limit = max_realistic_bandwidth_;
 
+    // CRITICAL: Validate BWE estimates before using them
+    if (!last_delay_based_estimate_.IsFinite() || last_delay_based_estimate_.bps() < 0) {
+      RTC_LOG(LS_WARNING) << "L4S: Invalid delay-based estimate " 
+                          << last_delay_based_estimate_.bps() << " bps, using max_realistic";
+      last_delay_based_estimate_ = max_realistic_bandwidth_;
+    }
+
     // CRITICAL FIX: If delay-based estimate is higher than our stored max, use
     // delay-based estimate This prevents getting stuck at artificially low
     // limits due to historical congestion Changed to 1.02x to be very
@@ -573,6 +587,13 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       // Update the stored max to prevent this issue from repeating
       max_realistic_bandwidth_ =
           last_delay_based_estimate_ * 0.99;  // 99% of delay estimate
+
+      // Validate the calculated values
+      if (!bwe_based_limit.IsFinite() || !max_realistic_bandwidth_.IsFinite()) {
+        RTC_LOG(LS_WARNING) << "L4S: Invalid BWE calculations, using fallback";
+        bwe_based_limit = DataRate::KilobitsPerSec(10000);
+        max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000);
+      }
 
       RTC_LOG(LS_WARNING)
           << "L4S OnTransportFeedback: Using delay-based estimate "
@@ -669,6 +690,13 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time,
                                                          rate_for_prague);
     if (prague_rate) {
+      // CRITICAL: Validate Prague controller output before using it
+      if (!prague_rate->IsFinite() || prague_rate->bps() <= 0) {
+        RTC_LOG(LS_WARNING) << "L4S: Prague controller returned invalid rate " 
+                            << prague_rate->bps() << " bps, using fallback";
+        prague_rate = DataRate::KilobitsPerSec(300);
+      }
+
       // Double-check Prague's output against BWE-informed bandwidth limits
       if (prague_rate.value() > bwe_based_limit) {
         RTC_LOG(LS_WARNING)
@@ -741,6 +769,13 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   // Apply rate constraints
   DataRate current_rate_for_transport_ = target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
+  // CRITICAL: Add validation to prevent IsFinite() crashes
+  if (!current_rate_for_transport_.IsFinite() || current_rate_for_transport_.bps() <= 0) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid target rate " << current_rate_for_transport_.bps() 
+                        << " bps, using fallback";
+    current_rate_for_transport_ = DataRate::KilobitsPerSec(300);
+  }
+
   RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_stored="
                    << (target_rate_ ? target_rate_->bps() : -1) << " bps"
                    << ", current_rate=" << current_rate_for_transport_.bps() << " bps";
@@ -792,15 +827,16 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   update.pacer_config->time_window = time_window;
 
   // Calculate data window based on current rate
-  // Log before the multiplication that might trigger unit_base.h assertion
-  // RTC_LOG(LS_INFO) << "L4S PRE-DATA-WINDOW-MULTIPLY: current_rate.bps()=" <<
-  // current_rate.bps()
-  //                  << ", time_window.ms()=" << time_window.ms()
-  //                  << ", time_window.us()=" << time_window.us()
-  //                  << ", current_rate.IsFinite()=" <<
-  //                  (current_rate.IsFinite() ? "true" : "false")
-  //                  << ", time_window.IsFinite()=" << (time_window.IsFinite()
-  //                  ? "true" : "false");
+  // CRITICAL: Add validation before multiplication to prevent IsFinite() crash
+  if (!current_rate_for_transport_.IsFinite() || !time_window.IsFinite() || 
+      current_rate_for_transport_.bps() <= 0 || time_window.us() <= 0) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid values for data window calculation - rate: " 
+                        << current_rate_for_transport_.bps() << " bps, time: " 
+                        << time_window.us() << " us";
+    // Use safe fallback values
+    current_rate_for_transport_ = DataRate::KilobitsPerSec(300);
+    time_window = TimeDelta::Millis(10);
+  }
 
   DataSize data_window = current_rate_for_transport_ * time_window;
 
