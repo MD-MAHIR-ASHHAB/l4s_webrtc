@@ -234,16 +234,16 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
       // Log the values before calculation to debug potential unit_base.h assertion
       RTC_LOG(LS_INFO) << "Transport Feedback: Before calculation - "
-                       << "current_offset_=" << current_offset_.ms() << "ms, "
-                       << "delta_since_base=" << delta_since_base.ms() << "ms, "
-                       << "rounded_delta=" << delta_since_base.RoundDownTo(TimeDelta::Millis(1)).ms() << "ms";
+                       << "current_offset_=" << (current_offset_.IsFinite() ? std::to_string(current_offset_.ms()) + "ms" : "non-finite") << ", "
+                       << "delta_since_base=" << (delta_since_base.IsFinite() ? std::to_string(delta_since_base.ms()) + "ms" : "non-finite") << ", "
+                       << "rounded_delta=" << (delta_since_base.IsFinite() ? std::to_string(delta_since_base.RoundDownTo(TimeDelta::Millis(1)).ms()) + "ms" : "non-finite");
       
       packet_feedback->receive_time =
           current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
       
       // Log the result before the finite check
       RTC_LOG(LS_INFO) << "Transport Feedback: After calculation - "
-                       << "receive_time=" << packet_feedback->receive_time.ms() << "ms, "
+                       << "receive_time=" << (packet_feedback->receive_time.IsFinite() ? std::to_string(packet_feedback->receive_time.ms()) + "ms" : "non-finite") << ", "
                        << "IsFinite=" << (packet_feedback->receive_time.IsFinite() ? "true" : "false");
       
       // Ensure the calculated receive time is valid
@@ -365,14 +365,14 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
       // Log the values before calculation to debug potential unit_base.h assertion
       RTC_LOG(LS_INFO) << "CC Feedback: Before calculation - "
-                       << "current_offset_=" << current_offset_.ms() << "ms, "
-                       << "arrival_time_offset=" << packet_info.arrival_time_offset.ms() << "ms";
+                       << "current_offset_=" << (current_offset_.IsFinite() ? std::to_string(current_offset_.ms()) + "ms" : "non-finite") << ", "
+                       << "arrival_time_offset=" << (packet_info.arrival_time_offset.IsFinite() ? std::to_string(packet_info.arrival_time_offset.ms()) + "ms" : "non-finite");
       
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
       
       // Log the result before the finite check
       RTC_LOG(LS_INFO) << "CC Feedback: After calculation - "
-                       << "receive_time=" << result.receive_time.ms() << "ms, "
+                       << "receive_time=" << (result.receive_time.IsFinite() ? std::to_string(result.receive_time.ms()) + "ms" : "non-finite") << ", "
                        << "IsFinite=" << (result.receive_time.IsFinite() ? "true" : "false");
       
       // Ensure the calculated receive time is valid
