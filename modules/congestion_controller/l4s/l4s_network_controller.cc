@@ -48,7 +48,8 @@ L4SNetworkController::L4SNetworkController(
       acknowledged_bitrate_estimator_(
           std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials())),
       delay_based_bwe_(std::make_unique<DelayBasedBwe>(&env_.field_trials(), 
-                                                       &env_.event_log())),
+                                                       &env_.event_log(),
+                                                       nullptr)), // No network state predictor
       bandwidth_estimation_(std::make_unique<SendSideBandwidthEstimation>(&env_.field_trials(),
                                                                           &env_.event_log())) {
   
