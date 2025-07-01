@@ -54,10 +54,26 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
 
   if (config.constraints.starting_rate) {
     starting_rate_ = config.constraints.starting_rate;
+    // Validate starting rate
+    if (!starting_rate_->IsFinite() || starting_rate_->bps() <= 0) {
+      RTC_LOG(LS_WARNING) << "L4S: Invalid starting rate " << starting_rate_->bps() 
+                          << " bps, using 300 kbps";
+      starting_rate_ = DataRate::KilobitsPerSec(300);
+    }
   }
 
   min_target_rate_ = config.constraints.min_data_rate;
   max_target_rate_ = config.constraints.max_data_rate;
+  
+  // Validate rate constraints
+  if (min_target_rate_ && (!min_target_rate_->IsFinite() || min_target_rate_->bps() <= 0)) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid min target rate, clearing";
+    min_target_rate_.reset();
+  }
+  if (max_target_rate_ && (!max_target_rate_->IsFinite() || max_target_rate_->bps() <= 0)) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid max target rate, clearing"; 
+    max_target_rate_.reset();
+  }
 
   RTC_LOG(LS_WARNING) << "L4S network controller created"
                       << " fallback_to_gcc: " << fallback_to_gcc_
@@ -69,7 +85,22 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                       << " bps"
                       << " max_target: "
                       << (max_target_rate_ ? max_target_rate_->bps() : 0)
-                      << " bps";
+                      << " bps"
+                      << " max_realistic_bandwidth: " << max_realistic_bandwidth_.bps() << " bps";
+                      
+  // Validate critical member variables after initialization
+  if (!max_realistic_bandwidth_.IsFinite()) {
+    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - max_realistic_bandwidth_ is not finite!";
+    max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000);
+  }
+  if (!last_acknowledged_rate_.IsFinite()) {
+    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - last_acknowledged_rate_ is not finite!";
+    last_acknowledged_rate_ = DataRate::Zero();
+  }
+  if (!last_delay_based_estimate_.IsFinite()) {
+    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - last_delay_based_estimate_ is not finite!";
+    last_delay_based_estimate_ = DataRate::Zero();
+  }  }
 }
 
 L4SNetworkController::~L4SNetworkController() = default;
@@ -89,6 +120,16 @@ NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
 NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
     NetworkRouteChange msg) {
   NetworkControlUpdate update;
+
+  RTC_LOG(LS_WARNING) << "L4S: OnNetworkRouteChange called";
+
+  // Validate input constraints to prevent crashes
+  if (msg.constraints.starting_rate && 
+      (!msg.constraints.starting_rate->IsFinite() || msg.constraints.starting_rate->bps() <= 0)) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid starting rate in constraints: " 
+                        << msg.constraints.starting_rate->bps() << " bps";
+    msg.constraints.starting_rate.reset();
+  }
 
   // Reset ECN support detection on network change
   ecn_supported_ = false;
@@ -287,8 +328,7 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
 
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
     }
-
-    // Forward to GCC if we're using it as fallback
+  } else if (fallback_to_gcc_) {
     // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnProcessInterval(msg);
   }
