@@ -140,15 +140,16 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     // Consider BWE estimates for capacity limiting (consistent with OnTransportPacketsFeedback)
     DataRate bwe_based_limit = max_realistic_bandwidth_;
     
-    // CRITICAL FIX: If delay-based estimate is much higher than our stored max, use delay-based estimate
+    // CRITICAL FIX: If delay-based estimate is significantly higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
-    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
+    // Changed from 2x to 1.2x to be more responsive to network capacity increases
+    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.2) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
       // IMPORTANT: Update the stored max to prevent getting stuck in this condition
-      max_realistic_bandwidth_ = last_delay_based_estimate_;
-      RTC_LOG(LS_WARNING) << "L4S: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (much higher than stored max), updated max_realistic_bandwidth_ to " 
-                          << max_realistic_bandwidth_.bps() << " bps";
+      max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.9; // Conservative but higher than current
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based estimate " << last_delay_based_estimate_.bps() 
+                          << " as capacity (20% higher than stored max " << (max_realistic_bandwidth_ / 0.9).bps() 
+                          << "), updated max_realistic_bandwidth_ to " << max_realistic_bandwidth_.bps() << " bps";
     }
     
     RTC_LOG(LS_INFO) << "L4S OnProcessInterval BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
@@ -460,14 +461,15 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // Consider BWE estimates when determining capacity limits
     DataRate bwe_based_limit = max_realistic_bandwidth_;
     
-    // CRITICAL FIX: If delay-based estimate is much higher than our stored max, use delay-based estimate
+    // CRITICAL FIX: If delay-based estimate is significantly higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
-    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
+    // Changed from 2x to 1.2x to be more responsive to network capacity increases
+    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.2) {
       bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
       // Update the stored max to prevent this issue from repeating
       max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.9; // 90% of delay estimate
       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (much higher than stored max), updating max_realistic_bandwidth_ to " 
+                          << " as capacity (20% higher than stored max), updating max_realistic_bandwidth_ to " 
                           << max_realistic_bandwidth_.bps() << " bps";
     }
     
