@@ -539,7 +539,8 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   // 1.5. Process probe results to help BWE discover network capacity
   // probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(feedback);
   for (const auto& packet_feedback : feedback.packet_feedbacks) {
-    if (packet_feedback.sent_packet.send_time.IsFinite()) {
+    if (packet_feedback.sent_packet.send_time.IsFinite() && 
+        packet_feedback.receive_time.IsFinite()) {
       PacketResult packet_result;
       packet_result.sent_packet = packet_feedback.sent_packet;
       packet_result.receive_time = packet_feedback.receive_time;
@@ -548,7 +549,7 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   }
   auto probe_result =
       probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
-  if (probe_result.has_value()) {
+  if (probe_result.has_value() && probe_result->IsFinite() && probe_result->bps() > 0) {
     last_probe_result_ = probe_result;
     RTC_LOG(LS_WARNING) << "L4S: Probe result - estimated bitrate: "
                         << probe_result->bps() << " bps";
@@ -557,12 +558,15 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     bandwidth_estimation_->UpdateEstimate(feedback.feedback_time);
 
     // If probe shows much higher capacity than current estimate, be aggressive
-    if (*probe_result > last_delay_based_estimate_ * 2.0) {
-      max_realistic_bandwidth_ =
-          std::max(max_realistic_bandwidth_, *probe_result * 0.9);
-      RTC_LOG(LS_WARNING) << "L4S: Probe shows high capacity, updating "
-                             "max_realistic_bandwidth_ to "
-                          << max_realistic_bandwidth_.bps() << " bps";
+    if (last_delay_based_estimate_.IsFinite() && 
+        *probe_result > last_delay_based_estimate_ * 2.0) {
+      DataRate new_max = *probe_result * 0.9;
+      if (new_max.IsFinite() && new_max.bps() > 0) {
+        max_realistic_bandwidth_ = std::max(max_realistic_bandwidth_, new_max);
+        RTC_LOG(LS_WARNING) << "L4S: Probe shows high capacity, updating "
+                               "max_realistic_bandwidth_ to "
+                            << max_realistic_bandwidth_.bps() << " bps";
+      }
     }
   }
 
