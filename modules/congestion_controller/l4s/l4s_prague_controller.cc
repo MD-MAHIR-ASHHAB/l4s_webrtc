@@ -61,8 +61,18 @@ void L4SPragueController::UpdateEcnFeedback(
       } else if (packet.ecn == EcnMarking::kCe) {
         ce_packets++;
         ect_packets++; // CE also counts as ECT
+        RTC_LOG(LS_INFO) << "Prague: CE marked packet detected! Seq=" 
+                         << packet.sent_packet.sequence_number 
+                         << ", feedback_time=" << now.us() << " us";
       }
     }
+  }
+  
+  // Log packet counts for this feedback
+  if (ce_packets > 0 || ect_packets > 0) {
+    RTC_LOG(LS_INFO) << "Prague ECN feedback: ECT packets=" << ect_packets 
+                     << ", CE packets=" << ce_packets 
+                     << " (total ECT+CE so far: " << (total_ect_packets_ + ect_packets) << ")";
   }
   
   // If we received any ECT or CE packets, activate the controller
@@ -107,6 +117,14 @@ void L4SPragueController::UpdateEcnFeedback(
   // Calculate new CE ratio
   if (total_ect_packets_ > 0) {
     ecn_ce_ratio_ = static_cast<double>(total_ce_packets_) / total_ect_packets_;
+    
+    // Log when CE ratio changes significantly or when we have congestion
+    if (total_ce_packets_ > 0) {
+      RTC_LOG(LS_INFO) << "Prague: Congestion detected! CE ratio=" 
+                       << (ecn_ce_ratio_ * 100.0) << "% (" 
+                       << total_ce_packets_ << " CE out of " 
+                       << total_ect_packets_ << " ECT packets)";
+    }
   } else {
     ecn_ce_ratio_ = 0.0;
   }
@@ -196,6 +214,11 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     double reduction_factor = 1.0 - (alpha_.Get() * ecn_ce_ratio_);
     reduction_factor = std::max(reduction_factor, beta_.Get());
     
+    RTC_LOG(LS_INFO) << "Prague: Applying congestion reduction due to CE marks. "
+                     << "CE ratio=" << (ecn_ce_ratio_ * 100.0) << "%, "
+                     << "reduction_factor=" << reduction_factor << ", "
+                     << "base_rate=" << base_rate.bps() << " bps";
+    
     // Log values before applying reduction
     // RTC_LOG(LS_INFO) << "Prague applying congestion reduction: base_rate_bps=" << base_rate.bps()
     //                  << ", reduction_factor=" << reduction_factor
@@ -208,6 +231,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     //                  << ", reduction_factor=" << reduction_factor;
     
     DataRate reduced_rate = base_rate * reduction_factor;
+    
+    RTC_LOG(LS_INFO) << "Prague: Rate reduced from " << base_rate.bps() 
+                     << " to " << reduced_rate.bps() << " bps due to congestion";
     
     // RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-RATE-MULTIPLY: reduced_rate.bps()=" << reduced_rate.bps()
     //                  << ", IsFinite=" << (reduced_rate.IsFinite() ? "true" : "false");
