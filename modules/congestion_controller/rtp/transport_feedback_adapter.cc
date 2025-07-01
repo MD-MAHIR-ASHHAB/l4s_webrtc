@@ -202,8 +202,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     const TimeDelta delta =
         feedback.GetBaseDelta(last_transport_feedback_base_time_)
             .RoundDownTo(TimeDelta::Millis(1));
-    // Protect against assigning current_offset_ negative value.
-    if (delta < Timestamp::Zero() - current_offset_) {
+    
+    // Add safety checks to prevent extreme values that could cause unit_base.h assertion
+    if (!delta.IsFinite()) {
+      RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
+      current_offset_ = feedback_receive_time;
+    } else if (delta < Timestamp::Zero() - current_offset_) {
       RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
       current_offset_ = feedback_receive_time;
     } else {
@@ -228,8 +232,20 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       return;
     }
     if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
+      // Log the values before calculation to debug potential unit_base.h assertion
+      RTC_LOG(LS_INFO) << "Transport Feedback: Before calculation - "
+                       << "current_offset_=" << current_offset_.ms() << "ms, "
+                       << "delta_since_base=" << delta_since_base.ms() << "ms, "
+                       << "rounded_delta=" << delta_since_base.RoundDownTo(TimeDelta::Millis(1)).ms() << "ms";
+      
       packet_feedback->receive_time =
           current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+      
+      // Log the result before the finite check
+      RTC_LOG(LS_INFO) << "Transport Feedback: After calculation - "
+                       << "receive_time=" << packet_feedback->receive_time.ms() << "ms, "
+                       << "IsFinite=" << (packet_feedback->receive_time.IsFinite() ? "true" : "false");
+      
       // Ensure the calculated receive time is valid
       if (!packet_feedback->receive_time.IsFinite()) {
         RTC_LOG(LS_WARNING) << "Invalid receive_time calculated in Transport Feedback processing";
@@ -296,18 +312,34 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   if (current_offset_.IsInfinite()) {
     current_offset_ = feedback_receive_time;
   }
-  TimeDelta feedback_delta = last_feedback_compact_ntp_time_
-                                 ? CompactNtpIntervalToTimeDelta(
-                                       feedback.report_timestamp_compact_ntp() -
-                                       *last_feedback_compact_ntp_time_)
-                                 : TimeDelta::Zero();
+  TimeDelta feedback_delta = TimeDelta::Zero();
+  if (last_feedback_compact_ntp_time_) {
+    uint32_t current_ntp = feedback.report_timestamp_compact_ntp();
+    uint32_t last_ntp = *last_feedback_compact_ntp_time_;
+    uint32_t ntp_diff = current_ntp - last_ntp;
+    
+    // Add safety check to prevent extreme values that could cause unit_base.h assertion
+    // If the difference is too large (indicating potential wraparound or invalid timestamps),
+    // treat it as zero to avoid fatal errors
+    if (ntp_diff > 0x7FFF'FFFF) {  // More than half of uint32_t range
+      RTC_LOG(LS_WARNING) << "Ignoring very large NTP timestamp difference: " 
+                          << ntp_diff << " (current: " << current_ntp 
+                          << ", last: " << last_ntp << ")";
+      feedback_delta = TimeDelta::Zero();
+    } else {
+      feedback_delta = CompactNtpIntervalToTimeDelta(ntp_diff);
+    }
+  }
   last_feedback_compact_ntp_time_ = feedback.report_timestamp_compact_ntp();
   if (feedback_delta < TimeDelta::Zero()) {
     RTC_LOG(LS_WARNING) << "Unexpected feedback ntp time delta "
                         << feedback_delta << ".";
     current_offset_ = feedback_receive_time;
-  } else {
+  } else if (feedback_delta.IsFinite()) {
     current_offset_ += feedback_delta;
+  } else {
+    RTC_LOG(LS_WARNING) << "Non-finite feedback delta detected, resetting offset";
+    current_offset_ = feedback_receive_time;
   }
 
   int ignored_packets = 0;
@@ -331,7 +363,18 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
+      // Log the values before calculation to debug potential unit_base.h assertion
+      RTC_LOG(LS_INFO) << "CC Feedback: Before calculation - "
+                       << "current_offset_=" << current_offset_.ms() << "ms, "
+                       << "arrival_time_offset=" << packet_info.arrival_time_offset.ms() << "ms";
+      
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
+      
+      // Log the result before the finite check
+      RTC_LOG(LS_INFO) << "CC Feedback: After calculation - "
+                       << "receive_time=" << result.receive_time.ms() << "ms, "
+                       << "IsFinite=" << (result.receive_time.IsFinite() ? "true" : "false");
+      
       // Ensure the calculated receive time is valid
       if (!result.receive_time.IsFinite()) {
         RTC_LOG(LS_WARNING) << "Invalid receive_time calculated from timestamp arithmetic";
