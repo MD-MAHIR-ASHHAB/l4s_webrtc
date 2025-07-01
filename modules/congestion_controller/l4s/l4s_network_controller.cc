@@ -261,17 +261,17 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   
   // Get updated target rate if L4S is active
   if (IsL4SActive()) {
-    // RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
+    RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time);
     if (prague_rate) {
-      // RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
+      RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
     } else {
-      // RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
+      RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
     }
   } else if (fallback_to_gcc_) {
-    // RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
+    RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
     // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
   }

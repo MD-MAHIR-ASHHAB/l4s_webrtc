@@ -267,16 +267,23 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       double increase_per_rtt = packet_size.bytes() / static_cast<double>(current_cwnd.bytes());
       double rtt_cycles = time_since_update.ms() / (rtt_seconds * 1000.0);
       
-      // Scale down the increase by 10x to be very conservative
-      increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.1);
-      // Scale down the increase by 10x to be little bit conservative
+      // // Scale down the increase by 10x to be very conservative
+      // increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.1);
+      // Scale down the increase by 2x to be little bit conservative
       increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.5);
-      // Very tight bounds: max 2% increase per update
-      increase_factor = std::clamp(increase_factor, 1.0, 1.02);
+      // // Very tight bounds: max 2% increase per update
+      // increase_factor = std::clamp(increase_factor, 1.0, 1.02);
       
       // Not Very tight bounds: max 5% increase per update
       increase_factor = std::clamp(increase_factor, 1.0, 1.05);
-    
+      
+      // Log when we actually increase (only if meaningful)
+      if (increase_factor > 1.001) {
+        RTC_LOG(LS_INFO) << "Prague additive increase: factor=" << increase_factor 
+                         << ", base_rate=" << base_rate.bps() << " bps"
+                         << ", new_rate=" << (base_rate.bps() * increase_factor) << " bps"
+                         << ", rtt=" << rtt_seconds << "s, update_interval=" << time_since_update.ms() << "ms";
+      }
     }
     
     DataRate increased_rate = base_rate * increase_factor;
