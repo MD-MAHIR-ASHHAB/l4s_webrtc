@@ -262,7 +262,8 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   // Get updated target rate if L4S is active
   if (IsL4SActive()) {
     RTC_LOG(LS_INFO) << "L4S is active, getting target rate from Prague controller";
-    auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time);
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time, current_rate);
     if (prague_rate) {
       RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps() << " bps";
       RTC_LOG(LS_INFO) << "L4S setting target_rate_ from " << (target_rate_ ? target_rate_->bps() : -1) << " to " << prague_rate->bps() << " bps";

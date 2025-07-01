@@ -130,7 +130,7 @@ void L4SPragueController::UpdateRtt(TimeDelta rtt) {
 }
 
 std::optional<DataRate> L4SPragueController::GetTargetRate(
-    Timestamp now) const {
+    Timestamp now, DataRate current_rate) const {
   if (!active_ || !rtt_)
     return std::nullopt;
   
@@ -140,42 +140,43 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     return std::nullopt;
   }
   
-
+  // Use the provided current rate as the base rate instead of calculating from cwnd
+  DataRate base_rate = current_rate;
   
-  // Use at least the minimum RTT
+  // OLD METHOD (commented out): Calculate base rate from congestion window
+  // DataSize cwnd = CalculateCongestionWindow();
+  // 
+  // // Add safety checks to prevent division by zero or overflow
+  // if (current_rtt.ms() <= 0) {
+  //   RTC_LOG(LS_WARNING) << "Invalid RTT in Prague controller: " << current_rtt.ms() << "ms, using default rate";
+  //   return DataRate::KilobitsPerSec(300);  // Default fallback rate
+  // }
+  // 
+  // // Prevent potential overflow in multiplication
+  // int64_t cwnd_bits = static_cast<int64_t>(cwnd.bytes()) * 8;
+  // int64_t rtt_ms = current_rtt.ms();
+  // 
+  // // Check for potential overflow
+  // if (cwnd_bits > (std::numeric_limits<int64_t>::max() / 1000)) {
+  //   RTC_LOG(LS_WARNING) << "Potential overflow in rate calculation, using default rate";
+  //   return DataRate::KilobitsPerSec(300);
+  // }
+  // 
+  // int64_t rate_bps = (cwnd_bits * 1000) / rtt_ms;
+  // 
+  // // Ensure the result is positive and reasonable
+  // if (rate_bps <= 0) {
+  //   RTC_LOG(LS_WARNING) << "Invalid rate calculation result: " << rate_bps << " bps, using default";
+  //   return DataRate::KilobitsPerSec(300);
+  // }
+  // 
+  // DataRate base_rate = DataRate::BitsPerSec(rate_bps);
+  
+  // Get current RTT for additive increase calculations
   TimeDelta current_rtt = rtt_.value();
   if (min_rtt_estimate_.has_value()) {
     current_rtt = std::max(current_rtt, min_rtt_estimate_.value());
   }
-  
-  // Calculate the base rate using the congestion window
-  DataSize cwnd = CalculateCongestionWindow();
-  
-  // Add safety checks to prevent division by zero or overflow
-  if (current_rtt.ms() <= 0) {
-    RTC_LOG(LS_WARNING) << "Invalid RTT in Prague controller: " << current_rtt.ms() << "ms, using default rate";
-    return DataRate::KilobitsPerSec(300);  // Default fallback rate
-  }
-  
-  // Prevent potential overflow in multiplication
-  int64_t cwnd_bits = static_cast<int64_t>(cwnd.bytes()) * 8;
-  int64_t rtt_ms = current_rtt.ms();
-  
-  // Check for potential overflow
-  if (cwnd_bits > (std::numeric_limits<int64_t>::max() / 1000)) {
-    RTC_LOG(LS_WARNING) << "Potential overflow in rate calculation, using default rate";
-    return DataRate::KilobitsPerSec(300);
-  }
-  
-  int64_t rate_bps = (cwnd_bits * 1000) / rtt_ms;
-  
-  // Ensure the result is positive and reasonable
-  if (rate_bps <= 0) {
-    RTC_LOG(LS_WARNING) << "Invalid rate calculation result: " << rate_bps << " bps, using default";
-    return DataRate::KilobitsPerSec(300);
-  }
-  
-  DataRate base_rate = DataRate::BitsPerSec(rate_bps);
   
   // Apply Prague's scalable congestion control formula
   if (ecn_ce_ratio_ > 0) {
