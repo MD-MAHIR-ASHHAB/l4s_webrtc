@@ -50,8 +50,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
           std::make_unique<SendSideBandwidthEstimation>(&env_.field_trials(),
                                                         &env_.event_log())),
       probe_bitrate_estimator_(
-          std::make_unique<ProbeBitrateEstimator>(&env_.field_trials(),
-                                                  &env_.event_log())) {
+          std::make_unique<ProbeBitrateEstimator>(&env_.event_log())) {
   // Enable more aggressive probing to discover high-capacity networks
   probe_controller_->EnableRepeatedInitialProbing(true);
 
@@ -411,8 +410,8 @@ NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
 NetworkControlUpdate L4SNetworkController::OnSentPacket(SentPacket msg) {
   NetworkControlUpdate update;
 
-  // Feed sent packets to probe bitrate estimator for probe result calculation
-  probe_bitrate_estimator_->OnSentPacket(msg);
+  // // Feed sent packets to probe bitrate estimator for probe result calculation
+  // probe_bitrate_estimator_->OnSentPacket(msg);
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -538,7 +537,15 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   }
 
   // 1.5. Process probe results to help BWE discover network capacity
-  probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(feedback);
+  // probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(feedback);
+  for (const auto& packet_feedback : feedback.packet_feedbacks) {
+    if (packet_feedback.sent_packet.has_value()) {
+      PacketResult packet_result;
+      packet_result.sent_packet = packet_feedback.sent_packet.value();
+      packet_result.receive_time = packet_feedback.receive_time;
+      probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_result);
+    }
+  }
   auto probe_result =
       probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
   if (probe_result.has_value()) {
@@ -546,9 +553,8 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     RTC_LOG(LS_WARNING) << "L4S: Probe result - estimated bitrate: "
                         << probe_result->bps() << " bps";
 
-    // Feed probe result to bandwidth estimation
-    bandwidth_estimation_->UpdateEstimate(feedback.feedback_time,
-                                          *probe_result);
+    // Feed probe result to bandwidth estimation - fix the call
+    bandwidth_estimation_->UpdateEstimate(feedback.feedback_time);
 
     // If probe shows much higher capacity than current estimate, be aggressive
     if (*probe_result > last_delay_based_estimate_ * 2.0) {
@@ -675,7 +681,7 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   if (IsL4SActive()) {
     RTC_LOG(LS_INFO)
         << "L4S is active, getting target rate from Prague controller";
-    DataRate current_rate_for_transport =
+    DataRate current_rate_for_transport_ =
         target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
     // Consider BWE estimates when determining capacity limits
