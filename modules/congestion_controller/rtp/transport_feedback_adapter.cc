@@ -227,9 +227,14 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       ++failed_lookups;
       return;
     }
-    if (delta_since_base.IsFinite()) {
+    if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
       packet_feedback->receive_time =
           current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+      // Ensure the calculated receive time is valid
+      if (!packet_feedback->receive_time.IsFinite()) {
+        RTC_LOG(LS_WARNING) << "Invalid receive_time calculated in Transport Feedback processing";
+        packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
+      }
     }
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
@@ -260,13 +265,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   int ecn_marked_received = 0;
   
   for (const auto& result : packet_result_vector) {
-    if (result.sent_packet.sequence_number > 0) { // Valid packet
+    // Only process packets that were actually received (have finite receive times)
+    if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
       if (result.ecn != EcnMarking::kNotEct) {
         ecn_marked_sent++;
-        if (result.receive_time.IsFinite()) {
-          ecn_marked_received++;
-          supports_ecn = true;
-        }
+        ecn_marked_received++;
+        supports_ecn = true;
       }
     }
   }
@@ -326,11 +330,17 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     }
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
-    if (packet_info.arrival_time_offset.IsFinite()) {
+    if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
-      // ECN support is confirmed if we receive any packet with ECN marking
-      if (packet_info.ecn != EcnMarking::kNotEct) {
-        supports_ecn = true;
+      // Ensure the calculated receive time is valid
+      if (!result.receive_time.IsFinite()) {
+        RTC_LOG(LS_WARNING) << "Invalid receive_time calculated from timestamp arithmetic";
+        result.receive_time = Timestamp::PlusInfinity(); // Mark as not received
+      } else {
+        // ECN support is confirmed if we receive any packet with ECN marking
+        if (packet_info.ecn != EcnMarking::kNotEct) {
+          supports_ecn = true;
+        }
       }
     }
     result.ecn = packet_info.ecn;

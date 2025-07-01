@@ -105,6 +105,10 @@ void PacketRouter::ConfigureForRfc8888Feedback(bool send_rtp_packets_as_ect1) {
   use_cc_feedback_according_to_rfc8888_ = true;
   send_rtp_packets_as_ect1_ = send_rtp_packets_as_ect1;
 
+  RTC_LOG(LS_INFO) << "PacketRouter: ConfigureForRfc8888Feedback called with send_ect1=" 
+                   << (send_rtp_packets_as_ect1 ? "TRUE" : "FALSE")
+                   << ", modules count=" << send_modules_list_.size();
+
   for (RtpRtcpInterface* rtp_module : send_modules_list_) {
     rtp_module->SetRfc8888Feedback(send_rtp_packets_as_ect1);
   }
@@ -227,6 +231,19 @@ void PacketRouter::SendPacket(std::unique_ptr<RtpPacketToSend> packet,
   }
   if (send_rtp_packets_as_ect1_) {
     packet->set_send_as_ect1();
+    static std::atomic<int> ect1_packet_count{0};
+    int current_count = ect1_packet_count.fetch_add(1, std::memory_order_relaxed);
+    if (current_count % 100 == 0) {  // Log every 100th packet to reduce verbosity
+      RTC_LOG(LS_INFO) << "PacketRouter: Marked packet #" << current_count << " as ECT(1)";
+    }
+  } else {
+    static std::atomic<int> non_ect1_packet_count{0};
+    int current_count = non_ect1_packet_count.fetch_add(1, std::memory_order_relaxed);
+    if (current_count % 100 == 0) {  // Log every 100th packet to reduce verbosity
+      RTC_LOG(LS_INFO) << "PacketRouter: NOT marking packet #" << current_count 
+                       << " as ECT(1) (send_rtp_packets_as_ect1_=" 
+                       << (send_rtp_packets_as_ect1_ ? "true" : "false") << ")";
+    }
   }
   rtp_module->AssignSequenceNumber(*packet);
   if (notify_bwe_callback_) {
