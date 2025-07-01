@@ -439,9 +439,6 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // Consider BWE estimates when determining capacity limits
     DataRate bwe_based_limit = max_realistic_bandwidth_;
     
-    // Consider BWE estimates when determining capacity limits
-    DataRate bwe_based_limit = max_realistic_bandwidth_;
-    
     // CRITICAL FIX: If delay-based estimate is much higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
     if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 2) {
