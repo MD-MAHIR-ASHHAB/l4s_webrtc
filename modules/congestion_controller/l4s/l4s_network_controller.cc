@@ -143,14 +143,14 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // CRITICAL FIX: If delay-based estimate is higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
-    // Changed from 1.2x to 1.05x to be very responsive to network capacity increases
-    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.05) {
-      bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
+    // Changed to 1.02x to be very responsive to network capacity increases
+    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.02) {
+      bwe_based_limit = last_delay_based_estimate_ * 0.9; // Use 90% of delay estimate directly (increased from 80%)
       // IMPORTANT: Update the stored max to prevent getting stuck in this condition
       max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.95; // Conservative but higher than current
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (20% higher than stored max " << (max_realistic_bandwidth_ / 0.9).bps() 
-                          << "), updated max_realistic_bandwidth_ to " << max_realistic_bandwidth_.bps() << " bps";
+                          << " as capacity (10% buffer from full estimate), updated max_realistic_bandwidth_ to " 
+                          << max_realistic_bandwidth_.bps() << " bps, bwe_based_limit=" << bwe_based_limit.bps() << " bps";
     }
     
     RTC_LOG(LS_INFO) << "L4S OnProcessInterval BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
@@ -161,6 +161,8 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     if (last_delay_based_estimate_ > DataRate::Zero()) {
       // Start at 95% of delay estimate for faster ramp-up, but allow gradual approach to full estimate
       DataRate delay_limit = last_delay_based_estimate_ * 0.95; // Increased from 0.9 to 0.95 for faster ramp-up
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Initial delay_limit=" << delay_limit.bps() 
+                          << " (95% of " << last_delay_based_estimate_.bps() << ")";
       
       // If current rate is close to the conservative limit and there's headroom, 
       // allow approaching closer to the full delay estimate
@@ -176,6 +178,8 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
                             << last_delay_based_estimate_.bps() << " bps)";
       }
       
+      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval DEBUG: Final delay_limit=" << delay_limit.bps() 
+                          << ", bwe_based_limit before min=" << bwe_based_limit.bps();
       bwe_based_limit = std::min(bwe_based_limit, delay_limit);
       RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Applied delay-based limit=" << delay_limit.bps() 
                           << " (based on " << last_delay_based_estimate_.bps() << "), bwe_based_limit now=" << bwe_based_limit.bps();
@@ -469,14 +473,14 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // CRITICAL FIX: If delay-based estimate is higher than our stored max, use delay-based estimate
     // This prevents getting stuck at artificially low limits due to historical congestion
-    // Changed from 1.2x to 1.05x to be very responsive to network capacity increases
-    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.05) {
-      bwe_based_limit = last_delay_based_estimate_ * 0.8; // Use 80% of delay estimate directly
+    // Changed to 1.02x to be very responsive to network capacity increases
+    if (last_delay_based_estimate_ > max_realistic_bandwidth_ * 1.02) {
+      bwe_based_limit = last_delay_based_estimate_ * 0.9; // Use 90% of delay estimate directly (increased from 80%)
       // Update the stored max to prevent this issue from repeating
       max_realistic_bandwidth_ = last_delay_based_estimate_ * 0.95; // 95% of delay estimate
       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based estimate " << last_delay_based_estimate_.bps() 
-                          << " as capacity (20% higher than stored max), updating max_realistic_bandwidth_ to " 
-                          << max_realistic_bandwidth_.bps() << " bps";
+                          << " as capacity (10% buffer from full estimate), updating max_realistic_bandwidth_ to " 
+                          << max_realistic_bandwidth_.bps() << " bps, bwe_based_limit=" << bwe_based_limit.bps() << " bps";
     }
     
     RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps() 
