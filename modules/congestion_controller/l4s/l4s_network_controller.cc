@@ -100,14 +100,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   if (!last_delay_based_estimate_.IsFinite()) {
     RTC_LOG(LS_ERROR) << "L4S: CRITICAL - last_delay_based_estimate_ is not finite!";
     last_delay_based_estimate_ = DataRate::Zero();
-  }  }
+  }
 }
 
 L4SNetworkController::~L4SNetworkController() = default;
 
-NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
-    NetworkAvailability msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
+    webrtc::NetworkAvailability msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
@@ -117,9 +117,9 @@ NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
-    NetworkRouteChange msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
+    webrtc::NetworkRouteChange msg) {
+  webrtc::NetworkControlUpdate update;
 
   RTC_LOG(LS_WARNING) << "L4S: OnNetworkRouteChange called";
 
@@ -154,9 +154,9 @@ NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnProcessInterval(
-    ProcessInterval msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
+    webrtc::ProcessInterval msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Get rate from Prague controller if active
   if (IsL4SActive()) {
@@ -336,9 +336,9 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
-    RemoteBitrateReport msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
+    webrtc::RemoteBitrateReport msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
@@ -348,9 +348,9 @@ NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
-    RoundTripTimeUpdate msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
+    webrtc::RoundTripTimeUpdate msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Update Prague controller
   prague_controller_->UpdateRtt(msg.round_trip_time);
@@ -363,8 +363,8 @@ NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnSentPacket(SentPacket msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnSentPacket(webrtc::SentPacket msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -374,9 +374,9 @@ NetworkControlUpdate L4SNetworkController::OnSentPacket(SentPacket msg) {
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnReceivedPacket(
-    ReceivedPacket msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnReceivedPacket(
+    webrtc::ReceivedPacket msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
@@ -386,8 +386,8 @@ NetworkControlUpdate L4SNetworkController::OnReceivedPacket(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnStreamsConfig(webrtc::StreamsConfig msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -397,9 +397,9 @@ NetworkControlUpdate L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnTargetRateConstraints(
-    TargetRateConstraints msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnTargetRateConstraints(
+    webrtc::TargetRateConstraints msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Update constraints
   min_target_rate_ = msg.min_data_rate;
@@ -413,9 +413,9 @@ NetworkControlUpdate L4SNetworkController::OnTargetRateConstraints(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
-    TransportLossReport msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
+    webrtc::TransportLossReport msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
@@ -426,9 +426,9 @@ NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
 }
 
 // In OnTransportPacketsFeedback method:
-NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
-    TransportPacketsFeedback feedback) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
+    webrtc::TransportPacketsFeedback feedback) {
+  webrtc::NetworkControlUpdate update;
 
   // Validate feedback time to prevent invalid timestamps
   if (!feedback.feedback_time.IsFinite() || feedback.feedback_time.us() < 0) {
@@ -771,9 +771,9 @@ NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   return update;
 }
 
-NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
-    NetworkStateEstimate msg) {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
+    webrtc::NetworkStateEstimate msg) {
+  webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
@@ -784,9 +784,9 @@ NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
 }
 
 // In CreateRateUpdate method:
-NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
-    Timestamp at_time) const {
-  NetworkControlUpdate update;
+webrtc::NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
+    webrtc::Timestamp at_time) const {
+  webrtc::NetworkControlUpdate update;
 
   // Log input timestamp value before IsFinite check
   // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: input at_time.us()=" <<
