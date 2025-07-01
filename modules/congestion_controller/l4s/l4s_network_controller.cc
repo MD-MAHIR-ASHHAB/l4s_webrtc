@@ -333,6 +333,7 @@ NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   
   // Set target rate and bandwidth estimate
   update.target_rate = TargetTransferRate();
+  update.target_rate->at_time = at_time;  // Set the top-level at_time field
   update.target_rate->network_estimate.at_time = at_time;
   update.target_rate->network_estimate.bandwidth = current_rate;
   update.target_rate->network_estimate.loss_rate_ratio = 0.0f;
