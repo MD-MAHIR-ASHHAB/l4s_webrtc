@@ -232,15 +232,16 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   
   if (time_since_update > TimeDelta::Zero()) {
     // Additive increase proportional to 1/RTT (RTT-fairness)
-    double rtt_seconds = current_rtt.seconds();
+    double rtt_seconds = current_rtt.seconds<double>();  // Use double precision
     
     // Log values before calculations
     RTC_LOG(LS_INFO) << "Prague controller time calculation: time_since_update=" 
                      << time_since_update.ms() << "ms, rtt_seconds=" << rtt_seconds;
     
-    if (rtt_seconds <= 0) {
-      RTC_LOG(LS_WARNING) << "Invalid RTT seconds: " << rtt_seconds;
-      return base_rate;
+    // Use a minimum RTT of 1ms (0.001 seconds) to avoid division by zero
+    if (rtt_seconds <= 0.001) {
+      RTC_LOG(LS_INFO) << "RTT too small (" << rtt_seconds << "s), using minimum 0.001s";
+      rtt_seconds = 0.001;  // 1ms minimum
     }
     
     double increase_factor = 1.0 + 
