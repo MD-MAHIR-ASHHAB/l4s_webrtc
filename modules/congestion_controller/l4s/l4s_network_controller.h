@@ -11,14 +11,12 @@
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
-#include "modules/congestion_controller/goog_cc/probe_controller.h"
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 // GCC-inspired bandwidth estimation integration
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
-#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 
 namespace webrtc {
@@ -78,9 +76,6 @@ class L4SNetworkController : public NetworkControllerInterface {
   // L4S-specific controllers
   std::unique_ptr<L4SPragueController> prague_controller_;
   
-  // GCC components we can reuse
-  std::unique_ptr<ProbeController> probe_controller_;
-  
   // Current state
   bool ecn_supported_ = false;
   bool ecn_capable_network_ = false;
@@ -105,12 +100,10 @@ class L4SNetworkController : public NetworkControllerInterface {
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
   std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
-  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   
   // Bandwidth estimation tracking
   DataRate last_acknowledged_rate_ = DataRate::Zero();
   DataRate last_delay_based_estimate_ = DataRate::Zero();
-  std::optional<DataRate> last_probe_result_;
   
   // Enhanced RTT tracking (similar to GCC)
   std::deque<int64_t> feedback_max_rtts_;
