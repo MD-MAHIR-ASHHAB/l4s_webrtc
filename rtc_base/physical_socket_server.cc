@@ -375,38 +375,38 @@ int PhysicalSocket::SetOption(Option opt, int value) {
   } else if (opt == OPT_DSCP) {
     // IP DiffServ  consists of DSCP 6 most significant, ECN 2 least
     // significant.
-    RTC_LOG(LS_INFO) << "PREVIOUSLY in dscp-> value: " << value
-                    << " dscp: " << dscp_
-                    << " ecn: " << ecn_;
+    // RTC_LOG(LS_INFO) << "PREVIOUSLY in dscp-> value: " << value
+    //                 << " dscp: " << dscp_
+    //                 << " ecn: " << ecn_;
 
     dscp_ = value << 2;
     value = dscp_ + (ecn_ & kEcnMask);
 
-    RTC_LOG(LS_INFO) << "AFTER in dscp-> value: " << value
-                    << " dscp: " << dscp_
-                    << " ecn: " << ecn_;
+    // RTC_LOG(LS_INFO) << "AFTER in dscp-> value: " << value
+    //                 << " dscp: " << dscp_
+    //                 << " ecn: " << ecn_;
 
 
 
   } 
   
   else if (opt == OPT_SEND_ECN) {
-    RTC_LOG(LS_INFO) << "PREVIOUSLY in opt send -> value: " << value
-                     << " dscp: " << dscp_
-                     << " ecn: " << ecn_;
+    // RTC_LOG(LS_INFO) << "PREVIOUSLY in opt send -> value: " << value
+    //                  << " dscp: " << dscp_
+    //                  << " ecn: " << ecn_;
     ecn_ = value;
     value = dscp_ + (ecn_ & kEcnMask);
 
-    RTC_LOG(LS_INFO) << "AFTER in opt send -> value: " << value
-                     << " dscp: " << dscp_
-                     << " ecn: " << ecn_;
+    // RTC_LOG(LS_INFO) << "AFTER in opt send -> value: " << value
+    //                  << " dscp: " << dscp_
+    //                  << " ecn: " << ecn_;
                      
 
-    RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
-                     << (ecn_ == 0
-                             ? "Not-ECT"
-                             : (ecn_ == 1 ? "ECT(1)"
-                                          : (ecn_ == 2 ? "ECT(0)" : "CE")));
+    // RTC_LOG(LS_INFO) << "Socket setting outgoing ECN marking: "
+    //                  << (ecn_ == 0
+    //                          ? "Not-ECT"
+    //                          : (ecn_ == 1 ? "ECT(1)"
+    //                                       : (ecn_ == 2 ? "ECT(0)" : "CE")));
   }
 #if defined(WEBRTC_POSIX)
   if (sopt == IPV6_TCLASS) {
