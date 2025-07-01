@@ -68,8 +68,8 @@ void L4SPragueController::UpdateEcnFeedback(
     }
   }
   
-  // Log packet counts for this feedback
-  if (ce_packets > 0 || ect_packets > 0) {
+  // Only log if CE packets were detected
+  if (ce_packets > 0) {
     RTC_LOG(LS_INFO) << "Prague ECN feedback: ECT packets=" << ect_packets 
                      << ", CE packets=" << ce_packets 
                      << " (total ECT+CE so far: " << (total_ect_packets_ + ect_packets) << ")";

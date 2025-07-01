@@ -279,12 +279,15 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       }
     }
   }
+
   
-  RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
-                   << packet_result_vector.size() << " packets, "
-                   << "ECN marked sent: " << ecn_marked_sent
-                   << ", ECN marked received: " << ecn_marked_received
-                   << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
+  // Log the processed feedback details
+  // Uncomment the following line to enable logging of transport feedback processing
+  // RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
+  //                  << packet_result_vector.size() << " packets, "
+  //                  << "ECN marked sent: " << ecn_marked_sent
+  //                  << ", ECN marked received: " << ecn_marked_received
+  //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn);

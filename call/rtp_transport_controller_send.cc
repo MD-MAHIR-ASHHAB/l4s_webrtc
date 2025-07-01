@@ -707,7 +707,8 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
         transport_feedback_adapter_.SetEcnMarking(EcnMarking::kNotEct);
       }
     } else {
-      RTC_LOG(LS_INFO) << "Transport confirmed to support ECN after " << ecn_detection_attempts_ << " attempts.";
+    // Transport confirmed to support ECN, reset detection attempts.
+      //RTC_LOG(LS_INFO) << "Transport confirmed to support ECN after " << ecn_detection_attempts_ << " attempts.";
       ecn_detection_attempts_ = 0; // Reset counter on successful detection
     }
   } else if (feedback.transport_supports_ecn) {
