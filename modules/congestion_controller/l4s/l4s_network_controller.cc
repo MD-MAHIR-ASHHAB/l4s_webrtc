@@ -124,7 +124,8 @@ NetworkControlUpdate L4SNetworkController::OnProcessInterval(
   
   // Get rate from Prague controller if active
   if (IsL4SActive()) {
-    auto prague_rate = prague_controller_->GetTargetRate(msg.at_time);
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    auto prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_rate);
     if (prague_rate) {
       target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
