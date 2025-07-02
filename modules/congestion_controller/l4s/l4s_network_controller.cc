@@ -338,15 +338,67 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       }
     }
     
+    // Update ProbeController with our current bandwidth estimate
+    // This helps it decide when and at what rates to probe
+    if (target_rate_.has_value()) {
+      BandwidthLimitedCause cause = BandwidthLimitedCause::kDelayBasedLimited;
+      
+      // Determine the limiting factor to inform ProbeController's decision making
+      if (last_acknowledged_rate_ > DataRate::Zero() && 
+          target_rate_->bps() <= last_acknowledged_rate_.bps() * 1.1) {
+        // We're limited by acknowledgment-based rate (likely loss or ack rate)
+        cause = BandwidthLimitedCause::kLossLimitedBwe;
+      }
+      
+      auto estimate_probe_clusters = probe_controller_->SetEstimatedBitrate(
+          *target_rate_, cause, msg.at_time);
+      
+      if (!estimate_probe_clusters.empty()) {
+        // Add any immediate probes triggered by the estimate update
+        if (update.probe_cluster_configs.empty()) {
+          update.probe_cluster_configs = std::move(estimate_probe_clusters);
+        } else {
+          // Merge with existing probes from Process() call
+          update.probe_cluster_configs.insert(
+              update.probe_cluster_configs.end(),
+              std::make_move_iterator(estimate_probe_clusters.begin()),
+              std::make_move_iterator(estimate_probe_clusters.end()));
+        }
+        
+        RTC_LOG(LS_INFO) << "L4S: Estimate update triggered " << estimate_probe_clusters.size() 
+                         << " additional probe(s) at " << target_rate_->bps() << " bps";
+      }
+    }
+
     // Use ProbeController for bandwidth discovery
     auto probe_clusters = probe_controller_->Process(msg.at_time);
     if (!probe_clusters.empty()) {
       update.probe_cluster_configs = std::move(probe_clusters);
       
       RTC_LOG(LS_INFO) << "L4S: ProbeController initiated " << update.probe_cluster_configs.size() 
-                       << " probe cluster(s)";
+                       << " probe cluster(s) at time " << msg.at_time.ms() << " ms";
       for (const auto& probe : update.probe_cluster_configs) {
-        RTC_LOG(LS_INFO) << "L4S: Probe at " << probe.target_data_rate.bps() << " bps";
+        RTC_LOG(LS_INFO) << "L4S: Probe cluster id=" << probe.id 
+                         << " target_rate=" << probe.target_data_rate.bps() << " bps"
+                         << " duration=" << probe.target_duration.ms() << " ms"
+                         << " count=" << probe.target_probe_count;
+      }
+      
+      // Log probe context for debugging
+      if (alr_start_time_) {
+        auto alr_duration = msg.at_time - *alr_start_time_;
+        RTC_LOG(LS_INFO) << "L4S: Probing while in ALR for " << alr_duration.ms() << " ms";
+      } else {
+        RTC_LOG(LS_INFO) << "L4S: Probing while not in ALR state";
+      }
+    } else {
+      // Log why no probes are being generated (every 10 seconds for debugging)
+      static Timestamp last_no_probe_log = Timestamp::Zero();
+      if (msg.at_time - last_no_probe_log > TimeDelta::Seconds(10)) {
+        last_no_probe_log = msg.at_time;
+        RTC_LOG(LS_INFO) << "L4S: No probes generated - ALR=" << (alr_start_time_.has_value() ? "yes" : "no")
+                         << " sending_rate=" << current_sending_rate.bps() << " bps"
+                         << " estimated_capacity=" << estimated_capacity.bps() << " bps";
       }
     }
   } else if (fallback_to_gcc_) {
