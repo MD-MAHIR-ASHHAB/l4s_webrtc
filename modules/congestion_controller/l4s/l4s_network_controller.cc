@@ -84,6 +84,11 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   
   // Enable periodic ALR probing for bandwidth discovery
   probe_controller_->EnablePeriodicAlrProbing(true);
+  
+  // Set initial bitrates in ProbeController to enable probing
+  DataRate min_bitrate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+  probe_controller_->SetBitrates(min_bitrate, start_bitrate_, max_bitrate_,
+                                env_.clock().CurrentTime());
 
   RTC_LOG(LS_WARNING) << "L4S network controller created"
                       << " fallback_to_gcc: " << fallback_to_gcc_
@@ -304,6 +309,27 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       }
 
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+    }
+    
+    // Check if we're in ALR (Application Limited Region) to enable probing
+    // ALR occurs when we're sending below our estimated capacity
+    DataRate current_sending_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    DataRate estimated_capacity = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
+    
+    if (estimated_capacity > DataRate::Zero() && 
+        current_sending_rate < estimated_capacity * 0.8) {  // Using less than 80% of capacity
+      if (!alr_start_time_) {
+        alr_start_time_ = msg.at_time;
+        probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
+        RTC_LOG(LS_INFO) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
+                         << " bps < 80% of capacity " << estimated_capacity.bps() << " bps";
+      }
+    } else {
+      if (alr_start_time_) {
+        probe_controller_->SetAlrEndedTimeMs(msg.at_time.ms());
+        alr_start_time_.reset();
+        RTC_LOG(LS_INFO) << "L4S: Exited ALR state";
+      }
     }
     
     // Use ProbeController for bandwidth discovery

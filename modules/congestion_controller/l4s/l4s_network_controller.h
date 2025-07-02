@@ -117,6 +117,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   // Probing state tracking
   DataRate start_bitrate_ = DataRate::Zero();
   DataRate max_bitrate_ = DataRate::PlusInfinity();
+  std::optional<Timestamp> alr_start_time_;
 };
 
 /*
