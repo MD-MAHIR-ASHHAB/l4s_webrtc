@@ -343,7 +343,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     // Also try a different ALR condition: if acknowledged rate is much lower than delay estimate
     bool alternative_alr_condition = false;
-    if (last_delay_based_estimate_ > DataRate::Zero() && last_acknowledged_rate_ > DataRate::Zero()) {
+    if (last_delay_based_estimate_ > DataRate::Zero() && last_acknowledged_rate_ > DataRate::Zero() &&
+        last_delay_based_estimate_ > last_acknowledged_rate_) {  // Only if delay estimate is higher
       DataRate rate_gap = last_delay_based_estimate_ - last_acknowledged_rate_;
       if (rate_gap > last_delay_based_estimate_ * 0.3) {  // 30% gap suggests underutilization
         alternative_alr_condition = true;
@@ -361,7 +362,6 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     static Timestamp last_alr_log = Timestamp::Zero();
     if (msg.at_time - last_alr_log > TimeDelta::Seconds(3)) {  // More frequent ALR logging
       last_alr_log = msg.at_time;
-      DataRate rate_gap = last_delay_based_estimate_ - last_acknowledged_rate_;
       RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
                           << " alt_alr=" << (alternative_alr_condition ? "yes" : "no")
                           << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
@@ -369,8 +369,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
                           << " capacity=" << estimated_capacity.bps() << " bps"
                           << " threshold=" << (estimated_capacity * 0.9).bps() << " bps"
                           << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
-                          << " acked_est=" << last_acknowledged_rate_.bps() << " bps"
-                          << " rate_gap=" << rate_gap.bps() << " bps";
+                          << " acked_est=" << last_acknowledged_rate_.bps() << " bps";
     }
     
     // Update ProbeController with our current bandwidth estimate
@@ -656,7 +655,16 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
           false);
 
   if (delay_result.updated) {
-    last_delay_based_estimate_ = delay_result.target_bitrate;
+    // Validate delay-based estimate before setting
+    if (delay_result.target_bitrate.IsFinite() && delay_result.target_bitrate > DataRate::Zero()) {
+      last_delay_based_estimate_ = delay_result.target_bitrate;
+      RTC_LOG(LS_INFO) << "L4S: Updated delay-based estimate to " << last_delay_based_estimate_.bps() << " bps";
+    } else {
+      RTC_LOG(LS_WARNING) << "L4S: Received invalid delay-based estimate: " 
+                          << delay_result.target_bitrate.bps() << " bps, keeping previous value: "
+                          << last_delay_based_estimate_.bps() << " bps";
+    }
+    
     bandwidth_estimation_->UpdateDelayBasedEstimate(
         feedback.feedback_time, delay_result.target_bitrate);
 
