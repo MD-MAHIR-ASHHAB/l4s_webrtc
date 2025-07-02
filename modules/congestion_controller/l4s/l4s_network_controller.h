@@ -18,6 +18,7 @@
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
+#include "modules/congestion_controller/goog_cc/probe_controller.h"
 
 namespace webrtc {
 
@@ -53,17 +54,20 @@ class L4SNetworkController : public NetworkControllerInterface {
       TransportPacketsFeedback msg) override;
   NetworkControlUpdate OnNetworkStateEstimate(
       NetworkStateEstimate msg) override;
-      
-  bool IsL4SActive() const;
 
 
  private:
   NetworkControlUpdate CreateRateUpdate(Timestamp at_time) const;
   void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update,
                                     Timestamp at_time);
+  bool IsL4SActive() const;
   
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
   void UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback);
+  
+  // ProbeController integration methods
+  void ProcessProbeClusterCreated(ProbeClusterCreated probe_cluster_created);
+  void ProcessProbeResultSuccess(DataRate probe_bitrate);
 
   std::optional<Timestamp> last_update_time_;
   TimeDelta update_interval_ = TimeDelta::Millis(25);
@@ -100,6 +104,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
   std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
+  std::unique_ptr<ProbeController> probe_controller_;
   
   // Bandwidth estimation tracking
   DataRate last_acknowledged_rate_ = DataRate::Zero();
@@ -108,6 +113,10 @@ class L4SNetworkController : public NetworkControllerInterface {
   // Enhanced RTT tracking (similar to GCC)
   std::deque<int64_t> feedback_max_rtts_;
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::PlusInfinity();
+  
+  // Probing state tracking
+  DataRate start_bitrate_ = DataRate::Zero();
+  DataRate max_bitrate_ = DataRate::PlusInfinity();
 };
 
 /*
