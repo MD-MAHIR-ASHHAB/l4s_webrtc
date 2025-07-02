@@ -381,7 +381,15 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       // Use the higher of delay-based and acknowledged rate as the current estimate
       DataRate network_estimate = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
       if (network_estimate > DataRate::Zero()) {
-        probe_controller_->SetNetworkStateEstimate(network_estimate, msg.at_time);
+        NetworkStateEstimate state_estimate;
+        state_estimate.update_time = msg.at_time;
+        state_estimate.link_capacity = network_estimate;
+        state_estimate.link_capacity_lower = network_estimate * 0.8;
+        state_estimate.link_capacity_upper = network_estimate * 1.5;
+        state_estimate.propagation_delay = TimeDelta::Millis(25);  // Default propagation delay
+        state_estimate.confidence = 0.8;
+        
+        probe_controller_->SetNetworkStateEstimate(state_estimate);
         RTC_LOG(LS_WARNING) << "L4S: SetNetworkStateEstimate called with rate=" << network_estimate.bps() << " bps";
       }
       
