@@ -298,73 +298,26 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         prague_rate = DataRate::KilobitsPerSec(300);
       }
 
-      // Allow Prague to exceed BWE limit if there's no recent congestion and the increase is reasonable
-      bool allow_exploration = true;
-      DataRate max_exploration_rate = DataRate::Zero();
-      
-      // Validate bwe_based_limit before using it for calculations
-      if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
-        max_exploration_rate = bwe_based_limit * 1.2;  // Allow 20% above BWE limit for exploration
-      } else {
-        max_exploration_rate = DataRate::KilobitsPerSec(2000);  // Safe fallback for exploration
-        RTC_LOG(LS_WARNING) << "L4S: Invalid bwe_based_limit " << bwe_based_limit.bps() 
-                            << " bps, using fallback exploration limit";
-      }
-      
+      // CRITICAL: Cap Prague rate immediately to prevent any potential overflow/infinite values
       if (prague_rate.value() > bwe_based_limit) {
-        // Check if we've seen recent congestion signals that would prevent exploration
-        TimeDelta time_since_congestion = TimeDelta::PlusInfinity();
-        if (last_congestion_signal_.IsFinite()) {
-          time_since_congestion = msg.at_time - last_congestion_signal_;
-        }
-        
-        // Allow exploration if:
-        // 1. No recent congestion (>5 seconds ago or never)
-        // 2. The rate increase is reasonable (<20% above BWE limit)
-        // 3. We're not drastically exceeding the BWE estimate
-        if (time_since_congestion > TimeDelta::Seconds(5) && 
-            prague_rate.value() <= max_exploration_rate &&
-            prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
-          allow_exploration = true;
-          RTC_LOG(LS_WARNING) << "L4S: Allowing Prague exploration to " << prague_rate.value().bps() 
-                              << " bps (BWE limit: " << bwe_based_limit.bps() << " bps, no congestion for " 
-                              << time_since_congestion.seconds() << " sec)";
-          
-          // Validate the rate before setting it
-          if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
-            target_rate_ = prague_rate;
-          } else {
-            RTC_LOG(LS_WARNING) << "L4S: Invalid exploration rate " << prague_rate.value().bps() 
-                                << " bps, using BWE limit instead";
-            target_rate_ = bwe_based_limit;
-          }
-          
-          // Force a probe at this higher rate to validate the increase
-          auto exploration_probes = probe_controller_->RequestProbe(msg.at_time);
-          if (!exploration_probes.empty()) {
-            update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-                                               exploration_probes.begin(), exploration_probes.end());
-            RTC_LOG(LS_WARNING) << "L4S: Forced exploration probe at " << target_rate_->bps() << " bps";
-          }
-        } else {
-          allow_exploration = false;
-          RTC_LOG(LS_WARNING) << "L4S: Preventing Prague exploration - recent congestion " 
-                              << time_since_congestion.seconds() << " sec ago, rate too high: "
-                              << prague_rate.value().bps() << " vs max " << max_exploration_rate.bps()
-                              << " or invalid rate";
-        }
-      }
-      
-      if (!allow_exploration || prague_rate.value() > max_exploration_rate) {
         RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
-                            << " exceeds safe limit, capping to " << bwe_based_limit.bps();
-        prague_rate = bwe_based_limit;
-        target_rate_ = prague_rate;
+                            << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
+        
+        // Validate the capped rate before assignment
+        if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
+          prague_rate = bwe_based_limit;
+          target_rate_ = prague_rate;
+        } else {
+          RTC_LOG(LS_WARNING) << "L4S: Invalid BWE limit " << bwe_based_limit.bps() 
+                              << " bps, using safe fallback";
+          prague_rate = DataRate::KilobitsPerSec(300);
+          target_rate_ = prague_rate;
+        }
         
         // Force a probe to discover if higher rates are actually available
         DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-        DataRate probe_start = bwe_based_limit;
-        DataRate probe_max = bwe_based_limit * 1.5;  // Probe up to 50% above current estimate
+        DataRate probe_start = target_rate_.value();
+        DataRate probe_max = target_rate_.value() * 1.5;  // Probe up to 50% above current rate
         
         // Validate probe rates before calling SetBitrates
         if (probe_min.IsFinite() && probe_start.IsFinite() && probe_max.IsFinite() &&
@@ -376,24 +329,31 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           if (!forced_probe_clusters.empty()) {
             update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
                                                forced_probe_clusters.begin(), forced_probe_clusters.end());
-            RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << bwe_based_limit.bps() << " bps";
+            RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << target_rate_->bps() << " bps";
           }
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid probe rates - min=" << probe_min.bps() 
                               << " start=" << probe_start.bps() << " max=" << probe_max.bps() << " bps";
         }
-      } else if (allow_exploration) {
-        // Validate the rate before setting it
+      } else {
+        // Prague rate is within BWE limit, validate and set it
         if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
           target_rate_ = prague_rate;
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
-                              << " bps in exploration path, using fallback";
+                              << " bps, using safe fallback";
           target_rate_ = DataRate::KilobitsPerSec(300);
         }
       }
-
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+    }
+    
+    // Final safety check: ensure target_rate_ is always valid before proceeding
+    if (target_rate_.has_value() && 
+        (!target_rate_->IsFinite() || target_rate_->bps() <= 0)) {
+      RTC_LOG(LS_WARNING) << "L4S: Invalid final target_rate_ " << target_rate_->bps() 
+                          << " bps, resetting to safe fallback";
+      target_rate_ = DataRate::KilobitsPerSec(300);
     }
     
     // Check if we're in ALR (Application Limited Region) to enable probing
