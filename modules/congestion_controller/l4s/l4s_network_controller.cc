@@ -79,7 +79,6 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   }
   
   // Initialize ProbeController with bitrate constraints
-  DataRate min_probe_rate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
   start_bitrate_ = starting_rate_.value_or(DataRate::KilobitsPerSec(300));
   max_bitrate_ = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
   
@@ -218,7 +217,6 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         << bwe_based_limit.bps() << " bps";
 
     // Use delay-based estimate as the primary capacity indicator, but don't exceed max_realistic_bandwidth_
-    DataRate effective_capacity_limit = std::min(max_realistic_bandwidth_, last_delay_based_estimate_);
     
     // If we have a valid delay-based estimate, use it intelligently
     if (last_delay_based_estimate_ > DataRate::Zero()) {
@@ -968,11 +966,11 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
   }
 }
 
-void L4SNetworkController::ProcessProbeClusterCreated(ProbeClusterCreated probe_cluster_created) {
+void L4SNetworkController::ProcessProbeClusterCreated(ProbeClusterConfig probe_cluster_config) {
   // This method would be called when a probe cluster is actually created by the pacer
   // For now, we'll log it for debugging
-  RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe_cluster_created.id 
-                   << " created at " << probe_cluster_created.bitrate.bps() << " bps";
+  RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe_cluster_config.id 
+                   << " created at " << probe_cluster_config.target_data_rate.bps() << " bps";
 }
 
 void L4SNetworkController::ProcessProbeResultSuccess(DataRate probe_bitrate) {

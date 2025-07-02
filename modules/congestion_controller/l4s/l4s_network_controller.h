@@ -66,7 +66,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   void UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback);
   
   // ProbeController integration methods
-  void ProcessProbeClusterCreated(ProbeClusterCreated probe_cluster_created);
+  void ProcessProbeClusterCreated(ProbeClusterConfig probe_cluster_config);
   void ProcessProbeResultSuccess(DataRate probe_bitrate);
 
   std::optional<Timestamp> last_update_time_;
