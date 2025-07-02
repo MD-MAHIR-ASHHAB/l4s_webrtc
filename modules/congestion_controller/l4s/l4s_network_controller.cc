@@ -666,17 +666,17 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     
     // Create and set a network state estimate to help ProbeController make decisions
     NetworkStateEstimate network_estimate;
-    network_estimate.at_time = feedback.feedback_time;
-    network_estimate.bandwidth = delay_result.target_bitrate;
-    network_estimate.round_trip_time = last_estimated_round_trip_time_.IsFinite() ? 
-                                      last_estimated_round_trip_time_ : TimeDelta::Millis(50);
     network_estimate.update_time = feedback.feedback_time;
+    network_estimate.link_capacity = delay_result.target_bitrate;
     network_estimate.link_capacity_lower = delay_result.target_bitrate * 0.8;  // Conservative lower bound
     network_estimate.link_capacity_upper = delay_result.target_bitrate * 1.5;  // Optimistic upper bound
-    network_estimate.loss_rate_ratio = 0.0f;  // L4S should have minimal loss
+    network_estimate.propagation_delay = last_estimated_round_trip_time_.IsFinite() ? 
+                                         last_estimated_round_trip_time_ / 2 : 
+                                         TimeDelta::Millis(25);  // Half RTT for propagation delay
+    network_estimate.confidence = 0.8;  // Reasonably confident in L4S BWE
     
     probe_controller_->SetNetworkStateEstimate(network_estimate);
-    RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - bandwidth=" << network_estimate.bandwidth.bps() 
+    RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - link_capacity=" << network_estimate.link_capacity.bps() 
                         << " bps, lower=" << network_estimate.link_capacity_lower.bps() 
                         << " bps, upper=" << network_estimate.link_capacity_upper.bps() << " bps";
         
@@ -942,17 +942,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
 
   // Set target rate and bandwidth estimate
   update.target_rate = TargetTransferRate();
-  update.target_rate->at_time = at_time;  // Set the top-level at_time field
+  update.target_rate->at_time = at_time;
   update.target_rate->network_estimate.at_time = at_time;
   update.target_rate->network_estimate.bandwidth = current_rate_for_transport_;
-  update.target_rate->network_estimate.loss_rate_ratio = 0.0f;
-
-  // Log before creating TimeDelta objects that might cause unit_base.h
-  // assertion RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(50) for
-  // round_trip_time";
-  update.target_rate->network_estimate.round_trip_time = TimeDelta::Millis(50);
-
-  // RTC_LOG(LS_INFO) << "L4S before TimeDelta::Millis(500) for bwe_period";
+  update.target_rate->network_estimate.loss_rate_ratio = 0.0f;  // L4S should have minimal loss
+  update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_.IsFinite() ?
+                                                        last_estimated_round_trip_time_ :
+                                                        TimeDelta::Millis(50);
   update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
 
   update.target_rate->target_rate = current_rate_for_transport_ ;
