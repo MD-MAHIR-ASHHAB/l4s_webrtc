@@ -298,19 +298,63 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         prague_rate = DataRate::KilobitsPerSec(300);
       }
 
-      // Double-check the Prague controller's output against BWE-informed limits
+      // Allow Prague to exceed BWE limit if there's no recent congestion and the increase is reasonable
+      bool allow_exploration = true;
+      DataRate max_exploration_rate = bwe_based_limit * 1.2;  // Allow 20% above BWE limit for exploration
+      
       if (prague_rate.value() > bwe_based_limit) {
-        RTC_LOG(LS_WARNING)
-            << "L4S: Prague suggested rate " << prague_rate.value().bps()
-            << " exceeds BWE-informed limit, capping to "
-            << bwe_based_limit.bps();
+        // Check if we've seen recent congestion signals that would prevent exploration
+        TimeDelta time_since_congestion = TimeDelta::PlusInfinity();
+        if (last_congestion_signal_.IsFinite()) {
+          time_since_congestion = msg.at_time - last_congestion_signal_;
+        }
+        
+        // Allow exploration if:
+        // 1. No recent congestion (>5 seconds ago or never)
+        // 2. The rate increase is reasonable (<20% above BWE limit)
+        // 3. We're not drastically exceeding the BWE estimate
+        if (time_since_congestion > TimeDelta::Seconds(5) && 
+            prague_rate.value() <= max_exploration_rate) {
+          allow_exploration = true;
+          RTC_LOG(LS_WARNING) << "L4S: Allowing Prague exploration to " << prague_rate.value().bps() 
+                              << " bps (BWE limit: " << bwe_based_limit.bps() << " bps, no congestion for " 
+                              << time_since_congestion.seconds() << " sec)";
+          target_rate_ = prague_rate;
+          
+          // Force a probe at this higher rate to validate the increase
+          auto exploration_probes = probe_controller_->RequestProbe(msg.at_time);
+          if (!exploration_probes.empty()) {
+            update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+                                               exploration_probes.begin(), exploration_probes.end());
+            RTC_LOG(LS_WARNING) << "L4S: Forced exploration probe at " << prague_rate.value().bps() << " bps";
+          }
+        } else {
+          allow_exploration = false;
+          RTC_LOG(LS_WARNING) << "L4S: Preventing Prague exploration - recent congestion " 
+                              << time_since_congestion.seconds() << " sec ago, rate too high: "
+                              << prague_rate.value().bps() << " vs max " << max_exploration_rate.bps();
+        }
+      }
+      
+      if (!allow_exploration || prague_rate.value() > max_exploration_rate) {
+        RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
+                            << " exceeds safe limit, capping to " << bwe_based_limit.bps();
         prague_rate = bwe_based_limit;
-
-        // CRITICAL: Since we're capping, set target_rate_ to the capped value
-        // so Prague gets the actual rate being used as input for the next
-        // calculation
         target_rate_ = prague_rate;
-      } else {
+        
+        // Force a probe to discover if higher rates are actually available
+        auto forced_probe_clusters = probe_controller_->SetBitrates(
+            min_target_rate_.value_or(DataRate::KilobitsPerSec(30)),
+            bwe_based_limit,
+            bwe_based_limit * 1.5,  // Probe up to 50% above current estimate
+            msg.at_time);
+        
+        if (!forced_probe_clusters.empty()) {
+          update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+                                             forced_probe_clusters.begin(), forced_probe_clusters.end());
+          RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << bwe_based_limit.bps() << " bps";
+        }
+      } else if (allow_exploration) {
         target_rate_ = prague_rate;
       }
 
@@ -327,9 +371,19 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     if (estimated_capacity > DataRate::Zero()) {
       if (!alr_start_time_) {
         // Not in ALR - require clear signal to enter (95% threshold)
-        if (current_sending_rate < estimated_capacity * 0.95) {
-          should_be_in_alr = true;
+        // OR if Prague controller wants to increase but is being capped
+        bool underutilizing = current_sending_rate < estimated_capacity * 0.95;
+        bool prague_being_capped = false;
+        
+        // Check if Prague wants to increase (indicating potential underutilization)
+        auto test_prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_sending_rate * 1.1);
+        if (test_prague_rate && test_prague_rate.value() > current_sending_rate * 1.05) {
+          prague_being_capped = true;
+          RTC_LOG(LS_WARNING) << "L4S: Prague wants to increase from " << current_sending_rate.bps() 
+                              << " to " << test_prague_rate.value().bps() << " - triggering ALR for probing";
         }
+        
+        should_be_in_alr = underutilizing || prague_being_capped;
       } else {
         // In ALR - require stronger signal to exit (98% threshold for hysteresis)
         if (current_sending_rate < estimated_capacity * 0.98) {
@@ -458,35 +512,48 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           RTC_LOG(LS_WARNING) << "L4S: Attempting to force probe via multiple methods";
           
           // Method 1: Try SetBitrates with higher max bitrate
-          DataRate probe_max = std::max(target_rate_.value() * 2.0, DataRate::KilobitsPerSec(3000));
+          DataRate current_max = max_bitrate_;
+          DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(3000));
+          
+          // Temporarily update max_bitrate_ to allow higher probing
+          max_bitrate_ = probe_max;
+          
           auto forced_probe_clusters = probe_controller_->SetBitrates(
               min_target_rate_.value_or(DataRate::KilobitsPerSec(30)),
               target_rate_.value(),
               probe_max,
               msg.at_time);
           
+          // Restore original max_bitrate_
+          max_bitrate_ = current_max;
+          
           if (!forced_probe_clusters.empty()) {
             update.probe_cluster_configs = std::move(forced_probe_clusters);
             RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
                                 << " probe(s) via SetBitrates with max=" << probe_max.bps() << " bps";
           } else {
-            // Method 2: Try EnablePeriodicAlrProbing again with different parameters
-            probe_controller_->EnablePeriodicAlrProbing(true);
-            
-            // Method 3: Try RequestProbe directly if available
+            // Method 2: Try RequestProbe directly
             auto direct_probes = probe_controller_->RequestProbe(msg.at_time);
             if (!direct_probes.empty()) {
               update.probe_cluster_configs = std::move(direct_probes);
               RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
                                   << " probe(s) via RequestProbe";
             } else {
-              // Method 4: Force ALR state to trigger probing
+              // Method 3: Force ALR state to trigger probing
               if (!alr_start_time_) {
                 alr_start_time_ = msg.at_time;
                 probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
                 RTC_LOG(LS_WARNING) << "L4S: Forced ALR state to trigger probing";
+                
+                // Try Process() again after setting ALR
+                auto alr_probes = probe_controller_->Process(msg.at_time);
+                if (!alr_probes.empty()) {
+                  update.probe_cluster_configs = std::move(alr_probes);
+                  RTC_LOG(LS_WARNING) << "L4S: ALR-triggered " << update.probe_cluster_configs.size() << " probe(s)";
+                }
+              } else {
+                RTC_LOG(LS_WARNING) << "L4S: Failed to force probes with all methods";
               }
-              RTC_LOG(LS_WARNING) << "L4S: Failed to force probes with all methods";
             }
           }
         }
