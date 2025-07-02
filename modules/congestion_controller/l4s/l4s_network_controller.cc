@@ -87,8 +87,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   
   // Set initial bitrates in ProbeController to enable probing
   DataRate min_bitrate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-  probe_controller_->SetBitrates(min_bitrate, start_bitrate_, max_bitrate_,
-                                env_.clock().CurrentTime());
+  auto initial_probe_clusters = probe_controller_->SetBitrates(min_bitrate, start_bitrate_, max_bitrate_,
+                                                               env_.clock().CurrentTime());
+  
+  // Log initial probe clusters (will be applied by pacing controller during startup)
+  if (!initial_probe_clusters.empty()) {
+    RTC_LOG(LS_INFO) << "L4S: Created with " << initial_probe_clusters.size() 
+                     << " initial probe cluster(s)";
+  }
 
   RTC_LOG(LS_WARNING) << "L4S network controller created"
                       << " fallback_to_gcc: " << fallback_to_gcc_
