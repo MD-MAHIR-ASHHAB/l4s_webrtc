@@ -324,32 +324,53 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     
     bool should_be_in_alr = false;
     if (estimated_capacity > DataRate::Zero() && 
-        current_sending_rate < estimated_capacity * 0.8) {  // Using less than 80% of capacity
+        current_sending_rate < estimated_capacity * 0.9) {  // More aggressive: 90% threshold instead of 80%
       should_be_in_alr = true;
       if (!alr_start_time_) {
         alr_start_time_ = msg.at_time;
         probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
         RTC_LOG(LS_WARNING) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
-                            << " bps < 80% of capacity " << estimated_capacity.bps() << " bps";
+                            << " bps < 90% of capacity " << estimated_capacity.bps() << " bps";
       }
     } else {
       if (alr_start_time_) {
         probe_controller_->SetAlrEndedTimeMs(msg.at_time.ms());
         alr_start_time_.reset();
         RTC_LOG(LS_WARNING) << "L4S: Exited ALR state - sending " << current_sending_rate.bps() 
-                            << " bps >= 80% of capacity " << estimated_capacity.bps() << " bps";
+                            << " bps >= 90% of capacity " << estimated_capacity.bps() << " bps";
+      }
+    }
+    
+    // Also try a different ALR condition: if acknowledged rate is much lower than delay estimate
+    bool alternative_alr_condition = false;
+    if (last_delay_based_estimate_ > DataRate::Zero() && last_acknowledged_rate_ > DataRate::Zero()) {
+      DataRate rate_gap = last_delay_based_estimate_ - last_acknowledged_rate_;
+      if (rate_gap > last_delay_based_estimate_ * 0.3) {  // 30% gap suggests underutilization
+        alternative_alr_condition = true;
+        if (!alr_start_time_) {
+          alr_start_time_ = msg.at_time;
+          probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
+          RTC_LOG(LS_WARNING) << "L4S: Entered ALR state (alternative) - gap between delay (" 
+                              << last_delay_based_estimate_.bps() << " bps) and acked (" 
+                              << last_acknowledged_rate_.bps() << " bps) suggests underutilization";
+        }
       }
     }
     
     // Log ALR state periodically for debugging
     static Timestamp last_alr_log = Timestamp::Zero();
-    if (msg.at_time - last_alr_log > TimeDelta::Seconds(5)) {
+    if (msg.at_time - last_alr_log > TimeDelta::Seconds(3)) {  // More frequent ALR logging
       last_alr_log = msg.at_time;
+      DataRate rate_gap = last_delay_based_estimate_ - last_acknowledged_rate_;
       RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
+                          << " alt_alr=" << (alternative_alr_condition ? "yes" : "no")
                           << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
                           << " sending=" << current_sending_rate.bps() << " bps"
                           << " capacity=" << estimated_capacity.bps() << " bps"
-                          << " threshold=" << (estimated_capacity * 0.8).bps() << " bps";
+                          << " threshold=" << (estimated_capacity * 0.9).bps() << " bps"
+                          << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
+                          << " acked_est=" << last_acknowledged_rate_.bps() << " bps"
+                          << " rate_gap=" << rate_gap.bps() << " bps";
     }
     
     // Update ProbeController with our current bandwidth estimate
@@ -389,6 +410,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     }
 
     // Use ProbeController for bandwidth discovery
+    RTC_LOG(LS_WARNING) << "L4S: Calling ProbeController::Process at time " << msg.at_time.ms() << " ms";
     auto probe_clusters = probe_controller_->Process(msg.at_time);
     if (!probe_clusters.empty()) {
       update.probe_cluster_configs = std::move(probe_clusters);
@@ -410,10 +432,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         RTC_LOG(LS_WARNING) << "L4S: Probing while not in ALR state";
       }
     } else {
-      // Log why no probes are being generated (every 5 seconds for debugging)
+      // Log why no probes are being generated (every 3 seconds for debugging)
       static Timestamp last_no_probe_log = Timestamp::Zero();
       static Timestamp last_forced_probe = Timestamp::Zero();
-      if (msg.at_time - last_no_probe_log > TimeDelta::Seconds(5)) {
+      if (msg.at_time - last_no_probe_log > TimeDelta::Seconds(3)) {
         last_no_probe_log = msg.at_time;
         RTC_LOG(LS_WARNING) << "L4S: No probes generated - ALR=" << (alr_start_time_.has_value() ? "yes" : "no")
                             << " sending_rate=" << current_sending_rate.bps() << " bps"
@@ -421,22 +443,31 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
                             << " target_rate=" << (target_rate_.has_value() ? target_rate_->bps() : -1) << " bps"
                             << " time=" << msg.at_time.ms() << " ms";
                             
-        // Force a probe every 20 seconds if we haven't seen any probes for debugging
-        if (msg.at_time - last_forced_probe > TimeDelta::Seconds(20) && target_rate_.has_value()) {
+        // Force a probe every 10 seconds if we haven't seen any probes for debugging
+        if (msg.at_time - last_forced_probe > TimeDelta::Seconds(10) && target_rate_.has_value()) {
           last_forced_probe = msg.at_time;
           
-          // Try to manually trigger a probe by calling OnNetworkAvailability
-          NetworkAvailability net_available;
-          net_available.at_time = msg.at_time;
-          net_available.network_available = true;
-          auto forced_probes = probe_controller_->OnNetworkAvailability(net_available);
+          RTC_LOG(LS_WARNING) << "L4S: Attempting to force probe via SetBitrates with higher max bitrate";
           
-          if (!forced_probes.empty()) {
-            update.probe_cluster_configs = std::move(forced_probes);
+          // Try to force a probe by updating bitrates with a higher max to trigger exploration
+          DataRate current_max = max_bitrate_;
+          DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(2000));
+          
+          auto forced_probe_clusters = probe_controller_->SetBitrates(
+              min_target_rate_.value_or(DataRate::KilobitsPerSec(30)),
+              target_rate_.value(),
+              probe_max,
+              msg.at_time);
+          
+          if (!forced_probe_clusters.empty()) {
+            update.probe_cluster_configs = std::move(forced_probe_clusters);
             RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
-                                << " probe(s) via OnNetworkAvailability";
+                                << " probe(s) via SetBitrates with max=" << probe_max.bps() << " bps";
+            
+            // Restore original max bitrate
+            max_bitrate_ = current_max;
           } else {
-            RTC_LOG(LS_WARNING) << "L4S: Failed to force probes even with OnNetworkAvailability";
+            RTC_LOG(LS_WARNING) << "L4S: Failed to force probes even with SetBitrates";
           }
         }
       }
