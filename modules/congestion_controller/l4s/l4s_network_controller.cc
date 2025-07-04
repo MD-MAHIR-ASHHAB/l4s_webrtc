@@ -867,7 +867,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   UpdateNetworkCapacityEstimate(feedback);
 
   // Log before updating Prague controller
-  // RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback";
+  RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback with " 
+                   << feedback.packet_feedbacks.size() << " packets";
 
   // Update Prague controller with ECN feedback
   prague_controller_->UpdateEcnFeedback(feedback);
@@ -1162,21 +1163,39 @@ bool L4SNetworkController::IsL4SActive() const {
 void L4SNetworkController::ProcessEcnFeedback(
     const TransportPacketsFeedback& feedback) {
   if (feedback.packet_feedbacks.empty()) {
+    RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: Empty feedback, packet_feedbacks.size()=0";
     return;
   }
+
+  RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Processing " << feedback.packet_feedbacks.size() 
+                   << " packets, transport_supports_ecn=" << feedback.transport_supports_ecn;
 
   // Count ECT and CE packets
   int new_ect_count = 0;
   int new_ce_count = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
+    RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Packet seq=" 
+                     << (packet.sent_packet.sequence_number ? *packet.sent_packet.sequence_number : -1)
+                     << " ECN=" << static_cast<int>(packet.ecn) << " ("
+                     << (packet.ecn == EcnMarking::kNotEct ? "NotECT" :
+                         (packet.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                          (packet.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+                     << ")";
+
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
       new_ect_count++;
     } else if (packet.ecn == EcnMarking::kCe) {
       new_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
+      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << (ce_count_ + new_ce_count);
     }
   }
+
+  RTC_LOG(LS_INFO) << "ProcessEcnFeedback: ECT count=" << new_ect_count 
+                   << ", CE count=" << new_ce_count 
+                   << " (total so far: ECT=" << (ect_count_ + new_ect_count)
+                   << ", CE=" << (ce_count_ + new_ce_count) << ")";
 
   // If we received any ECT or CE packets, consider ECN supported
   if (new_ect_count > 0 || new_ce_count > 0) {
