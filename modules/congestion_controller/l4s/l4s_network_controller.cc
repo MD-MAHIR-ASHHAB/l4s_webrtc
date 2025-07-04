@@ -1176,8 +1176,7 @@ void L4SNetworkController::ProcessEcnFeedback(
 
   for (const auto& packet : feedback.packet_feedbacks) {
     RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Packet seq=" 
-                     << (packet.sent_packet.sequence_number.has_value() ? 
-                         packet.sent_packet.sequence_number.value() : -1)
+                     << packet.sent_packet.sequence_number
                      << " ECN=" << static_cast<int>(packet.ecn) << " ("
                      << (packet.ecn == EcnMarking::kNotEct ? "NotECT" :
                          (packet.ecn == EcnMarking::kEct0 ? "ECT(0)" :
