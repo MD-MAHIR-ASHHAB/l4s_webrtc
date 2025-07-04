@@ -33,6 +33,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -474,7 +475,7 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   if (it->second.sent.send_time.IsInfinite()) {
     // Check if this packet has been waiting too long for send time update
-    auto now = Timestamp::Millis(rtc::TimeMicros() / 1000);
+    auto now = Timestamp::Millis(webrtc::TimeMillis());
     auto age = now - it->second.creation_time;
     if (age > TimeDelta::Seconds(5)) {
       RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
