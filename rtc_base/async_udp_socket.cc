@@ -108,7 +108,7 @@ int AsyncUDPSocket::SendTo(const void* pv,
     if (set_result == 0) {
       has_set_ect1_options_ = options.ecn_1;
       // RTC_LOG(LS_INFO) << "SOCKET SEND: Successfully set ECN socket option to " 
-                      //  << (options.ecn_1 ? "ECT(1)" : "Not ECT");
+      //                  << (options.ecn_1 ? "ECT(1)" : "Not ECT");
     } else {
       RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
                         << " Requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT");
@@ -120,7 +120,7 @@ int AsyncUDPSocket::SendTo(const void* pv,
   // Log the result of the send operation
   if (ret == static_cast<int>(cb)) {
     // RTC_LOG(LS_INFO) << "SOCKET SEND: SUCCESS - Sent " << ret << " bytes with ECN=" 
-                    //  << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
+    //                  << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
   } else {
     RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED - Attempted " << cb << " bytes, sent " << ret 
                       << " bytes, error=" << socket_->GetError();

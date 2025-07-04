@@ -61,8 +61,8 @@ void L4SPragueController::UpdateEcnFeedback(
     if (packet.sent_packet.sequence_number > 0) {
       if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
         // RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
-                  // << packet.sent_packet.sequence_number
-                  // << ", feedback_time=" << now.us() << " us";
+        //          << packet.sent_packet.sequence_number
+        //          << ", feedback_time=" << now.us() << " us";
         ect_packets++;
       } else if (packet.ecn == EcnMarking::kCe) {
         ce_packets++;
@@ -261,8 +261,8 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
 
   // If no congestion, try to increase additively based on RTT
-  RTC_LOG(LS_INFO)
-      << "Prague: No congestion (CE ratio=0), checking for additive increase";
+  // RTC_LOG(LS_INFO)
+  //     << "Prague: No congestion (CE ratio=0), checking for additive increase";
 
   // Add safety check for uninitialized last_update_time
   if (!last_update_time_.IsFinite()) {

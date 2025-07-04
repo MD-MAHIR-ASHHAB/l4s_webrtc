@@ -56,12 +56,12 @@ void CongestionControlFeedbackTracker::ReceivedPacket(
   // Log ECN information
   EcnMarking ecn = packet.ecn();
   // RTC_LOG(LS_INFO) << "FeedbackTracker: Received packet SSRC=" << packet.Ssrc()
-                   << " seq=" << packet.SequenceNumber()
-                   << " ECN=" << static_cast<int>(ecn) << " ("
-                   << (ecn == EcnMarking::kNotEct ? "NotECT" :
-                       (ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                        (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
-                   << ")";
+  //                  << " seq=" << packet.SequenceNumber()
+  //                  << " ECN=" << static_cast<int>(ecn) << " ("
+  //                  << (ecn == EcnMarking::kNotEct ? "NotECT" :
+  //                      (ecn == EcnMarking::kEct0 ? "ECT(0)" :
+  //                       (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+  //                  << ")";
   
   packets_.push_back({.ssrc = packet.Ssrc(),
                       .unwrapped_sequence_number = unwrapped_sequence_number,
@@ -121,12 +121,12 @@ void CongestionControlFeedbackTracker::AddPacketsToFeedback(
     
     // Log ECN information being added to feedback
     // RTC_LOG(LS_INFO) << "FeedbackTracker: Adding to feedback SSRC=" << ssrc
-                     << " seq=" << static_cast<uint16_t>(sequence_number)
-                     << " ECN=" << static_cast<int>(ecn) << " ("
-                     << (ecn == EcnMarking::kNotEct ? "NotECT" :
-                         (ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                          (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
-                     << ")";
+    //                  << " seq=" << static_cast<uint16_t>(sequence_number)
+    //                  << " ECN=" << static_cast<int>(ecn) << " ("
+    //                  << (ecn == EcnMarking::kNotEct ? "NotECT" :
+    //                      (ecn == EcnMarking::kEct0 ? "ECT(0)" :
+    //                       (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+    //                  << ")";
     
     packet_feedback.push_back(
         {.ssrc = ssrc,
