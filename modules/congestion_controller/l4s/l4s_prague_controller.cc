@@ -60,6 +60,9 @@ void L4SPragueController::UpdateEcnFeedback(
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.sent_packet.sequence_number) {
       if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
+        RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
+                  << packet.sent_packet.sequence_number
+                  << ", feedback_time=" << now.us() << " us";
         ect_packets++;
       } else if (packet.ecn == EcnMarking::kCe) {
         ce_packets++;
@@ -282,10 +285,10 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // Rate limit updates to prevent excessive increases (minimum 15ms between
     // rate increases for faster ramp-up, reduced from 25ms for better video quality)
     if (time_since_update < TimeDelta::Millis(15)) {
-      RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
-                       << time_since_update.ms()
-                       << "ms < 15ms), returning base rate " << base_rate.bps()
-                       << " bps";
+      // RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
+      //                  << time_since_update.ms()
+      //                  << "ms < 15ms), returning base rate " << base_rate.bps()
+      //                  << " bps";
       return base_rate;
     }
 

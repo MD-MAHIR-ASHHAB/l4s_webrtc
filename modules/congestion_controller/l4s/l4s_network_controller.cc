@@ -234,10 +234,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       // Use 95% consistently (same as feedback processing) to avoid rate jumping
       DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.95, max_realistic_bandwidth_);
       
-      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based limit="
-                          << delay_based_limit.bps() << " bps (95% of "
-                          << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
-                          << max_realistic_bandwidth_.bps() << " bps)";
+      // RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based limit="
+      //                     << delay_based_limit.bps() << " bps (95% of "
+      //                     << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
+      //                     << max_realistic_bandwidth_.bps() << " bps)";
       
       bwe_based_limit = delay_based_limit;
     } else {
@@ -329,7 +329,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           if (!forced_probe_clusters.empty()) {
             update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
                                                forced_probe_clusters.begin(), forced_probe_clusters.end());
-            RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << target_rate_->bps() << " bps";
+            // RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << target_rate_->bps() << " bps";
           }
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid probe rates - min=" << probe_min.bps() 
@@ -727,8 +727,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate,
                                                feedback.feedback_time);
 
-    RTC_LOG(LS_INFO) << "L4S: Acknowledged bitrate estimate: "
-                     << acknowledged_bitrate->bps() << " bps";
+    // RTC_LOG(LS_INFO) << "L4S: Acknowledged bitrate estimate: "
+    //                  << acknowledged_bitrate->bps() << " bps";
   }
 
   // 3. Run delay-based BWE to get capacity estimate
@@ -741,7 +741,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     // Validate delay-based estimate before setting
     if (delay_result.target_bitrate.IsFinite() && delay_result.target_bitrate > DataRate::Zero()) {
       last_delay_based_estimate_ = delay_result.target_bitrate;
-      RTC_LOG(LS_INFO) << "L4S: Updated delay-based estimate to " << last_delay_based_estimate_.bps() << " bps";
+      // RTC_LOG(LS_INFO) << "L4S: Updated delay-based estimate to " << last_delay_based_estimate_.bps() << " bps";
     } else {
       RTC_LOG(LS_WARNING) << "L4S: Received invalid delay-based estimate: " 
                           << delay_result.target_bitrate.bps() << " bps, keeping previous value: "
@@ -752,26 +752,26 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
         feedback.feedback_time, delay_result.target_bitrate);
 
     // Log delay-based congestion state for debugging
-    const char* state_str = "UNKNOWN";
-    switch (delay_result.delay_detector_state) {
-      case BandwidthUsage::kBwNormal:
-        state_str = "NORMAL";
-        break;
-      case BandwidthUsage::kBwUnderusing:
-        state_str = "UNDERUSING";
-        break;
-      case BandwidthUsage::kBwOverusing:
-        state_str = "OVERUSING";
-        break;
-      case BandwidthUsage::kLast:
-        state_str = "INVALID";
-        break;
-    }
+    // const char* state_str = "UNKNOWN";
+    // switch (delay_result.delay_detector_state) {
+    //   case BandwidthUsage::kBwNormal:
+    //     state_str = "NORMAL";
+    //     break;
+    //   case BandwidthUsage::kBwUnderusing:
+    //     state_str = "UNDERUSING";
+    //     break;
+    //   case BandwidthUsage::kBwOverusing:
+    //     state_str = "OVERUSING";
+    //     break;
+    //   case BandwidthUsage::kLast:
+    //     state_str = "INVALID";
+    //     break;
+    // }
 
-    RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: "
-                     << delay_result.target_bitrate.bps()
-                     << " bps, state: " << state_str << ", recovered: "
-                     << (delay_result.recovered_from_overuse ? "YES" : "NO");
+    // RTC_LOG(LS_INFO) << "L4S: Delay-based BWE estimate: "
+    //                  << delay_result.target_bitrate.bps()
+    //                  << " bps, state: " << state_str << ", recovered: "
+    //                  << (delay_result.recovered_from_overuse ? "YES" : "NO");
                      
     // Update ProbeController with the estimated bitrate
     BandwidthLimitedCause bandwidth_limited_cause = BandwidthLimitedCause::kDelayBasedLimited;
@@ -782,9 +782,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     auto probe_clusters = probe_controller_->SetEstimatedBitrate(
         delay_result.target_bitrate, bandwidth_limited_cause, feedback.feedback_time);
     
-    RTC_LOG(LS_WARNING) << "L4S: Feedback SetEstimatedBitrate called with rate=" << delay_result.target_bitrate.bps() 
-                        << " bps, cause=" << static_cast<int>(bandwidth_limited_cause)
-                        << " returned " << probe_clusters.size() << " probe(s)";
+    // RTC_LOG(LS_WARNING) << "L4S: Feedback SetEstimatedBitrate called with rate=" << delay_result.target_bitrate.bps() 
+    //                     << " bps, cause=" << static_cast<int>(bandwidth_limited_cause)
+    //                     << " returned " << probe_clusters.size() << " probe(s)";
     
     // Create and set a network state estimate to help ProbeController make decisions
     NetworkStateEstimate network_estimate;
@@ -798,9 +798,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     network_estimate.confidence = 0.8;  // Reasonably confident in L4S BWE
     
     probe_controller_->SetNetworkStateEstimate(network_estimate);
-    RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - link_capacity=" << network_estimate.link_capacity.bps() 
-                        << " bps, lower=" << network_estimate.link_capacity_lower.bps() 
-                        << " bps, upper=" << network_estimate.link_capacity_upper.bps() << " bps";
+    // RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - link_capacity=" << network_estimate.link_capacity.bps() 
+    //                     << " bps, lower=" << network_estimate.link_capacity_lower.bps() 
+    //                     << " bps, upper=" << network_estimate.link_capacity_upper.bps() << " bps";
         
     if (!probe_clusters.empty()) {
       // Add probes to the update - will be merged with any existing probes
@@ -911,9 +911,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       DataRate delay_limit = std::min(last_delay_based_estimate_ * 0.95, max_realistic_bandwidth_);
       bwe_based_limit = delay_limit;
       
-      RTC_LOG(LS_INFO) << "L4S: Using delay-based limit=" << delay_limit.bps() 
-                       << " bps (95% of " << last_delay_based_estimate_.bps() 
-                       << " bps, max_realistic=" << max_realistic_bandwidth_.bps() << " bps)";
+      // RTC_LOG(LS_INFO) << "L4S: Using delay-based limit=" << delay_limit.bps() 
+      //                  << " bps (95% of " << last_delay_based_estimate_.bps() 
+      //                  << " bps, max_realistic=" << max_realistic_bandwidth_.bps() << " bps)";
     } else {
       // No delay estimate, use conservative limit
       bwe_based_limit = max_realistic_bandwidth_ * 0.1;
