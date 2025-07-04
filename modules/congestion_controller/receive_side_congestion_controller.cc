@@ -102,6 +102,10 @@ ReceiveSideCongestionController::ReceiveSideCongestionController(
   if (force_send_rfc8888_feedback) {
     EnableSendCongestionControlFeedbackAccordingToRfc8888();
   }
+  
+  // Force enable RFC 8888 congestion control feedback programmatically
+  // This ensures ECN information is included in feedback packets
+  EnableSendCongestionControlFeedbackAccordingToRfc8888();
 }
 
 void ReceiveSideCongestionController::

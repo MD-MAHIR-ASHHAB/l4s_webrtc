@@ -146,6 +146,11 @@ RtpTransportControllerSend::RtpTransportControllerSend(
     // Default burst interval overriden by config.
     pacer_.SetSendBurstInterval(*config.pacer_burst_interval);
   }
+  
+  // Force enable RFC 8888 congestion control feedback programmatically
+  // This ensures the sender can process ECN information from receiver
+  EnableCongestionControlFeedbackAccordingToRfc8888();
+  
   packet_router_.RegisterNotifyBweCallback(
       [this](const RtpPacketToSend& packet,
              const PacedPacketInfo& pacing_info) {
