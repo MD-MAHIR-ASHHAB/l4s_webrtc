@@ -117,21 +117,23 @@ void ReceiveSideCongestionController::OnReceivedPacket(
       packet.HasExtension<TransportSequenceNumber>() ||
       packet.HasExtension<TransportSequenceNumberV2>();
   
-  RTC_LOG(LS_INFO) << "Received packet with media type: "
-            << MediaTypeToString(media_type)
-            << ", has transport sequence number: "
-            << (has_transport_sequence_number ? "true" : "false");
-            << " Packet size: "
-            << packet.size() << " bytes, SSRC: "
-            << packet.Ssrc()
-            << ", sequence number: " << packet.SequenceNumber();
-            << " Arrival time: "
-            << packet.arrival_time().us() << " us";
-            <<  "ECN marking: "
-            << (packet.ecn() == EcnMarking::kNotEct ? "Not ECT" :
-                (packet.ecn() == EcnMarking::kEct0 ? "ECT(0)" :
-                (packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
-                
+RTC_LOG(LS_INFO) << "Received packet with media type: "
+                 << MediaTypeToString(media_type)
+                 << ", has transport sequence number: "
+                 << (has_transport_sequence_number ? "true" : "false")
+                 << ", packet size: "
+                 << packet.size() << " bytes, SSRC: "
+                 << packet.Ssrc()
+                 << ", sequence number: "
+                 << packet.SequenceNumber()
+                 << ", arrival time: "
+                 << packet.arrival_time().us() << " us"
+                 << ", ECN marking: "
+                 << (packet.ecn() == EcnMarking::kNotEct ? "Not ECT" :
+                     packet.ecn() == EcnMarking::kEct0 ? "ECT(0)" :
+                     packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+
+
   if (send_rfc8888_congestion_feedback_) {
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     congestion_control_feedback_generator_.OnReceivedPacket(packet);
