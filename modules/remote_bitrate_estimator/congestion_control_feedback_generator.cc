@@ -87,9 +87,8 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   if (now < next_possible_feedback_send_time_) {
-    RTC_LOG(LS_WARNING) << "SendFeedback called with timestamp " << now.us() 
-                        << " us which is before next_possible_feedback_send_time_ " 
-                        << next_possible_feedback_send_time_.us() << " us";
+    // Adjust timestamp to prevent timing issues
+    now = next_possible_feedback_send_time_;
   }
   uint32_t compact_ntp =
       CompactNtp(env_.clock().ConvertTimestampToNtpTime(now));
