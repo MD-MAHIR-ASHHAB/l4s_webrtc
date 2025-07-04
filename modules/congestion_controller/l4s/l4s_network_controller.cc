@@ -1167,7 +1167,7 @@ void L4SNetworkController::ProcessEcnFeedback(
     return;
   }
 
-  RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Processing " << feedback.packet_feedbacks.size() 
+  // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Processing " << feedback.packet_feedbacks.size() 
                    << " packets, transport_supports_ecn=" << feedback.transport_supports_ecn;
 
   // Count ECT and CE packets
@@ -1175,7 +1175,7 @@ void L4SNetworkController::ProcessEcnFeedback(
   int new_ce_count = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
-    RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Packet seq=" 
+    // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Packet seq=" 
                      << packet.sent_packet.sequence_number
                      << " ECN=" << static_cast<int>(packet.ecn) << " ("
                      << (packet.ecn == EcnMarking::kNotEct ? "NotECT" :
@@ -1192,7 +1192,7 @@ void L4SNetworkController::ProcessEcnFeedback(
     }
   }
 
-  RTC_LOG(LS_INFO) << "ProcessEcnFeedback: ECT count=" << new_ect_count 
+  // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: ECT count=" << new_ect_count 
                    << ", CE count=" << new_ce_count 
                    << " (total so far: ECT=" << (ect_count_ + new_ect_count)
                    << ", CE=" << (ce_count_ + new_ce_count) << ")";

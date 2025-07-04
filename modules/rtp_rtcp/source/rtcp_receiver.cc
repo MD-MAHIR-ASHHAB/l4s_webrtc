@@ -1084,8 +1084,12 @@ void RTCPReceiver::HandleTransportFeedback(
 bool RTCPReceiver::HandleCongestionControlFeedback(
     const CommonHeader& rtcp_block,
     PacketInformation* packet_information) {
+  RTC_LOG(LS_INFO) << "RTCPReceiver: HandleCongestionControlFeedback called, payload_size=" 
+                   << rtcp_block.payload_size_bytes();
+  
   rtcp::CongestionControlFeedback feedback;
   if (!feedback.Parse(rtcp_block) || feedback.packets().empty()) {
+    RTC_LOG(LS_WARNING) << "RTCPReceiver: Failed to parse RFC8888 feedback or empty packet list";
     return false;
   }
   

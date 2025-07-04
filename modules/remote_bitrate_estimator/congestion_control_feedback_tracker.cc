@@ -55,7 +55,7 @@ void CongestionControlFeedbackTracker::ReceivedPacket(
   
   // Log ECN information
   EcnMarking ecn = packet.ecn();
-  RTC_LOG(LS_INFO) << "FeedbackTracker: Received packet SSRC=" << packet.Ssrc()
+  // RTC_LOG(LS_INFO) << "FeedbackTracker: Received packet SSRC=" << packet.Ssrc()
                    << " seq=" << packet.SequenceNumber()
                    << " ECN=" << static_cast<int>(ecn) << " ("
                    << (ecn == EcnMarking::kNotEct ? "NotECT" :
@@ -120,7 +120,7 @@ void CongestionControlFeedbackTracker::AddPacketsToFeedback(
     }  // else - the packet has not been received yet.
     
     // Log ECN information being added to feedback
-    RTC_LOG(LS_INFO) << "FeedbackTracker: Adding to feedback SSRC=" << ssrc
+    // RTC_LOG(LS_INFO) << "FeedbackTracker: Adding to feedback SSRC=" << ssrc
                      << " seq=" << static_cast<uint16_t>(sequence_number)
                      << " ECN=" << static_cast<int>(ecn) << " ("
                      << (ecn == EcnMarking::kNotEct ? "NotECT" :

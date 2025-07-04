@@ -60,9 +60,9 @@ void L4SPragueController::UpdateEcnFeedback(
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.sent_packet.sequence_number > 0) {
       if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
-        RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
-                  << packet.sent_packet.sequence_number
-                  << ", feedback_time=" << now.us() << " us";
+        // RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
+                  // << packet.sent_packet.sequence_number
+                  // << ", feedback_time=" << now.us() << " us";
         ect_packets++;
       } else if (packet.ecn == EcnMarking::kCe) {
         ce_packets++;
@@ -139,7 +139,7 @@ void L4SPragueController::UpdateRtt(TimeDelta rtt) {
   rtt_ = rtt;
 
   // Log raw RTT for debugging
-  RTC_LOG(LS_INFO) << "Prague: Raw RTT measurement: " << rtt.ms() << "ms";
+  // RTC_LOG(LS_INFO) << "Prague: Raw RTT measurement: " << rtt.ms() << "ms";
 
   // Update min_rtt_estimate with more realistic floor
   // Prevent unrealistically low RTT estimates that can cause issues
