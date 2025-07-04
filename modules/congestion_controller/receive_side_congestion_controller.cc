@@ -131,7 +131,7 @@ RTC_LOG(LS_INFO) << "Received packet with media type: "
                  << ", ECN marking: "
                  << (packet.ecn() == EcnMarking::kNotEct ? "Not ECT" :
                      packet.ecn() == EcnMarking::kEct0 ? "ECT(0)" :
-                     packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+                     packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE");
 
 
   if (send_rfc8888_congestion_feedback_) {
