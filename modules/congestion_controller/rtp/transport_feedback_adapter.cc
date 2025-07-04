@@ -349,6 +349,8 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
         /*received=*/packet_info.arrival_time_offset.IsFinite());
     if (!packet_feedback) {
       ++failed_lookups;
+      RTC_LOG(LS_VERBOSE) << "Failed to find packet feedback for SSRC=" 
+                          << packet_info.ssrc << " seq=" << packet_info.sequence_number;
       continue;
     }
     if (packet_feedback->network_route != network_route_) {
@@ -372,7 +374,11 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       }
     }
     result.ecn = packet_info.ecn;
+    
+    // Also check for ECN support based on the presence of ECN markings in feedback,
+    // even if the packet was lost (infinite arrival time)
     if (packet_info.ecn != EcnMarking::kNotEct) {
+      supports_ecn = true;
       RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
                       << result.sent_packet.sequence_number
                       << ": " 
@@ -458,17 +464,28 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   auto it = history_.find(transport_seq_num);
   if (it == history_.end()) {
-    RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with "
+    RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with seq="
                         << transport_seq_num
-                        << ". Send time history too small?";
+                        << ". Send time history too small? History size: " 
+                        << history_.size()
+                        << ", last_ack_seq_num: " << last_ack_seq_num_;
     return std::nullopt;
   }
 
   if (it->second.sent.send_time.IsInfinite()) {
+    // Check if this packet has been waiting too long for send time update
+    auto now = Timestamp::Millis(rtc::TimeMicros() / 1000);
+    auto age = now - it->second.creation_time;
+    if (age > TimeDelta::Seconds(5)) {
+      RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
+                          << " has been waiting " << age.seconds() 
+                          << "s for send time update. Likely a timing issue.";
+    }
     // TODO(srte): Fix the tests that makes this happen and make this a
     // DCHECK.
     RTC_DLOG(LS_ERROR)
-        << "Received feedback before packet was indicated as sent";
+        << "Received feedback before packet was indicated as sent for seq="
+        << transport_seq_num;
     return std::nullopt;
   }
 
