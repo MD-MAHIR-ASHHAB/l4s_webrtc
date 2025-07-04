@@ -161,8 +161,7 @@ RTCPReceiver::RTCPReceiver(const Environment& env,
                            ModuleRtpRtcpImpl2* owner)
     : env_(env),
       receiver_only_(config.receiver_only),
-      enable_congestion_controller_feedback_(env_.field_trials().IsEnabled(
-          "WebRTC-RFC8888CongestionControlFeedback")),
+      enable_congestion_controller_feedback_(true), // Force enable RFC 8888 feedback
       rtp_rtcp_(owner),
       registered_ssrcs_(false, config),
       network_link_rtcp_observer_(config.network_link_rtcp_observer),
@@ -191,8 +190,7 @@ RTCPReceiver::RTCPReceiver(const Environment& env,
                            ModuleRtpRtcp* owner)
     : env_(env),
       receiver_only_(config.receiver_only),
-      enable_congestion_controller_feedback_(env_.field_trials().IsEnabled(
-          "WebRTC-RFC8888CongestionControlFeedback")),
+      enable_congestion_controller_feedback_(true), // Force enable RFC 8888 feedback
       rtp_rtcp_(owner),
       registered_ssrcs_(true, config),
       network_link_rtcp_observer_(config.network_link_rtcp_observer),
