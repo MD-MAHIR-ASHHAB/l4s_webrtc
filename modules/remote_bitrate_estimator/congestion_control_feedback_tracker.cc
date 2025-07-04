@@ -1,4 +1,3 @@
-
 /*
  *  Copyright (c) 2024 The WebRTC project authors. All Rights Reserved.
  *
@@ -53,6 +52,17 @@ void CongestionControlFeedbackTracker::ReceivedPacket(
     // received.
     last_sequence_number_in_feedback_ = unwrapped_sequence_number - 1;
   }
+  
+  // Log ECN information
+  EcnMarking ecn = packet.ecn();
+  RTC_LOG(LS_INFO) << "FeedbackTracker: Received packet SSRC=" << packet.Ssrc()
+                   << " seq=" << packet.SequenceNumber()
+                   << " ECN=" << static_cast<int>(ecn) << " ("
+                   << (ecn == EcnMarking::kNotEct ? "NotECT" :
+                       (ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                        (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+                   << ")";
+  
   packets_.push_back({.ssrc = packet.Ssrc(),
                       .unwrapped_sequence_number = unwrapped_sequence_number,
                       .arrival_time = packet.arrival_time(),
@@ -108,6 +118,16 @@ void CongestionControlFeedbackTracker::AddPacketsToFeedback(
         ++packet_it;
       }
     }  // else - the packet has not been received yet.
+    
+    // Log ECN information being added to feedback
+    RTC_LOG(LS_INFO) << "FeedbackTracker: Adding to feedback SSRC=" << ssrc
+                     << " seq=" << static_cast<uint16_t>(sequence_number)
+                     << " ECN=" << static_cast<int>(ecn) << " ("
+                     << (ecn == EcnMarking::kNotEct ? "NotECT" :
+                         (ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                          (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+                     << ")";
+    
     packet_feedback.push_back(
         {.ssrc = ssrc,
          .sequence_number = static_cast<uint16_t>(sequence_number),

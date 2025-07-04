@@ -1088,6 +1088,20 @@ bool RTCPReceiver::HandleCongestionControlFeedback(
   if (!feedback.Parse(rtcp_block) || feedback.packets().empty()) {
     return false;
   }
+  
+  // Log ECN information in the feedback
+  RTC_LOG(LS_INFO) << "RTCPReceiver: Handling congestion control feedback with " 
+                   << feedback.packets().size() << " packets";
+  for (const auto& packet : feedback.packets()) {
+    RTC_LOG(LS_INFO) << "RTCPReceiver: Feedback packet SSRC=" << packet.ssrc
+                     << " seq=" << packet.sequence_number
+                     << " ECN=" << static_cast<int>(packet.ecn) << " ("
+                     << (packet.ecn == EcnMarking::kNotEct ? "NotECT" :
+                         (packet.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                          (packet.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
+                     << ")";
+  }
+  
   uint32_t first_media_source_ssrc = feedback.packets()[0].ssrc;
   if (first_media_source_ssrc == local_media_ssrc() ||
       registered_ssrcs_.contains(first_media_source_ssrc)) {
