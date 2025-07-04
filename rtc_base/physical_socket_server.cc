@@ -599,16 +599,15 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
              cmsg->cmsg_level == IPPROTO_IPV6) ||
             (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
           *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
-          // Add ECN reception logging
-          if (*ecn != EcnMarking::kNotEct) {
-            RTC_LOG(LS_INFO)
-                << "Socket received packet with ECN marking: "
-                << (*ecn == EcnMarking::kEct0
-                        ? "ECT(0)"
-                        : (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-          } else {
-            RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
-          }
+          
+          // Enhanced ECN reception logging for socket-level debugging
+          uint8_t tos_byte = CMSG_DATA(cmsg)[0];
+          RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
+                           << " TOS/TCLASS byte=0x" << std::hex << static_cast<int>(tos_byte) << std::dec
+                           << " ECN bits=" << ((tos_byte & 0x03))
+                           << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
+                                                 (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                                                  (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
         }
       }
       if (cmsg->cmsg_level != SOL_SOCKET)

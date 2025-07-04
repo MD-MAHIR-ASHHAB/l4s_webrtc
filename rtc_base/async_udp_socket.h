@@ -67,6 +67,9 @@ class AsyncUDPSocket : public AsyncPacketSocket {
   // Called when the underlying socket is ready to send.
   void OnWriteEvent(Socket* socket);
 
+  // Helper function to log current ECN socket options
+  void LogEcnSocketOptions();
+
   RTC_NO_UNIQUE_ADDRESS SequenceChecker sequence_checker_;
   std::unique_ptr<Socket> socket_;
   bool has_set_ect1_options_ = false;

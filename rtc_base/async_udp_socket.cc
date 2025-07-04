@@ -52,6 +52,18 @@ AsyncUDPSocket::AsyncUDPSocket(Socket* socket) : socket_(socket) {
   // The socket should start out readable but not writable.
   socket_->SignalReadEvent.connect(this, &AsyncUDPSocket::OnReadEvent);
   socket_->SignalWriteEvent.connect(this, &AsyncUDPSocket::OnWriteEvent);
+  
+  // Log initial ECN socket capabilities
+  RTC_LOG(LS_INFO) << "SOCKET INIT: Created AsyncUDPSocket for address=" 
+                   << socket_->GetLocalAddress().ToString();
+  LogEcnSocketOptions();
+  
+  // Try to enable ECN reception by default
+  int recv_ecn_result = socket_->SetOption(Socket::OPT_RECV_ECN, 1);
+  RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN reception, result=" << recv_ecn_result;
+  if (recv_ecn_result == 0) {
+    LogEcnSocketOptions();
+  }
 }
 
 SocketAddress AsyncUDPSocket::GetLocalAddress() const {
@@ -81,21 +93,38 @@ int AsyncUDPSocket::SendTo(const void* pv,
                              options.info_signaled_after_sent);
   CopySocketInformationToPacketInfo(cb, *this, &sent_packet.info);
                             
-  RTC_LOG(LS_VERBOSE) << "Options:"
-                      << " ecn_1=" << options.ecn_1
-                      << " SEND ECN option=" << Socket::OPT_SEND_ECN
-                      << " RECV ECN option=" << Socket::OPT_RECV_ECN;
+  // Enhanced ECN logging for socket-level debugging
+  RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
+                   << " to=" << addr.ToString()
+                   << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
+                   << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
 
   if (has_set_ect1_options_ != options.ecn_1) {
     // It is unclear what is most efficient, setting options on every sent
     // packet or when changed. Potentially, can separate send sockets be used?
     // This is the easier implementation.
-    if (socket_->SetOption(Socket::Option::OPT_SEND_ECN,
-                           options.ecn_1 ? 1 : 0) == 0) {
+    int set_result = socket_->SetOption(Socket::Option::OPT_SEND_ECN,
+                                       options.ecn_1 ? 1 : 0);
+    if (set_result == 0) {
       has_set_ect1_options_ = options.ecn_1;
+      RTC_LOG(LS_INFO) << "SOCKET SEND: Successfully set ECN socket option to " 
+                       << (options.ecn_1 ? "ECT(1)" : "Not ECT");
+    } else {
+      RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
+                        << " Requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT");
     }
   }
+  
   int ret = socket_->SendTo(pv, cb, addr);
+  
+  // Log the result of the send operation
+  if (ret == static_cast<int>(cb)) {
+    RTC_LOG(LS_INFO) << "SOCKET SEND: SUCCESS - Sent " << ret << " bytes with ECN=" 
+                     << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
+  } else {
+    RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED - Attempted " << cb << " bytes, sent " << ret 
+                      << " bytes, error=" << socket_->GetError();
+  }
   SignalSentPacket(this, sent_packet);
   return ret;
 }
@@ -113,7 +142,17 @@ int AsyncUDPSocket::GetOption(Socket::Option opt, int* value) {
 }
 
 int AsyncUDPSocket::SetOption(Socket::Option opt, int value) {
-  return socket_->SetOption(opt, value);
+  int result = socket_->SetOption(opt, value);
+  
+  // Log ECN-related socket option changes
+  if (opt == Socket::OPT_SEND_ECN || opt == Socket::OPT_RECV_ECN) {
+    RTC_LOG(LS_INFO) << "SOCKET OPTION: Set " 
+                     << (opt == Socket::OPT_SEND_ECN ? "SEND_ECN" : "RECV_ECN")
+                     << " to " << value << " result=" << result;
+    LogEcnSocketOptions();
+  }
+  
+  return result;
 }
 
 int AsyncUDPSocket::GetError() const {
@@ -122,6 +161,20 @@ int AsyncUDPSocket::GetError() const {
 
 void AsyncUDPSocket::SetError(int error) {
   return socket_->SetError(error);
+}
+
+// Add helper function to verify ECN socket options
+void AsyncUDPSocket::LogEcnSocketOptions() {
+  int send_ecn_value = -1;
+  int recv_ecn_value = -1;
+  
+  int send_result = socket_->GetOption(Socket::OPT_SEND_ECN, &send_ecn_value);
+  int recv_result = socket_->GetOption(Socket::OPT_RECV_ECN, &recv_ecn_value);
+  
+  RTC_LOG(LS_INFO) << "SOCKET ECN OPTIONS: "
+                   << "SEND_ECN=" << (send_result == 0 ? std::to_string(send_ecn_value) : "ERROR")
+                   << " RECV_ECN=" << (recv_result == 0 ? std::to_string(recv_ecn_value) : "ERROR")
+                   << " Internal ECT1 flag=" << (has_set_ect1_options_ ? "true" : "false");
 }
 
 void AsyncUDPSocket::OnReadEvent(Socket* socket) {
