@@ -58,17 +58,17 @@ void L4SPragueController::UpdateEcnFeedback(
   size_t ce_packets = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.sent_packet.sequence_number.has_value()) {
+    if (packet.sent_packet.sequence_number > 0) {
       if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
         RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
-                  << packet.sent_packet.sequence_number.value()
+                  << packet.sent_packet.sequence_number
                   << ", feedback_time=" << now.us() << " us";
         ect_packets++;
       } else if (packet.ecn == EcnMarking::kCe) {
         ce_packets++;
         ect_packets++;  // CE also counts as ECT
         RTC_LOG(LS_INFO) << "Prague: CE marked packet detected! Seq="
-                         << packet.sent_packet.sequence_number.value()
+                         << packet.sent_packet.sequence_number
                          << ", feedback_time=" << now.us() << " us";
       }
     }
