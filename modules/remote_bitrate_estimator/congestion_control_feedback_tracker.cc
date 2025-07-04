@@ -54,7 +54,7 @@ void CongestionControlFeedbackTracker::ReceivedPacket(
   }
   
   // Log ECN information
-  EcnMarking ecn = packet.ecn();
+  //EcnMarking ecn = packet.ecn();
   // RTC_LOG(LS_INFO) << "FeedbackTracker: Received packet SSRC=" << packet.Ssrc()
   //                  << " seq=" << packet.SequenceNumber()
   //                  << " ECN=" << static_cast<int>(ecn) << " ("
