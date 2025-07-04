@@ -215,17 +215,17 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     DataRate current_rate_for_transport_ =
         target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
-    RTC_LOG(LS_INFO)
-        << "L4S DEBUG: Starting cycle with current_rate_for_transport_="
-        << current_rate_for_transport_.bps() << " bps (from target_rate_="
-        << (target_rate_ ? target_rate_->bps() : -1) << ")";
+    // RTC_LOG(LS_INFO)
+    //     << "L4S DEBUG: Starting cycle with current_rate_for_transport_="
+    //     << current_rate_for_transport_.bps() << " bps (from target_rate_="
+    //     << (target_rate_ ? target_rate_->bps() : -1) << ")";
 
     // Consider BWE estimates for capacity limiting (consistent with
     // OnTransportPacketsFeedback)
     DataRate bwe_based_limit = max_realistic_bandwidth_;
-    RTC_LOG(LS_WARNING)
-        << "L4S OnProcessInterval DEBUG: Initial bwe_based_limit="
-        << bwe_based_limit.bps() << " bps";
+    // RTC_LOG(LS_WARNING)
+    //     << "L4S OnProcessInterval DEBUG: Initial bwe_based_limit="
+    //     << bwe_based_limit.bps() << " bps";
 
     // Use delay-based estimate as the primary capacity indicator, but don't exceed max_realistic_bandwidth_
     
@@ -243,8 +243,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     } else {
       // No delay estimate yet, use a conservative portion of max_realistic_bandwidth_
       bwe_based_limit = max_realistic_bandwidth_ * 0.1;  // Start with 10% of max
-      RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
-                          << bwe_based_limit.bps() << " bps (10% of max_realistic)";
+      // RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
+      //                     << bwe_based_limit.bps() << " bps (10% of max_realistic)";
     }
 
     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
@@ -263,9 +263,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           << "), bwe_based_limit now=" << bwe_based_limit.bps();
     }
 
-    RTC_LOG(LS_INFO)
-        << "L4S OnProcessInterval: Final BWE-based capacity limit: "
-        << bwe_based_limit.bps() << " bps";
+    // RTC_LOG(LS_INFO)
+    //     << "L4S OnProcessInterval: Final BWE-based capacity limit: "
+    //     << bwe_based_limit.bps() << " bps";
 
     // Allow Prague to increase up to BWE-based limit, even if current rate is
     // lower This prevents getting stuck when current rate is below the
@@ -282,11 +282,11 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
                           << " bps)";
     }
 
-    RTC_LOG(LS_WARNING)
-        << "L4S OnProcessInterval DEBUG: Passing rate_for_prague="
-        << rate_for_prague.bps()
-        << " to Prague (current=" << current_rate_for_transport_.bps()
-        << ", bwe_limit=" << bwe_based_limit.bps() << ")";
+    // RTC_LOG(LS_WARNING)
+    //     << "L4S OnProcessInterval DEBUG: Passing rate_for_prague="
+    //     << rate_for_prague.bps()
+    //     << " to Prague (current=" << current_rate_for_transport_.bps()
+    //     << ", bwe_limit=" << bwe_based_limit.bps() << ")";
 
     auto prague_rate =
         prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
@@ -300,8 +300,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
 
       // CRITICAL: Cap Prague rate immediately to prevent any potential overflow/infinite values
       if (prague_rate.value() > bwe_based_limit) {
-        RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
-                            << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
+        // RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
+        //                     << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
         
         // Validate the capped rate before assignment
         if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
@@ -374,8 +374,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         auto test_prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_sending_rate * 1.1);
         if (test_prague_rate && test_prague_rate.value() > current_sending_rate * 1.05) {
           prague_being_capped = true;
-          RTC_LOG(LS_WARNING) << "L4S: Prague wants to increase from " << current_sending_rate.bps() 
-                              << " to " << test_prague_rate.value().bps() << " - triggering ALR for probing";
+          // RTC_LOG(LS_WARNING) << "L4S: Prague wants to increase from " << current_sending_rate.bps() 
+          //                     << " to " << test_prague_rate.value().bps() << " - triggering ALR for probing";
         }
         
         should_be_in_alr = underutilizing || prague_being_capped;
@@ -391,27 +391,27 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     if (should_be_in_alr && !alr_start_time_) {
       alr_start_time_ = msg.at_time;
       probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
-      RTC_LOG(LS_WARNING) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
-                          << " bps < 95% of capacity " << estimated_capacity.bps() << " bps";
+      // RTC_LOG(LS_WARNING) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
+                          // << " bps < 95% of capacity " << estimated_capacity.bps() << " bps";
     } else if (!should_be_in_alr && alr_start_time_) {
       probe_controller_->SetAlrEndedTimeMs(msg.at_time.ms());
       alr_start_time_.reset();
-      RTC_LOG(LS_WARNING) << "L4S: Exited ALR state - sending " << current_sending_rate.bps() 
-                          << " bps >= 98% of capacity " << estimated_capacity.bps() << " bps";
+      // RTC_LOG(LS_WARNING) << "L4S: Exited ALR state - sending " << current_sending_rate.bps() 
+                          // << " bps >= 98% of capacity " << estimated_capacity.bps() << " bps";
     }
     
     // Log ALR state periodically for debugging
     static Timestamp last_alr_log = Timestamp::Zero();
     if (msg.at_time - last_alr_log > TimeDelta::Seconds(3)) {  // More frequent ALR logging
       last_alr_log = msg.at_time;
-      RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
-                          << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
-                          << " sending=" << current_sending_rate.bps() << " bps"
-                          << " capacity=" << estimated_capacity.bps() << " bps"
-                          << " threshold_95%=" << (estimated_capacity * 0.95).bps() << " bps"
-                          << " threshold_98%=" << (estimated_capacity * 0.98).bps() << " bps"
-                          << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
-                          << " acked_est=" << last_acknowledged_rate_.bps() << " bps";
+      // RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
+      //                     << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
+      //                     << " sending=" << current_sending_rate.bps() << " bps"
+      //                     << " capacity=" << estimated_capacity.bps() << " bps"
+      //                     << " threshold_95%=" << (estimated_capacity * 0.95).bps() << " bps"
+      //                     << " threshold_98%=" << (estimated_capacity * 0.98).bps() << " bps"
+      //                     << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
+      //                     << " acked_est=" << last_acknowledged_rate_.bps() << " bps";
     }
     
     // Update ProbeController with our current bandwidth estimate and network state
@@ -439,15 +439,15 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         state_estimate.confidence = 0.8;
         
         probe_controller_->SetNetworkStateEstimate(state_estimate);
-        RTC_LOG(LS_WARNING) << "L4S: SetNetworkStateEstimate called with rate=" << network_estimate.bps() << " bps";
+        // RTC_LOG(LS_WARNING) << "L4S: SetNetworkStateEstimate called with rate=" << network_estimate.bps() << " bps";
       }
       
       auto estimate_probe_clusters = probe_controller_->SetEstimatedBitrate(
           *target_rate_, cause, msg.at_time);
       
-      RTC_LOG(LS_WARNING) << "L4S: SetEstimatedBitrate called with rate=" << target_rate_->bps() 
-                          << " bps, cause=" << static_cast<int>(cause)
-                          << " returned " << estimate_probe_clusters.size() << " probe(s)";
+      // RTC_LOG(LS_WARNING) << "L4S: SetEstimatedBitrate called with rate=" << target_rate_->bps() 
+      //                     << " bps, cause=" << static_cast<int>(cause)
+      //                     << " returned " << estimate_probe_clusters.size() << " probe(s)";
       
       if (!estimate_probe_clusters.empty()) {
         // Add any immediate probes triggered by the estimate update
@@ -467,7 +467,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     }
 
     // Use ProbeController for bandwidth discovery
-    RTC_LOG(LS_WARNING) << "L4S: Calling ProbeController::Process at time " << msg.at_time.ms() << " ms";
+    // RTC_LOG(LS_WARNING) << "L4S: Calling ProbeController::Process at time " << msg.at_time.ms() << " ms";
     auto probe_clusters = probe_controller_->Process(msg.at_time);
     if (!probe_clusters.empty()) {
       update.probe_cluster_configs = std::move(probe_clusters);
@@ -812,11 +812,11 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
 
   // 4. Update our network capacity estimate based on BWE results
   DataRate bwe_estimate = bandwidth_estimation_->target_rate();
-  RTC_LOG(LS_WARNING)
-      << "L4S BWE Source Debug: bandwidth_estimation_->target_rate()="
-      << bwe_estimate.bps()
-      << " bps, max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps()
-      << " bps";
+  // RTC_LOG(LS_WARNING)
+  //     << "L4S BWE Source Debug: bandwidth_estimation_->target_rate()="
+  //     << bwe_estimate.bps()
+  //     << " bps, max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps()
+  //     << " bps";
 
   // Allow max_realistic_bandwidth_ to increase if we observe higher bandwidth
   DataRate highest_observed_rate = DataRate::Zero();
@@ -892,18 +892,18 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.98, max_realistic_bandwidth_);
       bwe_based_limit = delay_based_limit;
       
-      RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
-                          << delay_based_limit.bps() << " bps (98% of "
-                          << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
-                          << max_realistic_bandwidth_.bps() << " bps)";
+      // RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
+      //                     << delay_based_limit.bps() << " bps (98% of "
+      //                     << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
+      //                     << max_realistic_bandwidth_.bps() << " bps)";
     }
 
-    RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_="
-                     << max_realistic_bandwidth_.bps()
-                     << ", last_delay_based_estimate_="
-                     << last_delay_based_estimate_.bps()
-                     << ", last_acknowledged_rate_="
-                     << last_acknowledged_rate_.bps();
+    // RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_="
+    //                  << max_realistic_bandwidth_.bps()
+    //                  << ", last_delay_based_estimate_="
+    //                  << last_delay_based_estimate_.bps()
+    //                  << ", last_acknowledged_rate_="
+    //                  << last_acknowledged_rate_.bps();
 
     // Use delay-based estimate as capacity indicator, but keep it simple
     if (last_delay_based_estimate_ > DataRate::Zero()) {
@@ -917,8 +917,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     } else {
       // No delay estimate, use conservative limit
       bwe_based_limit = max_realistic_bandwidth_ * 0.1;
-      RTC_LOG(LS_INFO) << "L4S: No delay estimate, using conservative limit=" 
-                       << bwe_based_limit.bps() << " bps";
+      // RTC_LOG(LS_INFO) << "L4S: No delay estimate, using conservative limit=" 
+      //                  << bwe_based_limit.bps() << " bps";
     }
 
     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
@@ -936,10 +936,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
                        << last_acknowledged_rate_.bps() << ")";
     }
 
-    RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
-                     << bwe_based_limit.bps()
-                     << " bps (acked: " << last_acknowledged_rate_.bps()
-                     << ", delay: " << last_delay_based_estimate_.bps() << ")";
+    // RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
+    //                  << bwe_based_limit.bps()
+    //                  << " bps (acked: " << last_acknowledged_rate_.bps()
+    //                  << ", delay: " << last_delay_based_estimate_.bps() << ")";
 
     // Allow Prague to increase up to BWE-based limit, even if current rate is
     // lower This prevents getting stuck when current rate is below the
@@ -981,11 +981,11 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
         target_rate_ = prague_rate;
       }
 
-      RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps()
-                       << " bps";
-      RTC_LOG(LS_INFO) << "L4S setting target_rate_ from "
-                       << (target_rate_ ? target_rate_->bps() : -1) << " to "
-                       << prague_rate->bps() << " bps";
+      // RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps()
+      //                  << " bps";
+      // RTC_LOG(LS_INFO) << "L4S setting target_rate_ from "
+      //                  << (target_rate_ ? target_rate_->bps() : -1) << " to "
+      //                  << prague_rate->bps() << " bps";
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
     } else {
       RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
@@ -1044,9 +1044,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
     current_rate_for_transport_ = DataRate::KilobitsPerSec(300);
   }
 
-  RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_stored="
-                   << (target_rate_ ? target_rate_->bps() : -1) << " bps"
-                   << ", current_rate=" << current_rate_for_transport_.bps() << " bps";
+  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_stored="
+  //                  << (target_rate_ ? target_rate_->bps() : -1) << " bps"
+  //                  << ", current_rate=" << current_rate_for_transport_.bps() << " bps";
 
   if (min_target_rate_ && current_rate_for_transport_ < *min_target_rate_) {
     // RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " <<

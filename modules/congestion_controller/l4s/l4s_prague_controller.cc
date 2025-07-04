@@ -331,9 +331,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // Only increase if RTT is reasonable (>= 1ms) and time since update is
     // significant
     if (rtt_seconds >= 0.001 && time_since_update.ms() >= 25) {
-      RTC_LOG(LS_INFO)
-          << "Prague: RTT and time conditions met, calculating increase. RTT="
-          << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
+      // RTC_LOG(LS_INFO)
+      //     << "Prague: RTT and time conditions met, calculating increase. RTT="
+      //     << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
       // Target: very small increase per RTT (much more conservative than TCP)
       DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte packets
       DataSize current_cwnd = CalculateCongestionWindow();
@@ -355,23 +355,23 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 
       // Log when we actually increase (only if meaningful)
       if (increase_factor > 1.001) {
-        RTC_LOG(LS_INFO) << "Prague additive increase: factor="
-                         << increase_factor << ", base_rate=" << base_rate.bps()
-                         << " bps"
-                         << ", new_rate=" << (base_rate.bps() * increase_factor)
-                         << " bps"
-                         << ", rtt=" << rtt_seconds
-                         << "s, update_interval=" << time_since_update.ms()
-                         << "ms";
+        // RTC_LOG(LS_INFO) << "Prague additive increase: factor="
+        //                  << increase_factor << ", base_rate=" << base_rate.bps()
+        //                  << " bps"
+        //                  << ", new_rate=" << (base_rate.bps() * increase_factor)
+        //                  << " bps"
+        //                  << ", rtt=" << rtt_seconds
+        //                  << "s, update_interval=" << time_since_update.ms()
+        //                  << "ms";
       } else {
-        RTC_LOG(LS_INFO) << "Prague: Small increase factor (" << increase_factor
-                         << "), not logging";
+        // RTC_LOG(LS_INFO) << "Prague: Small increase factor (" << increase_factor
+        //                  << "), not logging";
       }
     } else {
-      RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT="
-                       << rtt_seconds
-                       << "s (need >=0.001), time=" << time_since_update.ms()
-                       << "ms (need >=25)";
+      // RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT="
+      //                  << rtt_seconds
+      //                  << "s (need >=0.001), time=" << time_since_update.ms()
+      //                  << "ms (need >=25)";
     }
 
     // Check if multiplication would cause overflow or exceed realistic network
@@ -391,9 +391,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // GCC-style final rate clamping: ensure we never go below minimum
     increased_rate = std::max(kCongestionControllerMinBitrate, increased_rate);
 
-    RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
-                     << increased_rate.bps()
-                     << " bps (factor=" << increase_factor << ")";
+    // RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
+    //                  << increased_rate.bps()
+    //                  << " bps (factor=" << increase_factor << ")";
 
     return increased_rate;
   }
