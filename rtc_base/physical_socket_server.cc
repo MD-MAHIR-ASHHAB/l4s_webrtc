@@ -602,8 +602,11 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
           
           // Enhanced ECN reception logging for socket-level debugging
           uint8_t tos_byte = CMSG_DATA(cmsg)[0];
+          char hex_str[8];
+          snprintf(hex_str, sizeof(hex_str), "0x%02X", static_cast<int>(tos_byte));
+          
           RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
-                           << " TOS/TCLASS byte=0x" << std::hex << static_cast<int>(tos_byte) << std::dec
+                           << " TOS/TCLASS byte=" << hex_str
                            << " ECN bits=" << ((tos_byte & 0x03))
                            << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
                                                  (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
