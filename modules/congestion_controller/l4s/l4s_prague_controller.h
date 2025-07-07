@@ -54,6 +54,7 @@ class L4SPragueController {
   // Timestamps
   Timestamp last_update_time_ = Timestamp::MinusInfinity();
   Timestamp last_reduction_time_ = Timestamp::MinusInfinity();
+  Timestamp startup_time_ = Timestamp::MinusInfinity();  // Track when startup protection began
   
   // Window of ECN feedback for calculating marking ratio
   struct EcnFeedbackPoint {

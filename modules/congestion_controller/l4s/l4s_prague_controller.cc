@@ -93,6 +93,10 @@ void L4SPragueController::UpdateEcnFeedback(
 
   // If we received any ECT or CE packets, activate the controller
   if (ect_packets > 0) {
+    if (!active_) {
+      startup_time_ = now;  // Record when startup protection began
+      RTC_LOG(LS_INFO) << "Prague: Controller activated, starting startup protection timer";
+    }
     active_ = true;
     // Reset the NotECT packet counter when we see ECT packets
     consecutive_notect_feedbacks_ = 0;
@@ -200,7 +204,21 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 
   // Startup protection: Don't reduce rates aggressively when we haven't seen 
   // enough ECN signal history. This prevents startup transients from causing problems.
+  // Add timeout-based fallback for non-ECN environments.
   bool startup_protection = total_ect_packets_ < 50;  // Need at least 50 ECT packets for reliable signal
+  
+  // Check if we've been in startup protection for too long (indicating no ECN support)
+  if (startup_protection && startup_time_.IsFinite()) {
+    TimeDelta startup_duration = now - startup_time_;
+    const TimeDelta kStartupProtectionTimeout = TimeDelta::Seconds(30);  // 30 second timeout
+    
+    if (startup_duration > kStartupProtectionTimeout) {
+      RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " << startup_duration.ms() 
+                       << "ms with only " << total_ect_packets_ << " ECT packets. "
+                       << "Disabling startup protection (likely non-ECN environment)";
+      startup_protection = false;
+    }
+  }
   
   if (startup_protection && ecn_ce_ratio_ == 0.0) {
     RTC_LOG(LS_INFO) << "Prague: Startup protection active (only " << total_ect_packets_ 
@@ -329,6 +347,29 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
 
   // If no congestion, try to increase additively based on RTT
+  // For non-ECN environments, use loss-based approach if available
+  if (total_ect_packets_ == 0 && startup_time_.IsFinite()) {
+    TimeDelta startup_duration = now - startup_time_;
+    const TimeDelta kNonEcnFallbackTime = TimeDelta::Seconds(10);  // 10 second fallback
+    
+    if (startup_duration > kNonEcnFallbackTime) {
+      // No ECN marking seen, probably a non-ECN environment
+      // Use a conservative additive increase approach
+      const double kNonEcnAdditiveIncrease = 1.05;  // 5% increase
+      DataRate increased_rate = base_rate * kNonEcnAdditiveIncrease;
+      
+      // Cap the increase to prevent aggressive ramp-up
+      const DataRate kMaxNonEcnIncrease = DataRate::KilobitsPerSec(100);  // 100 kbps max increase
+      if (increased_rate - base_rate > kMaxNonEcnIncrease) {
+        increased_rate = base_rate + kMaxNonEcnIncrease;
+      }
+      
+      RTC_LOG(LS_INFO) << "Prague: Non-ECN fallback mode - increasing rate from " 
+                       << base_rate.bps() << " to " << increased_rate.bps() << " bps";
+      return increased_rate;
+    }
+  }
+  
   // RTC_LOG(LS_INFO)
   //     << "Prague: No congestion (CE ratio=0), checking for additive increase";
 
@@ -481,7 +522,31 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 }
 
 bool L4SPragueController::IsActive() const {
-  return active_;
+  // Check if we're still in startup protection
+  if (startup_time_.IsFinite()) {
+    Timestamp now = Timestamp::Millis(rtc::TimeMillis());
+    TimeDelta startup_duration = now - startup_time_;
+    
+    // If startup protection has timed out without ECN feedback, we're not active
+    if (startup_duration > TimeDelta::Seconds(30)) {
+      RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
+                       << startup_duration.seconds() << " seconds, controller not active";
+      return false;
+    }
+  }
+  
+  // We're active if we have enough ECN feedback and haven't timed out
+  bool has_ecn_feedback = (total_ect_packets_ > 0 || total_ce_packets_ > 0);
+  bool sufficient_feedback = (total_ect_packets_ + total_ce_packets_) >= 10;
+  
+  // Not active if we've received too many consecutive NotECT-only feedbacks
+  if (consecutive_notect_feedbacks_ >= 20) {
+    RTC_LOG(LS_INFO) << "Prague: Too many NotECT-only feedbacks (" 
+                     << consecutive_notect_feedbacks_ << "), controller not active";
+    return false;
+  }
+  
+  return active_ && has_ecn_feedback && sufficient_feedback;
 }
 
 DataSize L4SPragueController::CalculateCongestionWindow() const {
