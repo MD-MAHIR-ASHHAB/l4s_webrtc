@@ -1098,8 +1098,8 @@ bool RTCPReceiver::HandleCongestionControlFeedback(
     else if (packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kEct0) ect_count++;
     else not_ect_count++;
   }
-  RTC_LOG(LS_INFO) << "RTCPReceiver: Parsed RFC8888 feedback with " << feedback.packets().size() 
-                   << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
+  // RTC_LOG(LS_INFO) << "RTCPReceiver: Parsed RFC8888 feedback with " << feedback.packets().size() 
+  //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   
   uint32_t first_media_source_ssrc = feedback.packets()[0].ssrc;
   if (first_media_source_ssrc == local_media_ssrc() ||

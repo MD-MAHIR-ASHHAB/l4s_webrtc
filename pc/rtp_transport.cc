@@ -211,13 +211,13 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
 
-  if (ecn != EcnMarking::kNotEct) {
-    RTC_LOG(LS_INFO) << "RTP packet with seq=" 
-                     << parsed_packet.SequenceNumber()
-                     << " marked with ECN: " 
-                     << (ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                         (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-  }
+  // if (ecn != EcnMarking::kNotEct) {
+  //   RTC_LOG(LS_INFO) << "RTP packet with seq=" 
+  //                    << parsed_packet.SequenceNumber()
+  //                    << " marked with ECN: " 
+  //                    << (ecn == EcnMarking::kEct0 ? "ECT(0)" :
+  //                        (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+  // }
 
   if (!parsed_packet.Parse(std::move(packet))) {
     RTC_LOG(LS_ERROR)

@@ -692,8 +692,8 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
       transport_feedback_adapter_.ProcessCongestionControlFeedback(
           feedback, receive_time);
   if (feedback_msg) {
-    RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Successfully processed into TransportPacketsFeedback with " 
-                     << feedback_msg->packet_feedbacks.size() << " packets";
+    // RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Successfully processed into TransportPacketsFeedback with " 
+    //                  << feedback_msg->packet_feedbacks.size() << " packets";
     HandleTransportPacketsFeedback(*feedback_msg);
   } else {
     RTC_LOG(LS_WARNING) << "OnCongestionControlFeedback: Failed to process into TransportPacketsFeedback";

@@ -530,8 +530,13 @@ bool L4SPragueController::IsActive() const {
     
     // If startup protection has timed out without ECN feedback, we're not active
     if (startup_duration > TimeDelta::Seconds(30)) {
-      RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
-                       << startup_duration.seconds() << " seconds, controller not active";
+      // Only log this message occasionally to avoid spam
+      static Timestamp last_timeout_log = Timestamp::MinusInfinity();
+      if (now - last_timeout_log > TimeDelta::Seconds(10)) {
+        RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
+                         << startup_duration.seconds() << " seconds, controller not active";
+        last_timeout_log = now;
+      }
       return false;
     }
   }
@@ -542,8 +547,13 @@ bool L4SPragueController::IsActive() const {
   
   // Not active if we've received too many consecutive NotECT-only feedbacks
   if (consecutive_notect_feedbacks_ >= 20) {
-    RTC_LOG(LS_INFO) << "Prague: Too many NotECT-only feedbacks (" 
-                     << consecutive_notect_feedbacks_ << "), controller not active";
+    static Timestamp last_notect_log = Timestamp::MinusInfinity();
+    Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
+    if (now - last_notect_log > TimeDelta::Seconds(10)) {
+      RTC_LOG(LS_INFO) << "Prague: Too many NotECT-only feedbacks (" 
+                       << consecutive_notect_feedbacks_ << "), controller not active";
+      last_notect_log = now;
+    }
     return false;
   }
   
