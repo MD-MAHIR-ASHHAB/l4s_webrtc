@@ -122,18 +122,48 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
 
+  // More conservative history cleanup - only remove packets that are definitely too old
+  // and have been acknowledged or are very unlikely to receive feedback
   while (!history_.empty() &&
          creation_time - history_.begin()->second.creation_time >
              kSendTimeHistoryWindow) {
-    // TODO(sprang): Warn if erasing (too many) old items?
-    if (history_.begin()->second.sent.sequence_number > last_ack_seq_num_)
-      in_flight_.RemoveInFlightPacketBytes(history_.begin()->second);
+    
+    const PacketFeedback& oldest_packet = history_.begin()->second;
+    
+    // Only remove if packet has been acknowledged or if send time was never set
+    // (indicating it was likely dropped or never actually sent)
+    bool should_remove = false;
+    
+    if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
+      // Packet has been acknowledged, safe to remove
+      should_remove = true;
+    } else if (oldest_packet.sent.send_time.IsInfinite()) {
+      // Packet never got send time update, likely dropped before sending
+      auto age = creation_time - oldest_packet.creation_time;
+      if (age > TimeDelta::Seconds(10)) {  // Give more time for send time updates
+        should_remove = true;
+        RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
+                            << " that never got send time update after " << age.seconds() << "s";
+      }
+    }
+    
+    if (should_remove) {
+      if (oldest_packet.sent.sequence_number > last_ack_seq_num_)
+        in_flight_.RemoveInFlightPacketBytes(oldest_packet);
 
-    const PacketFeedback& packet = history_.begin()->second;
-    rtp_to_transport_sequence_number_.erase(
-        {.ssrc = packet.ssrc,
-         .rtp_sequence_number = packet.rtp_sequence_number});
-    history_.erase(history_.begin());
+      rtp_to_transport_sequence_number_.erase(
+          {.ssrc = oldest_packet.ssrc,
+           .rtp_sequence_number = oldest_packet.rtp_sequence_number});
+      history_.erase(history_.begin());
+    } else {
+      // Keep this packet for now, but log if history is getting too large
+      if (history_.size() > 10000) {  // Arbitrary large number
+        RTC_LOG(LS_WARNING) << "Send time history growing large: " << history_.size() 
+                            << " packets. Oldest packet age: " 
+                            << (creation_time - oldest_packet.creation_time).seconds() << "s";
+      }
+      break;  // Don't remove more packets if we kept this one
+    }
   }
   // Note that it can happen that the same SSRC and sequence number is sent
   // again. e.g, audio retransmission.
@@ -148,6 +178,14 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     const SentPacketInfo& sent_packet) {
   auto send_time = Timestamp::Millis(sent_packet.send_time_ms);
+  
+  // Validate send time
+  if (!send_time.IsFinite() || send_time.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid send time in ProcessSentPacket: " 
+                        << sent_packet.send_time_ms << " ms";
+    return std::nullopt;
+  }
+  
   // TODO(srte): Only use one way to indicate that packet feedback is used.
   if (sent_packet.info.included_in_feedback || sent_packet.packet_id != -1) {
     int64_t unwrapped_seq_num =
@@ -157,6 +195,13 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
       bool packet_retransmit = it->second.sent.send_time.IsFinite();
       it->second.sent.send_time = send_time;
       last_send_time_ = std::max(last_send_time_, send_time);
+      
+      // Log successful send time update for debugging
+      if (!packet_retransmit) {
+        RTC_LOG(LS_VERBOSE) << "Updated send time for packet seq=" << unwrapped_seq_num
+                            << " to " << send_time.us() << " us";
+      }
+      
       // TODO(srte): Don't do this on retransmit.
       if (!pending_untracked_size_.IsZero()) {
         if (send_time < last_untracked_send_time_)
@@ -172,6 +217,11 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
         it->second.sent.data_in_flight = GetOutstandingData();
         return it->second.sent;
       }
+    } else {
+      // Packet not found in history - this might explain later feedback lookup failures
+      RTC_LOG(LS_WARNING) << "ProcessSentPacket: Packet seq=" << unwrapped_seq_num
+                          << " not found in history. History size: " << history_.size()
+                          << ". This might cause feedback lookup failures later.";
     }
   } else if (sent_packet.info.included_in_allocation) {
     if (send_time < last_send_time_) {
@@ -258,7 +308,15 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_WARNING)
         << "Failed to lookup send time for " << failed_lookups << " packet"
         << (failed_lookups > 1 ? "s" : "")
-        << ". Packets reordered or send time history too small?";
+        << " out of " << feedback.GetPacketStatusCount() << " total packets."
+        << " Packets reordered or send time history too small?";
+    
+    // If we failed to lookup most packets, this might indicate a serious timing issue
+    double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
+    if (failure_rate > 0.5) {
+      RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
+                        << "%. This suggests a timing or history management issue.";
+    }
   }
   if (ignored > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
@@ -465,11 +523,28 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   auto it = history_.find(transport_seq_num);
   if (it == history_.end()) {
+    // Enhanced diagnostic logging
     RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with seq="
                         << transport_seq_num
                         << ". Send time history too small? History size: " 
                         << history_.size()
-                        << ", last_ack_seq_num: " << last_ack_seq_num_;
+                        << ", last_ack_seq_num: " << last_ack_seq_num_
+                        << ", seq_num_range: [" 
+                        << (history_.empty() ? -1 : history_.begin()->first) << ", "
+                        << (history_.empty() ? -1 : history_.rbegin()->first) << "]";
+    
+    // Additional debugging: check if packet is in a reasonable range
+    if (!history_.empty()) {
+      int64_t min_seq = history_.begin()->first;
+      int64_t max_seq = history_.rbegin()->first;
+      if (transport_seq_num < min_seq) {
+        RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
+                            << " is older than oldest in history (" << min_seq << ")";
+      } else if (transport_seq_num > max_seq) {
+        RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
+                            << " is newer than newest in history (" << max_seq << ")";
+      }
+    }
     return std::nullopt;
   }
 
@@ -482,11 +557,14 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
                           << " has been waiting " << age.seconds() 
                           << "s for send time update. Likely a timing issue.";
     }
-    // TODO(srte): Fix the tests that makes this happen and make this a
-    // DCHECK.
-    RTC_DLOG(LS_ERROR)
-        << "Received feedback before packet was indicated as sent for seq="
-        << transport_seq_num;
+    
+    // More detailed logging about why send time is missing
+    RTC_LOG(LS_WARNING) << "Received feedback before packet was indicated as sent for seq="
+                        << transport_seq_num << ", age=" << age.seconds() << "s"
+                        << ", creation_time=" << it->second.creation_time.us() << "us";
+    
+    // Don't completely fail - this might be a legitimate race condition
+    // For now, still return nullopt but with better logging
     return std::nullopt;
   }
 
