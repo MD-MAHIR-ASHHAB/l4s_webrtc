@@ -49,6 +49,7 @@ class L4SPragueController {
   std::optional<TimeDelta> min_rtt_estimate_;
   double ecn_ce_ratio_ = 0.0;  // Current CE marking ratio
   bool active_ = false;        // Whether enough ECN feedback has been received
+  size_t consecutive_notect_feedbacks_ = 0;  // Counter for NotECT-only feedbacks
 
   // Timestamps
   Timestamp last_update_time_ = Timestamp::MinusInfinity();

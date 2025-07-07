@@ -331,6 +331,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         DataRate probe_start = target_rate_.value();
         DataRate probe_max = target_rate_.value() * 1.5;  // Probe up to 50% above current rate
         
+        // Fix for low-rate deadlock: If start rate is below min, adjust min downward
+        if (probe_start < probe_min) {
+          probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
+          RTC_LOG(LS_WARNING) << "L4S: Adjusting probe min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
+                              << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
+        }
+        
         // Validate probe rates before calling SetBitrates
         if (probe_min.IsFinite() && probe_start.IsFinite() && probe_max.IsFinite() &&
             probe_min > DataRate::Zero() && probe_start > DataRate::Zero() && probe_max > DataRate::Zero() &&
@@ -521,6 +528,15 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           // Method 1: Try SetBitrates with higher max bitrate
           DataRate current_max = max_bitrate_;
           DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(3000));
+          DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+          DataRate probe_start = target_rate_.value();
+          
+          // Fix for low-rate deadlock: If start rate is below min, adjust min downward
+          if (probe_start < probe_min) {
+            probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
+            RTC_LOG(LS_WARNING) << "L4S: Force probe - adjusting min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
+                                << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
+          }
           
           // Validate probe rate to prevent invalid values
           if (probe_max > DataRate::KilobitsPerSec(100000)) {
@@ -533,8 +549,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           max_bitrate_ = probe_max;
           
           auto forced_probe_clusters = probe_controller_->SetBitrates(
-              min_target_rate_.value_or(DataRate::KilobitsPerSec(30)),
-              target_rate_.value(),
+              probe_min,
+              probe_start,
               probe_max,
               msg.at_time);
           

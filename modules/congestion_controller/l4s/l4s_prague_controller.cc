@@ -56,6 +56,7 @@ void L4SPragueController::UpdateEcnFeedback(
   // Count ECT and CE packets in this feedback
   size_t ect_packets = 0;
   size_t ce_packets = 0;
+  size_t notect_packets = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.sent_packet.sequence_number > 0) {
@@ -70,6 +71,8 @@ void L4SPragueController::UpdateEcnFeedback(
         RTC_LOG(LS_INFO) << "Prague: CE marked packet detected! Seq="
                          << packet.sent_packet.sequence_number
                          << ", feedback_time=" << now.us() << " us";
+      } else if (packet.ecn == EcnMarking::kNotEct) {
+        notect_packets++;
       }
     }
   }
@@ -82,9 +85,29 @@ void L4SPragueController::UpdateEcnFeedback(
                      << (total_ect_packets_ + ect_packets) << ")";
   }
 
+  // Log NotECT packets for debugging startup transients
+  if (notect_packets > 0) {
+    RTC_LOG(LS_INFO) << "Prague: Received " << notect_packets << " NotECT packets"
+                     << " (total ECT=" << ect_packets << ", CE=" << ce_packets << ")";
+  }
+
   // If we received any ECT or CE packets, activate the controller
   if (ect_packets > 0) {
     active_ = true;
+    // Reset the NotECT packet counter when we see ECT packets
+    consecutive_notect_feedbacks_ = 0;
+  } else if (notect_packets > 0) {
+    // Count consecutive feedbacks with only NotECT packets
+    consecutive_notect_feedbacks_++;
+    
+    // Only deactivate if we've seen sustained NotECT packets AND we were previously active
+    // This prevents startup transients from causing problems
+    if (active_ && consecutive_notect_feedbacks_ >= 10) {
+      RTC_LOG(LS_WARNING) << "Prague: Deactivating due to " << consecutive_notect_feedbacks_ 
+                          << " consecutive NotECT-only feedbacks";
+      active_ = false;
+      consecutive_notect_feedbacks_ = 0;
+    }
   }
 
   // Add to totals
@@ -117,7 +140,7 @@ void L4SPragueController::UpdateEcnFeedback(
     }
   }
 
-  // Calculate new CE ratio
+  // Calculate new CE ratio (only if we have enough ECT packets for reliable signal)
   if (total_ect_packets_ > 0) {
     ecn_ce_ratio_ = static_cast<double>(total_ce_packets_) / total_ect_packets_;
 
@@ -129,7 +152,16 @@ void L4SPragueController::UpdateEcnFeedback(
                        << " ECT packets)";
     }
   } else {
+    // No ECT packets in window - this could be due to:
+    // 1. Startup transients (NotECT packets before ECN marking activates)
+    // 2. ECN marking disabled temporarily 
+    // 3. Network path doesn't support ECN
     ecn_ce_ratio_ = 0.0;
+    
+    if (notect_packets > 0 && active_) {
+      RTC_LOG(LS_INFO) << "Prague: No ECT packets in feedback window (received " 
+                       << notect_packets << " NotECT packets). CE ratio reset to 0.";
+    }
   }
 
   last_update_time_ = now;
@@ -163,6 +195,16 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     RTC_LOG(LS_WARNING) << "Invalid timestamp in Prague controller: "
                         << now.us() << " us";
     return std::nullopt;
+  }
+
+  // Startup protection: Don't reduce rates aggressively when we haven't seen 
+  // enough ECN signal history. This prevents startup transients from causing problems.
+  bool startup_protection = total_ect_packets_ < 50;  // Need at least 50 ECT packets for reliable signal
+  
+  if (startup_protection && ecn_ce_ratio_ == 0.0) {
+    RTC_LOG(LS_INFO) << "Prague: Startup protection active (only " << total_ect_packets_ 
+                     << " ECT packets seen), maintaining current rate " << current_rate.bps() << " bps";
+    return current_rate;
   }
 
   // Use the provided current rate as the base rate instead of calculating from
@@ -232,8 +274,24 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       return base_rate;
     }
     
+    // Additional protection during startup: Require stronger CE signal if we haven't seen much ECN traffic
+    double effective_ce_ratio = ecn_ce_ratio_;
+    if (startup_protection && total_ect_packets_ < 100) {
+      // During startup, require at least 2% CE ratio before reducing (instead of any CE ratio)
+      if (ecn_ce_ratio_ < 0.02) {
+        RTC_LOG(LS_INFO) << "Prague: Startup protection - CE ratio " << (ecn_ce_ratio_ * 100.0) 
+                         << "% below 2% threshold with only " << total_ect_packets_ 
+                         << " ECT packets, not reducing rate";
+        return base_rate;
+      }
+      // Scale down the reduction during startup to be more conservative
+      effective_ce_ratio = ecn_ce_ratio_ * 0.5;  // Half the reduction strength
+      RTC_LOG(LS_INFO) << "Prague: Startup protection - scaling CE ratio from " 
+                       << (ecn_ce_ratio_ * 100.0) << "% to " << (effective_ce_ratio * 100.0) << "%";
+    }
+    
     // ECN-based reduction (similar to GCC's loss-based reduction)
-    double reduction_factor = 1.0 - (alpha_.Get() * ecn_ce_ratio_);
+    double reduction_factor = 1.0 - (alpha_.Get() * effective_ce_ratio);
     reduction_factor = std::max(reduction_factor, beta_.Get());
 
     // Add additional protection against overly aggressive reductions
