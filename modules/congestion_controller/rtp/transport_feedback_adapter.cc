@@ -122,25 +122,21 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
 
-  // More conservative history cleanup - only remove packets that are definitely too old
-  // and have been acknowledged or are very unlikely to receive feedback
-  while (!history_.empty() &&
-         creation_time - history_.begin()->second.creation_time >
-             kSendTimeHistoryWindow) {
-    
+  // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
+  // Only remove packets that are extremely old AND definitely won't get feedback
+  while (!history_.empty()) {
     const PacketFeedback& oldest_packet = history_.begin()->second;
+    auto age = creation_time - oldest_packet.creation_time;
     
-    // Only remove if packet has been acknowledged or if send time was never set
-    // (indicating it was likely dropped or never actually sent)
+    // Only remove if packet is MUCH older than the window AND meets additional criteria
     bool should_remove = false;
     
-    if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
-      // Packet has been acknowledged, safe to remove
-      should_remove = true;
-    } else if (oldest_packet.sent.send_time.IsInfinite()) {
-      // Packet never got send time update, likely dropped before sending
-      auto age = creation_time - oldest_packet.creation_time;
-      if (age > TimeDelta::Seconds(10)) {  // Give more time for send time updates
+    if (age > kSendTimeHistoryWindow * 2) {  // Double the window before considering removal
+      if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
+        // Packet has been acknowledged AND is very old, safe to remove
+        should_remove = true;
+      } else if (oldest_packet.sent.send_time.IsInfinite() && age > TimeDelta::Seconds(30)) {
+        // Packet never got send time update AND is extremely old
         should_remove = true;
         RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
                             << " that never got send time update after " << age.seconds() << "s";
@@ -156,11 +152,10 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
            .rtp_sequence_number = oldest_packet.rtp_sequence_number});
       history_.erase(history_.begin());
     } else {
-      // Keep this packet for now, but log if history is getting too large
-      if (history_.size() > 10000) {  // Arbitrary large number
-        RTC_LOG(LS_WARNING) << "Send time history growing large: " << history_.size() 
-                            << " packets. Oldest packet age: " 
-                            << (creation_time - oldest_packet.creation_time).seconds() << "s";
+      // Keep this packet, but warn if history is getting very large
+      if (history_.size() > 50000) {  // Much higher threshold
+        RTC_LOG(LS_WARNING) << "Send time history very large: " << history_.size() 
+                            << " packets. Oldest packet age: " << age.seconds() << "s";
       }
       break;  // Don't remove more packets if we kept this one
     }
@@ -566,14 +561,17 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   }
 
   PacketFeedback packet_feedback = it->second;
-  if (received) {
-    // Note: Lost packets are not removed from history because they might
-    // be reported as received by a later feedback.
-    rtp_to_transport_sequence_number_.erase(
-        {.ssrc = packet_feedback.ssrc,
-         .rtp_sequence_number = packet_feedback.rtp_sequence_number});
-    history_.erase(it);
+  
+  // Don't remove packets immediately from history to avoid lookup failures
+  // Let the time-based cleanup in AddPacket handle removal after proper aging
+  // This fixes the issue where immediate removal causes subsequent feedback
+  // to fail lookups for the same packets
+  
+  // Only update the last_ack_seq_num_ to track acknowledged packets for cleanup
+  if (received && packet_feedback.sent.sequence_number > last_ack_seq_num_) {
+    last_ack_seq_num_ = packet_feedback.sent.sequence_number;
   }
+  
   return packet_feedback;
 }
 
