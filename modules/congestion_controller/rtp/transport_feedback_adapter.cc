@@ -37,7 +37,7 @@
 
 namespace webrtc {
 
-constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
+constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
 
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
