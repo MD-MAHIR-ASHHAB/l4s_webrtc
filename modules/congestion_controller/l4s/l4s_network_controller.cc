@@ -275,11 +275,23 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         std::min(std::max(current_rate_for_transport_, bwe_based_limit * 0.995),
                  bwe_based_limit);
     if (rate_for_prague > current_rate_for_transport_) {
-      RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
-                          << rate_for_prague.bps() << " bps instead of current "
-                          << current_rate_for_transport_.bps()
-                          << " bps (BWE limit: " << bwe_based_limit.bps()
-                          << " bps)";
+      // Smooth large rate increases to prevent system instability
+      DataRate rate_diff = rate_for_prague - current_rate_for_transport_;
+      DataRate max_increase_per_step = current_rate_for_transport_ * 0.3;  // Max 30% increase per step
+      
+      if (rate_diff > max_increase_per_step) {
+        DataRate smoothed_rate = current_rate_for_transport_ + max_increase_per_step;
+        RTC_LOG(LS_WARNING) << "L4S: Smoothing rate increase from " << current_rate_for_transport_.bps() 
+                            << " to " << smoothed_rate.bps() << " bps instead of " 
+                            << rate_for_prague.bps() << " bps (BWE limit: " << bwe_based_limit.bps() << " bps)";
+        rate_for_prague = smoothed_rate;
+      } else {
+        RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
+                            << rate_for_prague.bps() << " bps instead of current "
+                            << current_rate_for_transport_.bps()
+                            << " bps (BWE limit: " << bwe_based_limit.bps()
+                            << " bps)";
+      }
     }
 
     // RTC_LOG(LS_WARNING)
@@ -509,6 +521,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
           // Method 1: Try SetBitrates with higher max bitrate
           DataRate current_max = max_bitrate_;
           DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(3000));
+          
+          // Validate probe rate to prevent invalid values
+          if (probe_max > DataRate::KilobitsPerSec(100000)) {
+            RTC_LOG(LS_WARNING) << "L4S: Probe rate too high (" << probe_max.bps() 
+                                << " bps), capping to 100 Mbps";
+            probe_max = DataRate::KilobitsPerSec(100000);
+          }
           
           // Temporarily update max_bitrate_ to allow higher probing
           max_bitrate_ = probe_max;

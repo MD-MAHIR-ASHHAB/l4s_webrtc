@@ -713,7 +713,16 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
                                     : "Continuing to try...");
       
       // Only disable ECN after several attempts to allow for startup delays
-      if (ecn_detection_attempts_ >= kMaxEcnDetectionAttempts) {
+      // But be more lenient if we're getting successful packet feedback
+      bool should_disable = ecn_detection_attempts_ >= kMaxEcnDetectionAttempts;
+      if (should_disable && !feedback.packet_feedbacks.empty()) {
+        // If we're getting packet feedback but no ECN markings, it might be a 
+        // network that strips ECN markings rather than a lookup failure issue
+        RTC_LOG(LS_INFO) << "ECN detection failed but packet feedback is working. "
+                        << "Network may be stripping ECN markings.";
+      }
+      
+      if (should_disable) {
         sending_packets_as_ect1_ = false;
         packet_router_.ConfigureForRfc8888Feedback(sending_packets_as_ect1_);
         // Update transport feedback adapter to track ECN markings

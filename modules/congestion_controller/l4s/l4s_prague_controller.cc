@@ -236,6 +236,15 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     double reduction_factor = 1.0 - (alpha_.Get() * ecn_ce_ratio_);
     reduction_factor = std::max(reduction_factor, beta_.Get());
 
+    // Add additional protection against overly aggressive reductions
+    // Limit the maximum reduction to prevent system instability
+    const double kMaxReductionPerStep = 0.5;  // Don't reduce more than 50% at once
+    if (reduction_factor < kMaxReductionPerStep) {
+      RTC_LOG(LS_WARNING) << "Prague: Limiting reduction factor from " << reduction_factor 
+                          << " to " << kMaxReductionPerStep << " to prevent aggressive reduction";
+      reduction_factor = kMaxReductionPerStep;
+    }
+
     RTC_LOG(LS_INFO) << "Prague: Applying ECN-based congestion reduction. "
                      << "CE ratio=" << (ecn_ce_ratio_ * 100.0) << "%, "
                      << "reduction_factor=" << reduction_factor << ", "

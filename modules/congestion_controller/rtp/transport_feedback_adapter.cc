@@ -402,6 +402,18 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   std::vector<PacketResult> packet_result_vector;
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
+    
+    // Check for ECN support immediately based on feedback content, before packet lookup
+    // This prevents ECN detection from being disabled due to lookup failures
+    if (packet_info.ecn != EcnMarking::kNotEct) {
+      supports_ecn = true;
+      RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
+                      << packet_info.sequence_number
+                      << ": " 
+                      << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                          (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+    }
+    
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         {.ssrc = packet_info.ssrc,
          .rtp_sequence_number = packet_info.sequence_number},
@@ -425,25 +437,10 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       if (!result.receive_time.IsFinite()) {
         RTC_LOG(LS_WARNING) << "Invalid receive_time calculated from timestamp arithmetic";
         result.receive_time = Timestamp::PlusInfinity(); // Mark as not received
-      } else {
-        // ECN support is confirmed if we receive any packet with ECN marking
-        if (packet_info.ecn != EcnMarking::kNotEct) {
-          supports_ecn = true;
-        }
       }
     }
     result.ecn = packet_info.ecn;
     
-    // Also check for ECN support based on the presence of ECN markings in feedback,
-    // even if the packet was lost (infinite arrival time)
-    if (packet_info.ecn != EcnMarking::kNotEct) {
-      supports_ecn = true;
-      RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
-                      << result.sent_packet.sequence_number
-                      << ": " 
-                      << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                          (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-    }
     packet_result_vector.push_back(result);
   }
 
