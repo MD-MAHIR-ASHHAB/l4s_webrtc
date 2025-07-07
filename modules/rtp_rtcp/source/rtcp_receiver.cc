@@ -1092,12 +1092,12 @@ bool RTCPReceiver::HandleCongestionControlFeedback(
   }
   
   // Count ECN marks in parsed feedback
-  int ce_count = 0, ect_count = 0, not_ect_count = 0;
-  for (const auto& packet : feedback.packets()) {
-    if (packet.ecn == EcnMarking::kCe) ce_count++;
-    else if (packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kEct0) ect_count++;
-    else not_ect_count++;
-  }
+  // int ce_count = 0, ect_count = 0, not_ect_count = 0;
+  // for (const auto& packet : feedback.packets()) {
+  //   if (packet.ecn == EcnMarking::kCe) ce_count++;
+  //   else if (packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kEct0) ect_count++;
+  //   else not_ect_count++;
+  // }
   // RTC_LOG(LS_INFO) << "RTCPReceiver: Parsed RFC8888 feedback with " << feedback.packets().size() 
   //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   
