@@ -102,7 +102,8 @@ void L4SPragueController::UpdateEcnFeedback(
     
     // Only deactivate if we've seen sustained NotECT packets AND we were previously active
     // This prevents startup transients from causing problems
-    if (active_ && consecutive_notect_feedbacks_ >= 10) {
+    // Increased limit from 10 to 25 to allow more time for ECN marking to stabilize
+    if (active_ && consecutive_notect_feedbacks_ >= 25) {
       RTC_LOG(LS_WARNING) << "Prague: Deactivating due to " << consecutive_notect_feedbacks_ 
                           << " consecutive NotECT-only feedbacks";
       active_ = false;
