@@ -15,6 +15,7 @@
 #include "api/field_trials_view.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -524,7 +525,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 bool L4SPragueController::IsActive() const {
   // Check if we're still in startup protection
   if (startup_time_.IsFinite()) {
-    Timestamp now = Timestamp::Millis(rtc::TimeMillis());
+    Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
     TimeDelta startup_duration = now - startup_time_;
     
     // If startup protection has timed out without ECN feedback, we're not active
