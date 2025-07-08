@@ -467,13 +467,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
           prague_rate = bwe_based_limit;
           target_rate_ = prague_rate;
-          last_target_bitrate_ = prague_rate;  // Track target bitrate for metrics
+          last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid BWE limit " << bwe_based_limit.bps() 
                               << " bps, using safe fallback";
           prague_rate = DataRate::KilobitsPerSec(300);
           target_rate_ = prague_rate;
-          last_target_bitrate_ = prague_rate;  // Track target bitrate for metrics
+          last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
         }
         
         // Force a probe to discover if higher rates are actually available
@@ -1526,15 +1526,18 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   UpdateThroughputStats(actual_bitrate);
   
   // Log time-series data for bandwidth
-  logger_->LogMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
-                    "target_bitrate", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
-                    "actual_bitrate", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
   
   // Calculate utilization ratio
   double utilization = target_bitrate.bps() > 0 ? (double)actual_bitrate.bps() / target_bitrate.bps() : 0.0;
-  logger_->LogMetric("bandwidth_utilization_ratio", test_case_name_, utilization, 
-                    "utilization", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("bandwidth_utilization_ratio", test_case_name_, utilization, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay) {
@@ -1545,11 +1548,13 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
   
-  logger_->LogMetric("rtt_ms", test_case_name_, rtt.ms(), 
-                    "round_trip_time", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
+                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
   if (one_way_delay.IsFinite()) {
-    logger_->LogMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
-                      "one_way_delay", {{"timestamp_ms", std::to_string(at_time.ms())}});
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
 }
 
@@ -1561,51 +1566,60 @@ void L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
   
-  logger_->LogMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
-                    "packet_loss", {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogMetric("packets_lost_count", test_case_name_, packets_lost, 
-                    "packets_lost", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
                                               double congestion_ratio) {
-  logger_->LogMetric("congestion_ce_count", test_case_name_, ce_count, 
-                    "congestion_experienced", {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogMetric("congestion_ect_count", test_case_name_, ect_count, 
-                    "ect_capable_transport", {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogMetric("congestion_ratio", test_case_name_, congestion_ratio, 
-                    "ce_ratio", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("congestion_ce_count", test_case_name_, ce_count, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("congestion_ect_count", test_case_name_, ect_count, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("congestion_ratio", test_case_name_, congestion_ratio, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogControllerState(Timestamp at_time, const std::string& active_controller,
                                            const std::string& state_info) {
-  logger_->LogMetric("active_controller", test_case_name_, 0, // Value not meaningful for string metrics
-                    "controller_state", {{"controller", active_controller}, 
-                                        {"state_info", state_info},
-                                        {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("active_controller", test_case_name_, 0, // Value not meaningful for string metrics
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
+                                {{"controller", active_controller}, 
+                                 {"state_info", state_info},
+                                 {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogProbeEvent(Timestamp at_time, DataRate probe_rate, bool successful) {
-  logger_->LogMetric("probe_rate_mbps", test_case_name_, probe_rate.bps() / 1e6, 
-                    "probe_event", {{"success", successful ? "true" : "false"},
-                                   {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("probe_rate_mbps", test_case_name_, probe_rate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"success", successful ? "true" : "false"},
+                                 {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
                                              const std::string& to_controller, const std::string& reason) {
-  logger_->LogMetric("controller_switch", test_case_name_, 0, // Value not meaningful
-                    "controller_switch", {{"from", from_controller}, 
-                                         {"to", to_controller},
-                                         {"reason", reason},
-                                         {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("controller_switch", test_case_name_, 0, // Value not meaningful
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
+                                {{"from", from_controller}, 
+                                 {"to", to_controller},
+                                 {"reason", reason},
+                                 {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogNetworkEvent(Timestamp at_time, const std::string& event_type,
                                         const std::string& event_data) {
-  logger_->LogMetric("network_event", test_case_name_, 0, // Value not meaningful
-                    "network_event", {{"event_type", event_type}, 
-                                     {"event_data", event_data},
-                                     {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("network_event", test_case_name_, 0, // Value not meaningful
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
+                                {{"event_type", event_type}, 
+                                 {"event_data", event_data},
+                                 {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
@@ -1617,22 +1631,27 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   
   // Log summary statistics
   if (throughput_stats_.NumSamples() > 0) {
-    logger_->LogMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
-                      "summary_stats", {{"stat_type", "average"}, {"metric", "throughput"}});
-    logger_->LogMetric("throughput_std_mbps", test_case_name_, throughput_stats_.GetStandardDeviation() / 1e6, 
-                      "summary_stats", {{"stat_type", "std_dev"}, {"metric", "throughput"}});
+    logger_->LogSingleValueMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
+                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "throughput"}});
+    logger_->LogSingleValueMetric("throughput_std_mbps", test_case_name_, throughput_stats_.GetStandardDeviation() / 1e6, 
+                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "throughput"}});
   }
   
   if (delay_stats_.NumSamples() > 0) {
-    logger_->LogMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
-                      "summary_stats", {{"stat_type", "average"}, {"metric", "delay"}});
-    logger_->LogMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(), 
-                      "summary_stats", {{"stat_type", "std_dev"}, {"metric", "delay"}});
+    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "delay"}});
+    logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
   }
   
   if (loss_stats_.NumSamples() > 0) {
-    logger_->LogMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
-                      "summary_stats", {{"stat_type", "average"}, {"metric", "loss"}});
+    logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "loss"}});
   }
 }
 

@@ -99,12 +99,12 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   }
   
   // Log ECN information in the RTCP feedback packet
-  int ce_count = 0, ect_count = 0, not_ect_count = 0;
-  for (const auto& packet : rtcp_packet_info) {
-    if (packet.ecn == EcnMarking::kCe) ce_count++;
-    else if (packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kEct0) ect_count++;
-    else not_ect_count++;
-  }
+  // int ce_count = 0, ect_count = 0, not_ect_count = 0;
+  // for (const auto& packet : rtcp_packet_info) {
+  //   if (packet.ecn == EcnMarking::kCe) ce_count++;
+  //   else if (packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kEct0) ect_count++;
+  //   else not_ect_count++;
+  // }
   // RTC_LOG(LS_INFO) << "FeedbackGenerator: Creating RFC8888 feedback with " << rtcp_packet_info.size() 
   //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   

@@ -66,7 +66,7 @@
 
 // L4S Metrics Collection
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
-#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+
 
 
 
@@ -168,10 +168,8 @@ void Conductor::Close() {
   client_->SignOut();
   DeletePeerConnection();
   
-  // Export L4S metrics to JSON file
-  auto exporter = webrtc::test::GetGlobalMetricsExporter();
-  exporter->ExportMetrics("peerconnection_client_l4s_metrics.json");
-  RTC_LOG(LS_INFO) << "L4S metrics exported to peerconnection_client_l4s_metrics.json";
+  // L4S metrics collection session ended
+  RTC_LOG(LS_INFO) << "L4S metrics collection session ended";
 }
 
 bool Conductor::InitializePeerConnection() {
@@ -202,19 +200,30 @@ bool Conductor::InitializePeerConnection() {
           webrtc::Dav1dDecoderTemplateAdapter>>();
   
   // L4S Network Controller with Metrics Collection
-  auto metrics_logger = webrtc::test::GetGlobalMetricsLogger();
-  
   webrtc::L4SControllerConfig l4s_config;
   l4s_config.enable_metrics_collection = true;
   l4s_config.test_case_name = "peerconnection_client_test";
   l4s_config.fallback_to_gcc = true;
   l4s_config.use_ect1_marking = true;
   
-  deps.network_controller_factory = [l4s_config, metrics_logger](
-      const webrtc::NetworkControllerConfig& config) {
-    return std::make_unique<webrtc::L4SNetworkController>(
-        config, l4s_config, metrics_logger);
+  // Create a proper network controller factory
+  class L4SNetworkControllerFactory : public webrtc::NetworkControllerFactoryInterface {
+   public:
+    L4SNetworkControllerFactory(webrtc::L4SControllerConfig config)
+        : l4s_config_(config) {}
+    
+    std::unique_ptr<webrtc::NetworkControllerInterface> Create(
+        webrtc::NetworkControllerConfig config) override {
+      return std::make_unique<webrtc::L4SNetworkController>(
+          config, l4s_config_, nullptr);
+    }
+    
+   private:
+    webrtc::L4SControllerConfig l4s_config_;
   };
+  
+  deps.network_controller_factory = 
+      std::make_unique<L4SNetworkControllerFactory>(l4s_config);
   
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =
