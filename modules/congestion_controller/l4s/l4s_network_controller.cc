@@ -221,7 +221,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   
   // Export L4S metrics to JSON if enabled (at construction, set up export path)
   if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->SetExportFilename("l4s_test_1.json");
+    metrics_collector_->ExportToJsonFile("l4s_test_1.json");
     RTC_LOG(LS_INFO) << "L4S: Metrics will be exported to l4s_test_1.json";
   }
   
@@ -282,8 +282,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
 L4SNetworkController::~L4SNetworkController() {
   // Export metrics if enabled and collector exists
   if (metrics_enabled_ && metrics_collector_) {
-    // Export to the required JSON file
-    webrtc::test::ExportMetricsToJsonFile("l4s_test_1.json");
+    metrics_collector_->ExportToJsonFile("l4s_test_1.json");
     RTC_LOG(LS_INFO) << "L4S: Exported metrics to l4s_test_1.json in destructor.";
   }
 }
@@ -1459,7 +1458,7 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
   // capacity
 
   size_t ce_packets = 0;
-  for (const auto& packet : feedback.packet_feedbacks) {
+   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kCe) {
       ce_packets++;
     }
