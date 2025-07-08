@@ -1,4 +1,6 @@
-source_set("l4s_network_controller") {
+import("../../../webrtc.gni")
+
+rtc_library("l4s_network_controller") {
   sources = [
     "l4s_network_controller.h",
     "l4s_network_controller.cc",
