@@ -44,6 +44,8 @@ AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservati
   sustained_rates_history_.push_back(initial_conservative_estimate);
 }
 
+AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
+
 void AdaptiveCapacityEstimator::UpdateFromProbeResult(DataRate probe_rate, bool successful) {
   if (successful) {
     // Successful probe suggests we can handle this rate

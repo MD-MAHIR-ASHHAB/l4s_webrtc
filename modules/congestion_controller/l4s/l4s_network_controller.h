@@ -10,12 +10,7 @@
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
-#include "modules/congestion_controller/l4s/l4s_prague_controller.h"
-
-#include "api/transport/network_control.h"
-#include "api/units/data_rate.h"
-#include "api/units/time_delta.h"
-#include "api/units/timestamp.h"
+#include "api/numerics/samples_stats_counter.h"
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
 
 namespace webrtc {
@@ -47,6 +42,7 @@ struct L4SControllerConfig {
 class AdaptiveCapacityEstimator {
  public:
   explicit AdaptiveCapacityEstimator(DataRate initial_conservative_estimate);
+  ~AdaptiveCapacityEstimator();
   
   // Update estimates based on different signals
   void UpdateFromProbeResult(DataRate probe_rate, bool successful);
