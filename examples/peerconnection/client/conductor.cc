@@ -218,6 +218,10 @@ bool Conductor::InitializePeerConnection() {
           config, l4s_config_, nullptr);
     }
     
+    webrtc::TimeDelta GetProcessInterval() const override {
+      return webrtc::TimeDelta::Millis(25);  // 25ms processing interval
+    }
+    
    private:
     webrtc::L4SControllerConfig l4s_config_;
   };
