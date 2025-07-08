@@ -1,4 +1,8 @@
-source_set("l4s") {
+source_s  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+  
+  # Disable Chromium style checkers for external WebRTC header integration
+  configs -= [ "//build/config/clang:find_bad_constructs" ]s") {
   sources = [
     "l4s_network_controller.h",
     "l4s_network_controller.cc",
