@@ -10,7 +10,7 @@ rtc_library("l4s_network_controller") {
   
   deps = [
     "//api:field_trials_view",
-    "//api/numerics:numerics",
+    "//api/numerics",
     "//api/environment",
     "//api/rtc_event_log",
     "//api/test/metrics:global_metrics_logger_and_exporter",
