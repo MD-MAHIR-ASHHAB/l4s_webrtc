@@ -9,11 +9,6 @@ source_set("l4s") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
   
-  # Disable Chromium style checkers - external headers violate style rules
-  # This is necessary because WebRTC API headers have style violations
-  configs -= [ "//build/config/clang:find_bad_constructs" ]
-  configs -= [ "//build/config/clang:raw_ptr_plugin" ]
-  
   deps = [
     "//api:field_trials_view",
     "//api/numerics:numerics",
