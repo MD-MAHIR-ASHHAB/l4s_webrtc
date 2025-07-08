@@ -118,6 +118,8 @@ class L4SMetricsCollector {
   void UpdateThroughputStats(DataRate actual_bitrate);
   void UpdateDelayStats(TimeDelta rtt);
   void UpdateLossStats(double loss_fraction);
+  void ExportToJsonFile(const std::string& filename);
+
   
  private:
   test::MetricsLogger* logger_;
