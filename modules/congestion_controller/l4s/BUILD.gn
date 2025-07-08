@@ -11,7 +11,6 @@ source_set("l4s_network_controller") {
   
   # Disable Chromium style checkers for external header compatibility
   configs -= [ "//build/config/clang:find_bad_constructs" ]
-  configs -= [ "//build/config/clang:raw_ptr_plugin" ]
   
   deps = [
     "//api:field_trials_view",
