@@ -241,7 +241,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   
   // Metrics collection
   std::unique_ptr<L4SMetricsCollector> metrics_collector_;
-  bool metrics_enabled_;
+  bool metrics_enabled_ = true;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
   

@@ -176,18 +176,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
           std::make_unique<ProbeController>(&env_.field_trials(),
                                             &env_.event_log())),
       // Initialize metrics collection
-      metrics_enabled_(l4s_config.enable_metrics_collection && metrics_logger != nullptr),
+      metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {
   
-  // Initialize metrics collector if enabled
-  if (metrics_enabled_) {
-    metrics_collector_ = std::make_unique<L4SMetricsCollector>(
-        metrics_logger, l4s_config.test_case_name, &env_.clock());
-    RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
-                     << l4s_config.test_case_name;
-  } else {
-    RTC_LOG(LS_INFO) << "L4S: Metrics collection disabled";
-  }
+  // Always initialize metrics collector
+  metrics_collector_ = std::make_unique<L4SMetricsCollector>(
+      metrics_logger, l4s_config.test_case_name, &env_.clock());
+  RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
+                   << l4s_config.test_case_name;
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
     GoogCcFactoryConfig factory_config;
