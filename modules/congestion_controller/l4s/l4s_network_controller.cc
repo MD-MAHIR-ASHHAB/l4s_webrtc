@@ -31,7 +31,6 @@
 // Metrics collection
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
-#include "api/test/metrics/chrome_perf_dashboard_metrics_exporter.h"
 
 namespace webrtc {
 
@@ -1163,7 +1162,8 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     }
 
     // RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
-    //                  << bwe_based_limit.bps() << " bps (acked: " << last_acknowledged_rate_.bps()
+    //                  << bwe_based_limit.bps()
+    //                  << " bps (acked: " << last_acknowledged_rate_.bps()
     //                  << ", delay: " << last_delay_based_estimate_.bps() << ")";
 
     // Allow Prague to increase up to BWE-based limit, even if current rate is
@@ -1672,6 +1672,8 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "average"}, {"metric", "loss"}});
   }
+  // Periodically export all metrics to JSON
+  ExportToJsonFile("l4s_test_1.json");
 }
 
 void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
@@ -1750,15 +1752,34 @@ void L4SNetworkController::LogControllerState(Timestamp at_time) {
 }
 
 void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
-  using webrtc::test::ExportPerfMetric;
-  using webrtc::test::MetricsLogger;
-  using webrtc::test::MetricsExporter;
-  // Use ChromePerfDashboardMetricsExporter for JSON output
-  // If you have a JsonMetricsExporter, use that instead
-  // Otherwise, use the ChromePerfDashboardMetricsExporter as a generic JSON exporter
-  std::vector<std::unique_ptr<MetricsExporter>> exporters;
-  exporters.push_back(std::make_unique<webrtc::test::ChromePerfDashboardMetricsExporter>(filename));
-  ExportPerfMetric(*logger_, std::move(exporters));
+  if (!logger_) return;
+  auto metrics = logger_->GetCollectedMetrics();
+  FILE* f = fopen(filename.c_str(), "w");
+  if (!f) return;
+  fprintf(f, "[\n");
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    const auto& m = metrics[i];
+    fprintf(f, "  {\n");
+    fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
+    fprintf(f, "    \"test_case\": \"%s\",\n", m.test_case.c_str());
+    fprintf(f, "    \"unit\": %d,\n", (int)m.unit);
+    fprintf(f, "    \"improvement_direction\": %d,\n", (int)m.improvement_direction);
+    fprintf(f, "    \"stats\": {\n");
+    fprintf(f, "      \"mean\": %s,\n", m.stats.mean ? std::to_string(*m.stats.mean).c_str() : "null");
+    fprintf(f, "      \"stddev\": %s,\n", m.stats.stddev ? std::to_string(*m.stats.stddev).c_str() : "null");
+    fprintf(f, "      \"min\": %s,\n", m.stats.min ? std::to_string(*m.stats.min).c_str() : "null");
+    fprintf(f, "      \"max\": %s\n", m.stats.max ? std::to_string(*m.stats.max).c_str() : "null");
+    fprintf(f, "    },\n");
+    fprintf(f, "    \"samples\": [");
+    for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
+      const auto& s = m.time_series.samples[j];
+      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
+        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
+    }
+    fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
+  }
+  fprintf(f, "]\n");
+  fclose(f);
 }
 
 }  // namespace webrtc
