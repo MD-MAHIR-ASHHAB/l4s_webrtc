@@ -15,7 +15,6 @@ rtc_library("l4s_network_controller") {
     "//api/rtc_event_log",
     "//api/test/metrics:global_metrics_logger_and_exporter",
     "//api/test/metrics:metrics_logger",
-    "//api/test/metrics:chrome_perf_dashboard_metrics_exporter",
     "//api/transport:bandwidth_usage",
     "//api/transport:goog_cc",
     "//api/transport:network_control",
