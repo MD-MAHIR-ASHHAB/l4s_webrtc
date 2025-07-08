@@ -1458,7 +1458,7 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
   // capacity
 
   size_t ce_packets = 0;
-   for (const auto& packet : feedback.packet_feedbacks) {
+  for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kCe) {
       ce_packets++;
     }
@@ -1746,6 +1746,12 @@ void L4SNetworkController::LogControllerState(Timestamp at_time) {
   }
   
   metrics_collector_->LogControllerState(at_time, active_controller, state_info);
+}
+
+void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
+  if (logger_) {
+    logger_->ExportToJsonFile(filename);
+  }
 }
 
 }  // namespace webrtc
