@@ -7,25 +7,31 @@
 #include <vector>
 
 #include "api/transport/network_control.h"
-#include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
-#include "rtc_base/experiments/field_trial_parser.h"
 
-// GCC-inspired bandwidth estimation integration
-#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
-#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
-#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
-#include "modules/congestion_controller/goog_cc/probe_controller.h"
-
-// Metrics collection infrastructure
-#include "api/test/metrics/metrics_logger.h"
-#include "api/numerics/samples_stats_counter.h"
-#include "system_wrappers/include/clock.h"
+#include "api/transport/network_control.h"
+#include "api/units/data_rate.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
+#include "modules/congestion_controller/l4s/l4s_prague_controller.h"
 
 namespace webrtc {
+
+// Forward declarations
+class AcknowledgedBitrateEstimator;
+class DelayBasedBwe;
+class SendSideBandwidthEstimation;
+class ProbeController;
+namespace test {
+class MetricsLogger;
+}
+class Environment;
+struct NetworkStateEstimate;
+struct TransportPacketsFeedback;
+struct NetworkControllerConfig;
 
 struct L4SControllerConfig {
   // Whether to fallback to GCC if L4S isn't supported

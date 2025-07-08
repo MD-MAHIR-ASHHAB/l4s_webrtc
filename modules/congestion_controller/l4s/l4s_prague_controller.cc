@@ -13,6 +13,7 @@
 #include <cmath>
 
 #include "api/field_trials_view.h"
+#include "api/transport/network_types.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/time_utils.h"
