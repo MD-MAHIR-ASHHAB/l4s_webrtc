@@ -204,6 +204,6 @@ rtc_library("l4s_factory") {
   ]
   deps = [
     ":network_control",
-    "../../modules/congestion_controller:l4s",
+    "//modules/congestion_controller/l4s:l4s_network_controller",
   ]
 }
