@@ -31,6 +31,7 @@
 // Metrics collection
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
+#include "api/test/metrics/chrome_perf_dashboard_metrics_exporter.h"
 
 namespace webrtc {
 
