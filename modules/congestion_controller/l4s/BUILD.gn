@@ -8,12 +8,6 @@ rtc_library("l4s_network_controller") {
     "l4s_prague_controller.cc",
   ]
   
-  configs -= [ "//build/config/compiler:chromium_code" ]
-  configs += [ "//build/config/compiler:no_chromium_code" ]
-  
-  # Disable Chromium style checkers for external header compatibility
-  configs -= [ "//build/config/clang:find_bad_constructs" ]
-  
   deps = [
     "//api:field_trials_view",
     "//api/numerics:numerics",
