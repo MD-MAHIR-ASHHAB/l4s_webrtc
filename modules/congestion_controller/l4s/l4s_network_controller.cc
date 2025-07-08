@@ -148,6 +148,10 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       use_ect1_marking_(l4s_config.use_ect1_marking),
       prague_controller_(
           std::make_unique<L4SPragueController>(env_.field_trials())),
+      // Initialize adaptive capacity estimator first (based on header order)
+      capacity_estimator_(
+          std::make_unique<AdaptiveCapacityEstimator>(
+              DataRate::KilobitsPerSec(10000))),  // Start with 10 Mbps conservative estimate
       // Initialize GCC-style bandwidth estimation components
       acknowledged_bitrate_estimator_(
           std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials())),
@@ -160,10 +164,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                                                         &env_.event_log())),
       probe_controller_(
           std::make_unique<ProbeController>(&env_.field_trials(),
-                                            &env_.event_log())),
-      capacity_estimator_(
-          std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(10000))) {  // Start with 10 Mbps conservative estimate
+                                            &env_.event_log())) {
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
     GoogCcFactoryConfig factory_config;
@@ -342,7 +343,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     //     << (target_rate_ ? target_rate_->bps() : -1) << ")";
 
     // Update the adaptive capacity estimator with time-based decay
-    capacity_estimator_->OnTimeUpdate(at_time);
+    capacity_estimator_->OnTimeUpdate(msg.at_time);
     
     // Consider BWE estimates for capacity limiting using adaptive estimator
     DataRate adaptive_max_capacity = capacity_estimator_->GetMaxRealisticBandwidth();
