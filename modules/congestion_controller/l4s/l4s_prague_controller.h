@@ -5,13 +5,15 @@
 #include <optional>
 
 #include "api/field_trials_view.h"  // Add this include
-#include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
+
+// Forward declarations
+struct TransportPacketsFeedback;
 
 // Implementation of the L4S Prague congestion control algorithm
 // Prague is a specific algorithm for L4S implementation
