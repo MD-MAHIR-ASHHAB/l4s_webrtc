@@ -20,6 +20,11 @@
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "modules/congestion_controller/goog_cc/probe_controller.h"
 
+// Metrics collection infrastructure
+#include "api/test/metrics/metrics_logger.h"
+#include "api/numerics/samples_stats_counter.h"
+#include "system_wrappers/include/clock.h"
+
 namespace webrtc {
 
 struct L4SControllerConfig {
@@ -27,6 +32,9 @@ struct L4SControllerConfig {
   bool fallback_to_gcc = true;
   // Whether to use ECT(1) marking for packets
   bool use_ect1_marking = true;
+  // Metrics collection configuration
+  bool enable_metrics_collection = true;
+  std::string test_case_name = "l4s_vs_gcc_comparison";
 };
 
 // Adaptive capacity estimator for realistic bandwidth estimation
@@ -77,13 +85,69 @@ class AdaptiveCapacityEstimator {
   static constexpr DataRate kAbsoluteMinLimit = DataRate::KilobitsPerSec(1000);    // 1 Mbps
 };
 
+// L4S Metrics Collector for comprehensive performance analysis
+class L4SMetricsCollector {
+ public:
+  L4SMetricsCollector(test::MetricsLogger* logger, 
+                      const std::string& test_case_name,
+                      Clock* clock);
+  
+  // Time-series metrics logging
+  void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
+                          DataRate actual_bitrate, const std::string& controller);
+  void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay);
+  void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
+  void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
+                           double congestion_ratio);
+  void LogControllerState(Timestamp at_time, const std::string& active_controller,
+                         const std::string& state_info);
+  
+  // Event-based metrics
+  void LogProbeEvent(Timestamp at_time, DataRate probe_rate, bool successful);
+  void LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
+                          const std::string& to_controller, const std::string& reason);
+  void LogNetworkEvent(Timestamp at_time, const std::string& event_type,
+                      const std::string& event_data);
+  
+  // Periodic summary metrics
+  void LogPeriodicSummary(Timestamp at_time);
+  
+  // Utility methods for stats tracking
+  void UpdateThroughputStats(DataRate actual_bitrate);
+  void UpdateDelayStats(TimeDelta rtt);
+  void UpdateLossStats(double loss_fraction);
+  
+ private:
+  test::MetricsLogger* logger_;
+  std::string test_case_name_;
+  Clock* clock_;
+  
+  // Statistics tracking
+  SamplesStatsCounter throughput_stats_;
+  SamplesStatsCounter delay_stats_;
+  SamplesStatsCounter loss_stats_;
+  
+  // Last logged values to prevent spam
+  Timestamp last_bandwidth_log_ = Timestamp::MinusInfinity();
+  Timestamp last_delay_log_ = Timestamp::MinusInfinity();
+  Timestamp last_loss_log_ = Timestamp::MinusInfinity();
+  Timestamp last_summary_log_ = Timestamp::MinusInfinity();
+  
+  // Minimum intervals between logs
+  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(100);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(500);
+  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
+};
+
 // Implementation of Network Controller Interface that uses L4S-based
 // congestion control. It can reuse some components from GCC when needed
 // and falls back to GCC if L4S (ECN) isn't supported.
 class L4SNetworkController : public NetworkControllerInterface {
  public:
   L4SNetworkController(NetworkControllerConfig config,
-                      L4SControllerConfig l4s_config);
+                      L4SControllerConfig l4s_config,
+                      test::MetricsLogger* metrics_logger = nullptr);
   ~L4SNetworkController() override;
 
   // NetworkControllerInterface implementation
@@ -170,6 +234,23 @@ class L4SNetworkController : public NetworkControllerInterface {
   DataRate start_bitrate_ = DataRate::Zero();
   DataRate max_bitrate_ = DataRate::PlusInfinity();
   std::optional<Timestamp> alr_start_time_;
+  
+  // Metrics collection
+  std::unique_ptr<L4SMetricsCollector> metrics_collector_;
+  bool metrics_enabled_;
+  Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
+  
+  // Performance tracking for metrics
+  DataRate last_actual_bitrate_ = DataRate::Zero();
+  DataRate last_target_bitrate_ = DataRate::Zero();
+  TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
+  double last_loss_fraction_ = 0.0;
+  std::string current_active_controller_ = "initializing";
+  
+  // Helper methods for metrics
+  void LogPeriodicMetrics(Timestamp at_time);
+  void LogControllerState(Timestamp at_time);
 };
 
 /*

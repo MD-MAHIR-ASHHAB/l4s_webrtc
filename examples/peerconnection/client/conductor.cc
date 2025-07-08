@@ -64,6 +64,12 @@
 #include "test/platform_video_capturer.h"
 #include "test/test_video_capturer.h"
 
+// L4S Metrics Collection
+#include "modules/congestion_controller/l4s/l4s_network_controller.h"
+#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+
+
+
 namespace {
 using webrtc::test::TestVideoCapturer;
 
@@ -161,6 +167,11 @@ bool Conductor::connection_active() const {
 void Conductor::Close() {
   client_->SignOut();
   DeletePeerConnection();
+  
+  // Export L4S metrics to JSON file
+  auto exporter = webrtc::test::GetGlobalMetricsExporter();
+  exporter->ExportMetrics("peerconnection_client_l4s_metrics.json");
+  RTC_LOG(LS_INFO) << "L4S metrics exported to peerconnection_client_l4s_metrics.json";
 }
 
 bool Conductor::InitializePeerConnection() {
@@ -189,6 +200,22 @@ bool Conductor::InitializePeerConnection() {
           webrtc::LibvpxVp9DecoderTemplateAdapter,
           webrtc::OpenH264DecoderTemplateAdapter,
           webrtc::Dav1dDecoderTemplateAdapter>>();
+  
+  // L4S Network Controller with Metrics Collection
+  auto metrics_logger = webrtc::test::GetGlobalMetricsLogger();
+  
+  webrtc::L4SControllerConfig l4s_config;
+  l4s_config.enable_metrics_collection = true;
+  l4s_config.test_case_name = "peerconnection_client_test";
+  l4s_config.fallback_to_gcc = true;
+  l4s_config.use_ect1_marking = true;
+  
+  deps.network_controller_factory = [l4s_config, metrics_logger](
+      const webrtc::NetworkControllerConfig& config) {
+    return std::make_unique<webrtc::L4SNetworkController>(
+        config, l4s_config, metrics_logger);
+  };
+  
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =
       webrtc::CreateModularPeerConnectionFactory(std::move(deps));
@@ -199,6 +226,8 @@ bool Conductor::InitializePeerConnection() {
     DeletePeerConnection();
     return false;
   }
+  
+  RTC_LOG(LS_INFO) << "L4S Network Controller with metrics collection enabled for test case: peerconnection_client_test";
 
   if (!CreatePeerConnection()) {
     main_wnd_->MessageBox("Error", "CreatePeerConnection failed", true);

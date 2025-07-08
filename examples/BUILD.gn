@@ -706,6 +706,8 @@ if (is_linux || is_chromeos || is_win) {
       "../api/video_codecs:video_codecs_api",
       "../media:media_channel",
       "../media:video_common",
+      "../modules/congestion_controller/l4s:l4s_network_controller",
+      "../api/test/metrics:global_metrics_logger_and_exporter",
       "../p2p:connection",
       "../p2p:port_allocator",
       "../pc:video_track_source",

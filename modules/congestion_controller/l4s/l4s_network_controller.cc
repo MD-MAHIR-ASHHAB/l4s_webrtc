@@ -25,6 +25,10 @@
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/metrics.h"
 
+// Metrics collection
+#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+#include "api/test/metrics/metrics_logger.h"
+
 namespace webrtc {
 
 // AdaptiveCapacityEstimator implementation
@@ -142,7 +146,8 @@ DataRate AdaptiveCapacityEstimator::GetConservativeEstimateForType(ConnectionTyp
 }
 
 L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
-                                           L4SControllerConfig l4s_config)
+                                           L4SControllerConfig l4s_config,
+                                           test::MetricsLogger* metrics_logger)
     : env_(config.env),
       fallback_to_gcc_(l4s_config.fallback_to_gcc),
       use_ect1_marking_(l4s_config.use_ect1_marking),
@@ -164,7 +169,20 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                                                         &env_.event_log())),
       probe_controller_(
           std::make_unique<ProbeController>(&env_.field_trials(),
-                                            &env_.event_log())) {
+                                            &env_.event_log())),
+      // Initialize metrics collection
+      metrics_enabled_(l4s_config.enable_metrics_collection && metrics_logger != nullptr),
+      current_active_controller_("l4s_initializing") {
+  
+  // Initialize metrics collector if enabled
+  if (metrics_enabled_) {
+    metrics_collector_ = std::make_unique<L4SMetricsCollector>(
+        metrics_logger, l4s_config.test_case_name, &env_.clock());
+    RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
+                     << l4s_config.test_case_name;
+  } else {
+    RTC_LOG(LS_INFO) << "L4S: Metrics collection disabled";
+  }
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
     GoogCcFactoryConfig factory_config;
@@ -332,6 +350,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     webrtc::ProcessInterval msg) {
   webrtc::NetworkControlUpdate update;
 
+  // Log periodic metrics
+  LogPeriodicMetrics(msg.at_time);
+  LogControllerState(msg.at_time);
+
   // Get rate from Prague controller if active
   if (IsL4SActive()) {
     DataRate current_rate_for_transport_ =
@@ -445,11 +467,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
           prague_rate = bwe_based_limit;
           target_rate_ = prague_rate;
+          last_target_bitrate_ = prague_rate;  // Track target bitrate for metrics
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid BWE limit " << bwe_based_limit.bps() 
                               << " bps, using safe fallback";
           prague_rate = DataRate::KilobitsPerSec(300);
           target_rate_ = prague_rate;
+          last_target_bitrate_ = prague_rate;  // Track target bitrate for metrics
         }
         
         // Force a probe to discover if higher rates are actually available
@@ -484,10 +508,12 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
         // Prague rate is within BWE limit, validate and set it
         if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
           target_rate_ = prague_rate;
+          last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
         } else {
           RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
                               << " bps, using safe fallback";
           target_rate_ = DataRate::KilobitsPerSec(300);
+          last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
         }
       }
       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
@@ -499,6 +525,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
       RTC_LOG(LS_WARNING) << "L4S: Invalid final target_rate_ " << target_rate_->bps() 
                           << " bps, resetting to safe fallback";
       target_rate_ = DataRate::KilobitsPerSec(300);
+      last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
     }
     
     // Check if we're in ALR (Application Limited Region) to enable probing
@@ -745,6 +772,16 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
   // Update the adaptive capacity estimator with RTT information
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
 
+  // Update local RTT tracking for metrics
+  last_rtt_ = msg.round_trip_time;
+  
+  // Log RTT metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, msg.round_trip_time / 2);
+  }
+
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
     update = gcc_controller_->OnRoundTripTimeUpdate(msg);
@@ -837,6 +874,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   // Process ECN feedback to detect if ECN is supported
   ProcessEcnFeedback(feedback);
   
+  // Log metrics for feedback processing
+  LogPeriodicMetrics(feedback.feedback_time);
+  LogControllerState(feedback.feedback_time);
+  
   // TODO: Handle probe results when ProbeClusterCreated events are received
   // For now, the ProbeController will handle probe result processing internally
 
@@ -888,6 +929,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
   auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
   if (acknowledged_bitrate) {
     last_acknowledged_rate_ = *acknowledged_bitrate;
+    last_actual_bitrate_ = *acknowledged_bitrate;  // Track actual bitrate for metrics
     bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate,
                                                feedback.feedback_time);
 
@@ -1430,6 +1472,13 @@ void L4SNetworkController::ProcessProbeResultSuccess(DataRate probe_bitrate) {
   // Update the adaptive capacity estimator with successful probe result
   capacity_estimator_->UpdateFromProbeResult(probe_bitrate, true);
   
+  // Log probe success metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogProbeEvent(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        probe_bitrate, true);
+  }
+  
   // This method would be called when we detect a successful probe
   // Update max_realistic_bandwidth_ if this probe shows higher capacity
   if (probe_bitrate > max_realistic_bandwidth_) {
@@ -1443,9 +1492,223 @@ void L4SNetworkController::ProcessProbeResultFailed(DataRate probe_bitrate) {
   // Update the adaptive capacity estimator with failed probe result
   capacity_estimator_->UpdateFromProbeResult(probe_bitrate, false);
   
+  // Log probe failure metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogProbeEvent(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        probe_bitrate, false);
+  }
+  
   RTC_LOG(LS_INFO) << "L4S: Probe failed at " << probe_bitrate.bps() 
                    << " bps, updated adaptive capacity estimate to "
                    << capacity_estimator_->GetMaxRealisticBandwidth().bps() << " bps";
+}
+
+// L4SMetricsCollector implementation
+L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger, 
+                                        const std::string& test_case_name,
+                                        Clock* clock)
+    : logger_(logger), 
+      test_case_name_(test_case_name), 
+      clock_(clock) {
+  RTC_CHECK(logger_);
+  RTC_CHECK(clock_);
+  RTC_LOG(LS_INFO) << "L4SMetricsCollector initialized for test case: " << test_case_name_;
+}
+
+void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
+                                             DataRate actual_bitrate, const std::string& controller) {
+  if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
+    return; // Don't spam logs
+  }
+  
+  last_bandwidth_log_ = at_time;
+  UpdateThroughputStats(actual_bitrate);
+  
+  // Log time-series data for bandwidth
+  logger_->LogMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+                    "target_bitrate", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+                    "actual_bitrate", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  // Calculate utilization ratio
+  double utilization = target_bitrate.bps() > 0 ? (double)actual_bitrate.bps() / target_bitrate.bps() : 0.0;
+  logger_->LogMetric("bandwidth_utilization_ratio", test_case_name_, utilization, 
+                    "utilization", {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay) {
+  if (at_time - last_delay_log_ < kDelayLogInterval) {
+    return;
+  }
+  
+  last_delay_log_ = at_time;
+  UpdateDelayStats(rtt);
+  
+  logger_->LogMetric("rtt_ms", test_case_name_, rtt.ms(), 
+                    "round_trip_time", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  if (one_way_delay.IsFinite()) {
+    logger_->LogMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                      "one_way_delay", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+}
+
+void L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
+  if (at_time - last_loss_log_ < kLossLogInterval) {
+    return;
+  }
+  
+  last_loss_log_ = at_time;
+  UpdateLossStats(loss_fraction);
+  
+  logger_->LogMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+                    "packet_loss", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogMetric("packets_lost_count", test_case_name_, packets_lost, 
+                    "packets_lost", {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
+                                              double congestion_ratio) {
+  logger_->LogMetric("congestion_ce_count", test_case_name_, ce_count, 
+                    "congestion_experienced", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogMetric("congestion_ect_count", test_case_name_, ect_count, 
+                    "ect_capable_transport", {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogMetric("congestion_ratio", test_case_name_, congestion_ratio, 
+                    "ce_ratio", {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogControllerState(Timestamp at_time, const std::string& active_controller,
+                                           const std::string& state_info) {
+  logger_->LogMetric("active_controller", test_case_name_, 0, // Value not meaningful for string metrics
+                    "controller_state", {{"controller", active_controller}, 
+                                        {"state_info", state_info},
+                                        {"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogProbeEvent(Timestamp at_time, DataRate probe_rate, bool successful) {
+  logger_->LogMetric("probe_rate_mbps", test_case_name_, probe_rate.bps() / 1e6, 
+                    "probe_event", {{"success", successful ? "true" : "false"},
+                                   {"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
+                                             const std::string& to_controller, const std::string& reason) {
+  logger_->LogMetric("controller_switch", test_case_name_, 0, // Value not meaningful
+                    "controller_switch", {{"from", from_controller}, 
+                                         {"to", to_controller},
+                                         {"reason", reason},
+                                         {"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogNetworkEvent(Timestamp at_time, const std::string& event_type,
+                                        const std::string& event_data) {
+  logger_->LogMetric("network_event", test_case_name_, 0, // Value not meaningful
+                    "network_event", {{"event_type", event_type}, 
+                                     {"event_data", event_data},
+                                     {"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
+  if (at_time - last_summary_log_ < kSummaryLogInterval) {
+    return;
+  }
+  
+  last_summary_log_ = at_time;
+  
+  // Log summary statistics
+  if (throughput_stats_.NumSamples() > 0) {
+    logger_->LogMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
+                      "summary_stats", {{"stat_type", "average"}, {"metric", "throughput"}});
+    logger_->LogMetric("throughput_std_mbps", test_case_name_, throughput_stats_.GetStandardDeviation() / 1e6, 
+                      "summary_stats", {{"stat_type", "std_dev"}, {"metric", "throughput"}});
+  }
+  
+  if (delay_stats_.NumSamples() > 0) {
+    logger_->LogMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
+                      "summary_stats", {{"stat_type", "average"}, {"metric", "delay"}});
+    logger_->LogMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(), 
+                      "summary_stats", {{"stat_type", "std_dev"}, {"metric", "delay"}});
+  }
+  
+  if (loss_stats_.NumSamples() > 0) {
+    logger_->LogMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
+                      "summary_stats", {{"stat_type", "average"}, {"metric", "loss"}});
+  }
+}
+
+void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
+  throughput_stats_.AddSample(actual_bitrate.bps());
+}
+
+void L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
+  if (rtt.IsFinite()) {
+    delay_stats_.AddSample(rtt.ms());
+  }
+}
+
+void L4SMetricsCollector::UpdateLossStats(double loss_fraction) {
+  loss_stats_.AddSample(loss_fraction);
+}
+
+// L4SNetworkController metrics helper methods implementation
+void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  // Check if it's time to log metrics
+  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
+    return;
+  }
+  
+  metrics_last_logged_ = at_time;
+  
+  // Log bandwidth metrics
+  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
+  DataRate actual_rate = last_actual_bitrate_;
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate, current_active_controller_);
+  
+  // Log delay metrics
+  if (last_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2); // Estimate one-way delay
+  }
+  
+  // Log loss metrics
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, 0); // TODO: Track packet count
+  
+  // Log congestion metrics (L4S-specific)
+  double congestion_ratio = (ce_count_ + ect_count_) > 0 ? 
+                           (double)ce_count_ / (ce_count_ + ect_count_) : 0.0;
+  metrics_collector_->LogCongestionMetrics(at_time, ce_count_, ect_count_, congestion_ratio);
+  
+  // Log periodic summary
+  metrics_collector_->LogPeriodicSummary(at_time);
+}
+
+void L4SNetworkController::LogControllerState(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  // Determine which controller is active
+  std::string active_controller = IsL4SActive() ? "l4s_prague" : "gcc_fallback";
+  
+  // Create state info string
+  std::string state_info = "target_rate=" + std::to_string(target_rate_.value_or(DataRate::Zero()).bps()) + 
+                          ";delay_est=" + std::to_string(last_delay_based_estimate_.bps()) +
+                          ";acked_est=" + std::to_string(last_acknowledged_rate_.bps()) +
+                          ";ecn_supported=" + (ecn_supported_ ? "true" : "false");
+  
+  // Log controller state only if it changed
+  if (current_active_controller_ != active_controller) {
+    std::string old_controller = current_active_controller_;
+    current_active_controller_ = active_controller;
+    
+    metrics_collector_->LogControllerSwitch(at_time, old_controller, active_controller, 
+                                           ecn_supported_ ? "ecn_available" : "ecn_unavailable");
+  }
+  
+  metrics_collector_->LogControllerState(at_time, active_controller, state_info);
 }
 
 }  // namespace webrtc
