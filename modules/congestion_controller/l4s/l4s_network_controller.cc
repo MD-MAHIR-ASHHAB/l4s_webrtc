@@ -179,9 +179,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {
   
-  // Always initialize metrics collector
+  // Always initialize metrics collector with a valid logger
+  using webrtc::test::GetGlobalMetricsLogger;
+  test::MetricsLogger* logger_to_use = metrics_logger;
+  if (!logger_to_use) {
+    logger_to_use = GetGlobalMetricsLogger();
+  }
   metrics_collector_ = std::make_unique<L4SMetricsCollector>(
-      metrics_logger, l4s_config.test_case_name, &env_.clock());
+      logger_to_use, l4s_config.test_case_name, &env_.clock());
   RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
                    << l4s_config.test_case_name;
   // Create GCC controller for fallback if needed
