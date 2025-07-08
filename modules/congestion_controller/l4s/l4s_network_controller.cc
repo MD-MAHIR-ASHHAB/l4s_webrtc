@@ -27,6 +27,120 @@
 
 namespace webrtc {
 
+// AdaptiveCapacityEstimator implementation
+AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservative_estimate)
+    : conservative_estimate_(initial_conservative_estimate),
+      probe_based_estimate_(initial_conservative_estimate),
+      congestion_based_estimate_(initial_conservative_estimate),
+      historical_estimate_(initial_conservative_estimate),
+      last_update_time_(Timestamp::MinusInfinity()) {
+  sustained_rates_history_.push_back(initial_conservative_estimate);
+}
+
+void AdaptiveCapacityEstimator::UpdateFromProbeResult(DataRate probe_rate, bool successful) {
+  if (successful) {
+    // Successful probe suggests we can handle this rate
+    DataRate proven_capacity = probe_rate;
+    probe_based_estimate_ = std::min(proven_capacity * 1.2, kAbsoluteMaxLimit);
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Probe success at " << probe_rate.bps() 
+                     << " bps, updating probe_based_estimate to " << probe_based_estimate_.bps() << " bps";
+  } else {
+    // Failed probe suggests we're at or near capacity
+    probe_based_estimate_ = std::min(probe_rate * 0.8, probe_based_estimate_);
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Probe failed at " << probe_rate.bps() 
+                     << " bps, reducing probe_based_estimate to " << probe_based_estimate_.bps() << " bps";
+  }
+}
+
+void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio) {
+  if (ce_ratio > 0.1) {
+    // High congestion - reduce estimate
+    congestion_based_estimate_ = std::max(current_rate * 0.8, kAbsoluteMinLimit);
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: High congestion (CE ratio=" << ce_ratio 
+                     << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  } else if (ce_ratio < 0.01 && current_rate > congestion_based_estimate_ * 0.9) {
+    // Low congestion and we're using most of our estimate - can increase
+    congestion_based_estimate_ = std::min(current_rate * 1.3, kAbsoluteMaxLimit);
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Low congestion (CE ratio=" << ce_ratio 
+                     << "), increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  }
+}
+
+void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate) {
+  // Add to history
+  sustained_rates_history_.push_back(sustained_rate);
+  if (sustained_rates_history_.size() > kHistoryWindowSize) {
+    sustained_rates_history_.pop_front();
+  }
+  
+  // Update historical estimate based on maximum sustained rate
+  DataRate historical_max = *std::max_element(sustained_rates_history_.begin(), 
+                                             sustained_rates_history_.end());
+  historical_estimate_ = std::min(historical_max * 1.2, kAbsoluteMaxLimit);
+}
+
+void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
+  min_rtt_ = std::min(min_rtt_, rtt);
+  
+  // Update conservative estimate based on connection type
+  ConnectionType type = DetectConnectionType(min_rtt_, GetMaxRealisticBandwidth());
+  conservative_estimate_ = GetConservativeEstimateForType(type);
+}
+
+DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
+  // Use the most conservative estimate that has been recently validated
+  DataRate estimate = std::min({
+      conservative_estimate_,
+      probe_based_estimate_,
+      congestion_based_estimate_,
+      historical_estimate_
+  });
+  
+  // Ensure we stay within absolute bounds
+  return std::max(kAbsoluteMinLimit, std::min(estimate, kAbsoluteMaxLimit));
+}
+
+void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
+  if (last_update_time_.IsInfinite()) {
+    last_update_time_ = current_time;
+    return;
+  }
+  
+  TimeDelta elapsed = current_time - last_update_time_;
+  if (elapsed >= kDecayInterval) {
+    // Gradually decay estimates if not reinforced
+    probe_based_estimate_ = std::max(probe_based_estimate_ * 0.95, conservative_estimate_);
+    congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, conservative_estimate_);
+    historical_estimate_ = std::max(historical_estimate_ * 0.95, conservative_estimate_);
+    
+    last_update_time_ = current_time;
+  }
+}
+
+AdaptiveCapacityEstimator::ConnectionType AdaptiveCapacityEstimator::DetectConnectionType(
+    TimeDelta rtt, DataRate estimate) const {
+  if (rtt > TimeDelta::Millis(200)) return ConnectionType::MOBILE_SLOW;
+  if (rtt > TimeDelta::Millis(100)) return ConnectionType::MOBILE_FAST;
+  if (estimate < DataRate::KilobitsPerSec(50000)) return ConnectionType::WIFI_TYPICAL;
+  return ConnectionType::WIRED_FAST;
+}
+
+DataRate AdaptiveCapacityEstimator::GetConservativeEstimateForType(ConnectionType type) const {
+  switch (type) {
+    case ConnectionType::MOBILE_SLOW:
+      return DataRate::KilobitsPerSec(5000);    // 5 Mbps
+    case ConnectionType::MOBILE_FAST:
+      return DataRate::KilobitsPerSec(20000);   // 20 Mbps
+    case ConnectionType::WIFI_TYPICAL:
+      return DataRate::KilobitsPerSec(50000);   // 50 Mbps
+    case ConnectionType::WIRED_FAST:
+      return DataRate::KilobitsPerSec(100000);  // 100 Mbps
+    case ConnectionType::UNKNOWN:
+    default:
+      return DataRate::KilobitsPerSec(10000);   // 10 Mbps conservative default
+  }
+}
+
 L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                                            L4SControllerConfig l4s_config)
     : env_(config.env),
@@ -46,7 +160,10 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                                                         &env_.event_log())),
       probe_controller_(
           std::make_unique<ProbeController>(&env_.field_trials(),
-                                            &env_.event_log())) {
+                                            &env_.event_log())),
+      capacity_estimator_(
+          std::make_unique<AdaptiveCapacityEstimator>(
+              DataRate::KilobitsPerSec(10000))) {  // Start with 10 Mbps conservative estimate
   // Create GCC controller for fallback if needed
   if (fallback_to_gcc_) {
     GoogCcFactoryConfig factory_config;
@@ -107,10 +224,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                       << " max_target: "
                       << (max_target_rate_ ? max_target_rate_->bps() : 0)
                       << " bps"
-                      << " max_realistic_bandwidth: " << max_realistic_bandwidth_.bps() << " bps";
+                      << " max_realistic_bandwidth: " << capacity_estimator_->GetMaxRealisticBandwidth().bps() << " bps";
                       
-  // Initialize max_realistic_bandwidth_ to a reasonable starting value
-  // Keep this as a hard upper limit - don't modify it during operation
+  // Initialize the adaptive capacity estimator with reasonable starting values
+  if (config.constraints.starting_rate) {
+    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate);
+  }
+  
+  // Keep max_realistic_bandwidth_ as backup, but primary logic will use capacity_estimator_
   max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000);  // 100 Mbps upper limit
   
   // Validate critical member variables after initialization
@@ -220,31 +341,35 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     //     << current_rate_for_transport_.bps() << " bps (from target_rate_="
     //     << (target_rate_ ? target_rate_->bps() : -1) << ")";
 
-    // Consider BWE estimates for capacity limiting (consistent with
-    // OnTransportPacketsFeedback)
-    DataRate bwe_based_limit = max_realistic_bandwidth_;
-    // RTC_LOG(LS_WARNING)
-    //     << "L4S OnProcessInterval DEBUG: Initial bwe_based_limit="
-    //     << bwe_based_limit.bps() << " bps";
-
-    // Use delay-based estimate as the primary capacity indicator, but don't exceed max_realistic_bandwidth_
+    // Update the adaptive capacity estimator with time-based decay
+    capacity_estimator_->OnTimeUpdate(at_time);
     
-    // If we have a valid delay-based estimate, use it intelligently
+    // Consider BWE estimates for capacity limiting using adaptive estimator
+    DataRate adaptive_max_capacity = capacity_estimator_->GetMaxRealisticBandwidth();
+    DataRate bwe_based_limit = adaptive_max_capacity;
+    
+    RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using adaptive capacity limit="
+                     << bwe_based_limit.bps() << " bps";
+
+    // Use delay-based estimate as the primary capacity indicator, but don't exceed adaptive capacity
     if (last_delay_based_estimate_ > DataRate::Zero()) {
       // Use 95% consistently (same as feedback processing) to avoid rate jumping
-      DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.95, max_realistic_bandwidth_);
+      DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.95, adaptive_max_capacity);
       
-      // RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: Using delay-based limit="
-      //                     << delay_based_limit.bps() << " bps (95% of "
-      //                     << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
-      //                     << max_realistic_bandwidth_.bps() << " bps)";
+      RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using delay-based limit="
+                       << delay_based_limit.bps() << " bps (95% of "
+                       << last_delay_based_estimate_.bps() << " bps, capped by adaptive_max="
+                       << adaptive_max_capacity.bps() << " bps)";
       
       bwe_based_limit = delay_based_limit;
+      
+      // Update capacity estimator with sustained rate information
+      capacity_estimator_->UpdateFromSustainedRate(last_delay_based_estimate_);
     } else {
-      // No delay estimate yet, use a conservative portion of max_realistic_bandwidth_
-      bwe_based_limit = max_realistic_bandwidth_ * 0.1;  // Start with 10% of max
-      // RTC_LOG(LS_WARNING) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
-      //                     << bwe_based_limit.bps() << " bps (10% of max_realistic)";
+      // No delay estimate yet, use a conservative portion of adaptive capacity
+      bwe_based_limit = adaptive_max_capacity * 0.1;  // Start with 10% of adaptive max
+      RTC_LOG(LS_INFO) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
+                       << bwe_based_limit.bps() << " bps (10% of adaptive_max)";
     }
 
     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
@@ -615,6 +740,9 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
 
   // Update Prague controller
   prague_controller_->UpdateRtt(msg.round_trip_time);
+  
+  // Update the adaptive capacity estimator with RTT information
+  capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -1241,6 +1369,13 @@ void L4SNetworkController::ProcessEcnFeedback(
   ect_count_ += new_ect_count;
   ce_count_ += new_ce_count;
 
+  // Update the adaptive capacity estimator based on congestion signals
+  if (ect_count_ + ce_count_ > 0) {
+    double ce_ratio = static_cast<double>(ce_count_) / (ect_count_ + ce_count_);
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio);
+  }
+
   // Consider the network ECN capable if we've received at least 10 packets
   // and have seen at least one CE mark or a reasonable proportion of ECT
   // packets
@@ -1291,6 +1426,9 @@ void L4SNetworkController::ProcessProbeClusterCreated(ProbeClusterConfig probe_c
 }
 
 void L4SNetworkController::ProcessProbeResultSuccess(DataRate probe_bitrate) {
+  // Update the adaptive capacity estimator with successful probe result
+  capacity_estimator_->UpdateFromProbeResult(probe_bitrate, true);
+  
   // This method would be called when we detect a successful probe
   // Update max_realistic_bandwidth_ if this probe shows higher capacity
   if (probe_bitrate > max_realistic_bandwidth_) {
@@ -1298,6 +1436,15 @@ void L4SNetworkController::ProcessProbeResultSuccess(DataRate probe_bitrate) {
     RTC_LOG(LS_INFO) << "L4S: Successful probe increased max_realistic_bandwidth_ to "
                      << max_realistic_bandwidth_.bps() << " bps";
   }
+}
+
+void L4SNetworkController::ProcessProbeResultFailed(DataRate probe_bitrate) {
+  // Update the adaptive capacity estimator with failed probe result
+  capacity_estimator_->UpdateFromProbeResult(probe_bitrate, false);
+  
+  RTC_LOG(LS_INFO) << "L4S: Probe failed at " << probe_bitrate.bps() 
+                   << " bps, updated adaptive capacity estimate to "
+                   << capacity_estimator_->GetMaxRealisticBandwidth().bps() << " bps";
 }
 
 }  // namespace webrtc

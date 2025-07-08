@@ -29,6 +29,54 @@ struct L4SControllerConfig {
   bool use_ect1_marking = true;
 };
 
+// Adaptive capacity estimator for realistic bandwidth estimation
+class AdaptiveCapacityEstimator {
+ public:
+  explicit AdaptiveCapacityEstimator(DataRate initial_conservative_estimate);
+  
+  // Update estimates based on different signals
+  void UpdateFromProbeResult(DataRate probe_rate, bool successful);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio);
+  void UpdateFromSustainedRate(DataRate sustained_rate);
+  void UpdateFromRtt(TimeDelta rtt);
+  
+  // Get the current adaptive estimate
+  DataRate GetMaxRealisticBandwidth() const;
+  
+  // Decay estimates over time if not reinforced
+  void OnTimeUpdate(Timestamp current_time);
+  
+ private:
+  enum class ConnectionType {
+    MOBILE_SLOW,    // < 5 Mbps
+    MOBILE_FAST,    // 5-50 Mbps  
+    WIFI_TYPICAL,   // 10-100 Mbps
+    WIRED_FAST,     // 100+ Mbps
+    UNKNOWN
+  };
+  
+  ConnectionType DetectConnectionType(TimeDelta rtt, DataRate estimate) const;
+  DataRate GetConservativeEstimateForType(ConnectionType type) const;
+  
+  // Different estimate sources
+  DataRate conservative_estimate_;
+  DataRate probe_based_estimate_;
+  DataRate congestion_based_estimate_;
+  DataRate historical_estimate_;
+  
+  // Tracking data
+  std::deque<DataRate> sustained_rates_history_;
+  static constexpr size_t kHistoryWindowSize = 10;
+  static constexpr TimeDelta kDecayInterval = TimeDelta::Seconds(30);
+  
+  Timestamp last_update_time_;
+  TimeDelta min_rtt_ = TimeDelta::PlusInfinity();
+  
+  // Absolute limits
+  static constexpr DataRate kAbsoluteMaxLimit = DataRate::KilobitsPerSec(1000000); // 1 Gbps
+  static constexpr DataRate kAbsoluteMinLimit = DataRate::KilobitsPerSec(1000);    // 1 Mbps
+};
+
 // Implementation of Network Controller Interface that uses L4S-based
 // congestion control. It can reuse some components from GCC when needed
 // and falls back to GCC if L4S (ECN) isn't supported.
@@ -68,6 +116,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   // ProbeController integration methods
   void ProcessProbeClusterCreated(ProbeClusterConfig probe_cluster_config);
   void ProcessProbeResultSuccess(DataRate probe_bitrate);
+  void ProcessProbeResultFailed(DataRate probe_bitrate);
 
   std::optional<Timestamp> last_update_time_;
   TimeDelta update_interval_ = TimeDelta::Millis(25);
@@ -98,7 +147,10 @@ class L4SNetworkController : public NetworkControllerInterface {
 
   // Add bandwidth estimation integration to the private section
   std::optional<DataRate> estimated_bandwidth_;
-  DataRate max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // 100 Mbps default reasonable limit
+  
+  // Adaptive capacity estimation
+  std::unique_ptr<AdaptiveCapacityEstimator> capacity_estimator_;
+  DataRate max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // Will be replaced by adaptive estimator
 
   // GCC-inspired bandwidth estimation components  
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
