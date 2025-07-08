@@ -219,6 +219,12 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
     max_target_rate_.reset();
   }
   
+  // Export L4S metrics to JSON if enabled (at construction, set up export path)
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->SetExportFilename("l4s_test_1.json");
+    RTC_LOG(LS_INFO) << "L4S: Metrics will be exported to l4s_test_1.json";
+  }
+  
   // Initialize ProbeController with bitrate constraints
   start_bitrate_ = starting_rate_.value_or(DataRate::KilobitsPerSec(300));
   max_bitrate_ = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
@@ -273,7 +279,14 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   }
 }
 
-L4SNetworkController::~L4SNetworkController() = default;
+L4SNetworkController::~L4SNetworkController() {
+  // Export metrics if enabled and collector exists
+  if (metrics_enabled_ && metrics_collector_) {
+    // Export to the required JSON file
+    webrtc::test::ExportMetricsToJsonFile("l4s_test_1.json");
+    RTC_LOG(LS_INFO) << "L4S: Exported metrics to l4s_test_1.json in destructor.";
+  }
+}
 
 webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
     webrtc::NetworkAvailability msg) {
@@ -1444,6 +1457,7 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
 
   // If we see CE marking or high RTT increases, the network might be at
   // capacity
+
   size_t ce_packets = 0;
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kCe) {
