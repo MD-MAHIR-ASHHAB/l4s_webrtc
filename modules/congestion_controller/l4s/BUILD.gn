@@ -9,6 +9,10 @@ source_set("l4s") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [ "//build/config/compiler:no_chromium_code" ]
   
+  # Disable Chromium style checkers for external header compatibility
+  configs -= [ "//build/config/clang:find_bad_constructs" ]
+  configs -= [ "//build/config/clang:raw_ptr_plugin" ]
+  
   deps = [
     "//api:field_trials_view",
     "//api/numerics:numerics",
