@@ -1162,8 +1162,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     }
 
     // RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
-    //                  << bwe_based_limit.bps()
-    //                  << " bps (acked: " << last_acknowledged_rate_.bps()
+    //                  << bwe_based_limit.bps() << " bps (acked: " << last_acknowledged_rate_.bps()
     //                  << ", delay: " << last_delay_based_estimate_.bps() << ")";
 
     // Allow Prague to increase up to BWE-based limit, even if current rate is
@@ -1777,15 +1776,15 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
       fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f",
         (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
       // If the sample has metadata, export it as a nested object
-      if (!s.metadata.empty()) {
+      if (!m.time_series.sample_metadata[j].empty()) {
         fprintf(f, ", \"metadata\": {");
         size_t meta_count = 0;
-        for (const auto& kv : s.metadata) {
+        for (const auto& kv : m.time_series.sample_metadata[j]) {
           fprintf(f, "%s\"%s\": \"%s\"", (meta_count++ > 0 ? ", " : ""), kv.first.c_str(), kv.second.c_str());
         }
         fprintf(f, "}");
       }
-      fprintf(f, "}")
+      fprintf(f, "}\n");
     }
     fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
   }
