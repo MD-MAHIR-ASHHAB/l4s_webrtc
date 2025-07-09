@@ -1773,8 +1773,19 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
     fprintf(f, "    \"samples\": [");
     for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
       const auto& s = m.time_series.samples[j];
-      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
+      // Export per-sample metadata if available
+      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f",
         (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
+      // If the sample has metadata, export it as a nested object
+      if (!s.metadata.empty()) {
+        fprintf(f, ", \"metadata\": {");
+        size_t meta_count = 0;
+        for (const auto& kv : s.metadata) {
+          fprintf(f, "%s\"%s\": \"%s\"", (meta_count++ > 0 ? ", " : ""), kv.first.c_str(), kv.second.c_str());
+        }
+        fprintf(f, "}");
+      }
+      fprintf(f, "}")
     }
     fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
   }
