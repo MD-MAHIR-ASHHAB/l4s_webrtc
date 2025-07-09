@@ -1769,22 +1769,20 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
     fprintf(f, "      \"min\": %s,\n", m.stats.min ? std::to_string(*m.stats.min).c_str() : "null");
     fprintf(f, "      \"max\": %s\n", m.stats.max ? std::to_string(*m.stats.max).c_str() : "null");
     fprintf(f, "    },\n");
+    // Export metric-level metadata
+    fprintf(f, "    \"metadata\": {");
+    size_t meta_count = 0;
+    for (const auto& kv : m.metric_metadata) {
+      if (meta_count > 0) fprintf(f, ", ");
+      fprintf(f, "\"%s\": \"%s\"", kv.first.c_str(), kv.second.c_str());
+      ++meta_count;
+    }
+    fprintf(f, "},\n");
     fprintf(f, "    \"samples\": [");
     for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
       const auto& s = m.time_series.samples[j];
-      // Export per-sample metadata if available
-      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f",
+      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
         (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
-      // If the sample has metadata, export it as a nested object
-      if (!m.time_series.sample_metadata[j].empty()) {
-        fprintf(f, ", \"metadata\": {");
-        size_t meta_count = 0;
-        for (const auto& kv : m.time_series.sample_metadata[j]) {
-          fprintf(f, "%s\"%s\": \"%s\"", (meta_count++ > 0 ? ", " : ""), kv.first.c_str(), kv.second.c_str());
-        }
-        fprintf(f, "}");
-      }
-      fprintf(f, "}\n");
     }
     fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
   }
