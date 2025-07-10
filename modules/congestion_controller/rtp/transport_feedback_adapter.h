@@ -117,7 +117,9 @@ class TransportFeedbackAdapter {
   std::optional<TransportPacketsFeedback> ToTransportFeedback(
       std::vector<PacketResult> packet_results,
       Timestamp feedback_receive_time,
-      bool supports_ecn);
+      bool supports_ecn,
+      int ect_count,
+      int ce_count);
 
   DataSize pending_untracked_size_ = DataSize::Zero();
   Timestamp last_send_time_ = Timestamp::MinusInfinity();
