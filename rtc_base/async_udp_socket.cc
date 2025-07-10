@@ -171,10 +171,10 @@ void AsyncUDPSocket::LogEcnSocketOptions() {
   int send_result = socket_->GetOption(Socket::OPT_SEND_ECN, &send_ecn_value);
   int recv_result = socket_->GetOption(Socket::OPT_RECV_ECN, &recv_ecn_value);
   
-  // RTC_LOG(LS_INFO) << "SOCKET ECN OPTIONS: "
-  //                  << "SEND_ECN=" << (send_result == 0 ? std::to_string(send_ecn_value) : "ERROR")
-  //                  << " RECV_ECN=" << (recv_result == 0 ? std::to_string(recv_ecn_value) : "ERROR")
-  //                  << " Internal ECT1 flag=" << (has_set_ect1_options_ ? "true" : "false");
+  RTC_LOG(LS_INFO) << "SOCKET ECN OPTIONS: "
+                   << "SEND_ECN=" << (send_result == 0 ? std::to_string(send_ecn_value) : "ERROR")
+                   << " RECV_ECN=" << (recv_result == 0 ? std::to_string(recv_ecn_value) : "ERROR")
+                   << " Internal ECT1 flag=" << (has_set_ect1_options_ ? "true" : "false");
 }
 
 void AsyncUDPSocket::OnReadEvent(Socket* socket) {
