@@ -172,8 +172,6 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
     : env_(config.env),
       fallback_to_gcc_(l4s_config.fallback_to_gcc),
       use_ect1_marking_(l4s_config.use_ect1_marking),
-      prague_controller_(
-          std::make_unique<L4SPragueController>(env_.field_trials(), use_ect1_marking_)),
       // Initialize adaptive capacity estimator first (based on header order)
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
@@ -229,24 +227,6 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->ExportToJsonFile("l4s_test_1.json");
     RTC_LOG(LS_INFO) << "L4S: Metrics will be exported to l4s_test_1.json";
-  }
-  
-  // Initialize ProbeController with bitrate constraints
-  start_bitrate_ = starting_rate_.value_or(DataRate::KilobitsPerSec(300));
-  max_bitrate_ = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
-  
-  // Enable periodic ALR probing for bandwidth discovery
-  probe_controller_->EnablePeriodicAlrProbing(true);
-  
-  // Set initial bitrates in ProbeController to enable probing
-  DataRate min_bitrate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-  auto initial_probe_clusters = probe_controller_->SetBitrates(min_bitrate, start_bitrate_, max_bitrate_,
-                                                               env_.clock().CurrentTime());
-  
-  // Log initial probe clusters (will be applied by pacing controller during startup)
-  if (!initial_probe_clusters.empty()) {
-    RTC_LOG(LS_INFO) << "L4S: Created with " << initial_probe_clusters.size() 
-                     << " initial probe cluster(s)";
   }
 
   RTC_LOG(LS_WARNING) << "L4S network controller created"
@@ -334,11 +314,6 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
 
   min_target_rate_ = msg.constraints.min_data_rate;
   max_target_rate_ = msg.constraints.max_data_rate;
-  
-  // Update ProbeController with new bitrate constraints
-  DataRate min_rate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-  DataRate start_rate = starting_rate_.value_or(DataRate::KilobitsPerSec(300));
-  DataRate max_rate = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
@@ -401,8 +376,6 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
     webrtc::RoundTripTimeUpdate msg) {
   webrtc::NetworkControlUpdate update;
 
-  // Update Prague controller
-  prague_controller_->UpdateRtt(msg.round_trip_time);
   
   // Update the adaptive capacity estimator with RTT information
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
@@ -675,8 +648,7 @@ bool L4SNetworkController::IsL4SActive() const {
   // 1. Prague controller is active (received enough ECN feedback)
   // 2. ECN is supported by the connection
   // 3. The network appears to be ECN capable
-  return prague_controller_->IsActive() && ecn_supported_ &&
-         ecn_capable_network_;
+  return ecn_supported_ && ecn_capable_network_;
 }
 
 void L4SNetworkController::ProcessEcnFeedback(
