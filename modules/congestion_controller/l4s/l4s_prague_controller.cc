@@ -85,19 +85,7 @@ void L4SPragueController::UpdateEcnFeedback(
     }
   }
 
-  // Only log if CE packets were detected
-  if (ce_packets > 0) {
-    RTC_LOG(LS_INFO) << "Prague ECN feedback: ECT packets=" << ect_packets
-                     << ", CE packets=" << ce_packets
-                     << " (total ECT+CE so far: "
-                     << (total_ect_packets_ + ect_packets) << ")";
-  }
 
-  // Log NotECT packets for debugging startup transients
-  if (notect_packets > 0) {
-    RTC_LOG(LS_INFO) << "Prague: Received " << notect_packets << " NotECT packets"
-                     << " (total ECT=" << ect_packets << ", CE=" << ce_packets << ")";
-  }
 
   // If we received any ECT or CE packets, activate the controller
   if (ect_packets > 0) {
@@ -176,7 +164,6 @@ void L4SPragueController::UpdateEcnFeedback(
                        << notect_packets << " NotECT packets). CE ratio reset to 0.";
     }
   }
-
   last_update_time_ = now;
 }
 
@@ -291,7 +278,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   if (ecn_ce_ratio_ > 0) {
     // Rate limit reductions to prevent death spiral (GCC-style timing)
     TimeDelta time_since_last_reduction = now - last_reduction_time_;
-    const TimeDelta kBweDecreaseInterval = TimeDelta::Millis(300); // GCC's decrease interval
+    const TimeDelta kBweDecreaseInterval = TimeDelta::Millis(100); // l4s decrease interval
     
     if (time_since_last_reduction.IsFinite() && time_since_last_reduction < kBweDecreaseInterval) {
       RTC_LOG(LS_INFO) << "Prague: Rate reduction rate-limited (last reduction " 
@@ -303,19 +290,19 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     
     // Additional protection during startup: Require stronger CE signal if we haven't seen much ECN traffic
     double effective_ce_ratio = ecn_ce_ratio_;
-    if (startup_protection && total_ect_packets_ < 100) {
-      // During startup, require at least 2% CE ratio before reducing (instead of any CE ratio)
-      if (ecn_ce_ratio_ < 0.02) {
-        RTC_LOG(LS_INFO) << "Prague: Startup protection - CE ratio " << (ecn_ce_ratio_ * 100.0) 
-                         << "% below 2% threshold with only " << total_ect_packets_ 
-                         << " ECT packets, not reducing rate";
-        return base_rate;
-      }
-      // Scale down the reduction during startup to be more conservative
-      effective_ce_ratio = ecn_ce_ratio_ * 0.5;  // Half the reduction strength
-      RTC_LOG(LS_INFO) << "Prague: Startup protection - scaling CE ratio from " 
-                       << (ecn_ce_ratio_ * 100.0) << "% to " << (effective_ce_ratio * 100.0) << "%";
-    }
+    // if (startup_protection && total_ect_packets_ < 100) {
+    //   // During startup, require at least 2% CE ratio before reducing (instead of any CE ratio)
+    //   if (ecn_ce_ratio_ < 0.02) {
+    //     RTC_LOG(LS_INFO) << "Prague: Startup protection - CE ratio " << (ecn_ce_ratio_ * 100.0) 
+    //                      << "% below 2% threshold with only " << total_ect_packets_ 
+    //                      << " ECT packets, not reducing rate";
+    //     return base_rate;
+    //   }
+    //   // Scale down the reduction during startup to be more conservative
+    //   effective_ce_ratio = ecn_ce_ratio_ * 0.5;  // Half the reduction strength
+    //   RTC_LOG(LS_INFO) << "Prague: Startup protection - scaling CE ratio from " 
+    //                    << (ecn_ce_ratio_ * 100.0) << "% to " << (effective_ce_ratio * 100.0) << "%";
+    // }
     
     // ECN-based reduction (similar to GCC's loss-based reduction)
     double reduction_factor = 1.0 - (alpha_.Get() * effective_ce_ratio);
@@ -350,32 +337,28 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 
     // Update last reduction time
     last_reduction_time_ = now;
-
+    base_rate = reduced_rate;
     return reduced_rate;
   }
 
   // If no congestion, try to increase additively based on RTT
   // For non-ECN environments, use loss-based approach if available
-  if (total_ect_packets_ == 0 && startup_time_.IsFinite()) {
-    TimeDelta startup_duration = now - startup_time_;
-    const TimeDelta kNonEcnFallbackTime = TimeDelta::Seconds(10);  // 10 second fallback
+  if (total_ect_packets_ == 0) {
+    // No ECN marking seen, probably a non-ECN environment
+    // Use a conservative additive increase approach
+    const double kNonEcnAdditiveIncrease = 1.1;  // 10% increase
+    DataRate increased_rate = base_rate * kNonEcnAdditiveIncrease;
     
-    if (startup_duration > kNonEcnFallbackTime) {
-      // No ECN marking seen, probably a non-ECN environment
-      // Use a conservative additive increase approach
-      const double kNonEcnAdditiveIncrease = 1.05;  // 5% increase
-      DataRate increased_rate = base_rate * kNonEcnAdditiveIncrease;
-      
-      // Cap the increase to prevent aggressive ramp-up
-      const DataRate kMaxNonEcnIncrease = DataRate::KilobitsPerSec(100);  // 100 kbps max increase
-      if (increased_rate - base_rate > kMaxNonEcnIncrease) {
-        increased_rate = base_rate + kMaxNonEcnIncrease;
-      }
-      
-      RTC_LOG(LS_INFO) << "Prague: Non-ECN fallback mode - increasing rate from " 
-                       << base_rate.bps() << " to " << increased_rate.bps() << " bps";
-      return increased_rate;
+    // Cap the increase to prevent aggressive ramp-up
+    const DataRate kMaxNonEcnIncrease = DataRate::KilobitsPerSec(300);  // 300 kbps max increase
+    if (increased_rate - base_rate > kMaxNonEcnIncrease) {
+      increased_rate = base_rate + kMaxNonEcnIncrease;
     }
+    
+    RTC_LOG(LS_INFO) << "Prague: Non-ECN fallback mode - increasing rate from " 
+                      << base_rate.bps() << " to " << increased_rate.bps() << " bps";
+    base_rate = increased_rate;
+    return increased_rate;
   }
   
   // RTC_LOG(LS_INFO)
@@ -399,12 +382,12 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   }
 
   if (time_since_update > TimeDelta::Zero()) {
-    // Rate limit updates to prevent excessive increases (minimum 15ms between
+    // Rate limit updates to prevent excessive increases (minimum 10ms between
     // rate increases for faster ramp-up, reduced from 25ms for better video quality)
-    if (time_since_update < TimeDelta::Millis(15)) {
+    if (time_since_update < TimeDelta::Millis(10)) {
       // RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
       //                  << time_since_update.ms()
-      //                  << "ms < 15ms), returning base rate " << base_rate.bps()
+      //                  << "ms < 10ms), returning base rate " << base_rate.bps()
       //                  << " bps";
       return base_rate;
     }
@@ -421,36 +404,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // Very conservative additive increase, especially for small RTTs
     double increase_factor = 1.0;
 
-    // Only increase if RTT is reasonable (>= 5ms) and time since update is
-    // significant (>= 200ms) if (rtt_seconds >= 0.005 && time_since_update.ms()
-    // >= 200) {
-    //   // Target: very small increase per RTT (much more conservative than
-    //   TCP) DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte
-    //   packets DataSize current_cwnd = CalculateCongestionWindow();
-
-    //   // Much smaller base increase rate
-    //   double increase_per_rtt = packet_size.bytes() /
-    //   static_cast<double>(current_cwnd.bytes()); double rtt_cycles =
-    //   time_since_update.ms() / (rtt_seconds * 1000.0);
-
-    //   // Scale down the increase by 20x to be extremely conservative
-    //   increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.05);
-
-    //   // Very tight bounds: max 1% increase per update
-    //   increase_factor = std::clamp(increase_factor, 1.0, 1.01);
-
-    //   // Log only when we actually increase
-    //   if (increase_factor > 1.001) {
-    //     RTC_LOG(LS_INFO) << "Prague additive increase: factor=" <<
-    //     increase_factor
-    //                      << ", rtt=" << rtt_seconds << "s, update_interval="
-    //                      << time_since_update.ms() << "ms";
-    //   }
-    // }
-
     // Only increase if RTT is reasonable (>= 1ms) and time since update is
     // significant
-    if (rtt_seconds >= 0.001 && time_since_update.ms() >= 25) {
+    if (rtt_seconds >= 0.001 && time_since_update.ms() >= 10) {
       // RTC_LOG(LS_INFO)
       //     << "Prague: RTT and time conditions met, calculating increase. RTT="
       //     << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
@@ -466,9 +422,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
       // // Scale down the increase by 10x to be very conservative
       // increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.1);
       // Scale down the increase by 5x to be conservative for real networks
-      increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.2);
-      // // Very tight bounds: max 2% increase per update
-      // increase_factor = std::clamp(increase_factor, 1.0, 1.02);
+      increase_factor = 1.0 + (increase_per_rtt * rtt_cycles);
 
       // More aggressive bounds for faster ramp-up: max 5% increase per update (increased from 3% for faster video quality)
       increase_factor = std::clamp(increase_factor, 1.0, 1.05);
@@ -514,7 +468,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
     //                  << increased_rate.bps()
     //                  << " bps (factor=" << increase_factor << ")";
-
+    base_rate = increased_rate;  // Update base rate for next calculations
     return increased_rate;
   }
 
@@ -550,7 +504,6 @@ bool L4SPragueController::IsActive() const {
   
   // We're active if we have enough ECN feedback and haven't timed out
   bool has_ecn_feedback = (total_ect_packets_ > 0 || total_ce_packets_ > 0);
-  bool sufficient_feedback = (total_ect_packets_ + total_ce_packets_) >= 5;  // Require at least 5 ECT/CE packets for reliable signal
   
   // Not active if we've received too many consecutive NotECT-only feedbacks
   if (consecutive_notect_feedbacks_ >= 50) {
@@ -564,7 +517,7 @@ bool L4SPragueController::IsActive() const {
     return false;
   }
   
-  return active_ || has_ecn_feedback || sufficient_feedback;
+  return active_ || has_ecn_feedback;
 }
 
 DataSize L4SPragueController::CalculateCongestionWindow() const {

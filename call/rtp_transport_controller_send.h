@@ -256,7 +256,7 @@ class RtpTransportControllerSend final
   bool sending_packets_as_ect1_ = false;
   // ECN detection state
   int ecn_detection_attempts_ = 0;
-  static constexpr int kMaxEcnDetectionAttempts = 5;  // Allow several feedback rounds before giving up
+  static constexpr int kMaxEcnDetectionAttempts = 20;  // Allow several feedback rounds before giving up
   // Count of feedback messages received.
   int feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
   int transport_cc_feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
