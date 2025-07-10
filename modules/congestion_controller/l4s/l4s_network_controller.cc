@@ -284,12 +284,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
   if (fallback_to_gcc_ && !IsL4SActive()) {
     auto gcc_update = gcc_controller_->OnNetworkAvailability(msg);
     }
-  }
-
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnNetworkRouteChange(
     webrtc::NetworkRouteChange msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -332,7 +330,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
 //new update onProcessInterval method
 // This method is called periodically to update the network controller state
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnProcessInterval(
     webrtc::ProcessInterval msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -360,7 +358,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
 
 
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRemoteBitrateReport(
     webrtc::RemoteBitrateReport msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -372,7 +370,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdate(
     webrtc::RoundTripTimeUpdate msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -398,7 +396,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnRoundTripTimeUpdate(
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnSentPacket(webrtc::SentPacket msg) {
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnSentPacket(webrtc::SentPacket msg) {
   webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
@@ -409,7 +407,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnSentPacket(webrtc::SentPack
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnReceivedPacket(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnReceivedPacket(
     webrtc::ReceivedPacket msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -421,7 +419,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnReceivedPacket(
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnStreamsConfig(webrtc::StreamsConfig msg) {
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnStreamsConfig(webrtc::StreamsConfig msg) {
   webrtc::NetworkControlUpdate update;
 
   // Forward to GCC if we're using it as fallback
@@ -432,7 +430,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnStreamsConfig(webrtc::Strea
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnTargetRateConstraints(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTargetRateConstraints(
     webrtc::TargetRateConstraints msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -448,7 +446,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTargetRateConstraints(
   return update;
 }
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
+webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossReport(
     webrtc::TransportLossReport msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -469,7 +467,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
 // new OnTransportPacketsFeedback method:
 // This method processes transport feedback packets and updates the network controller state
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(
     webrtc::TransportPacketsFeedback feedback) {
   webrtc::NetworkControlUpdate update;
 
@@ -492,7 +490,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
 }
 
 
-webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimate(
     webrtc::NetworkStateEstimate msg) {
   webrtc::NetworkControlUpdate update;
 
@@ -505,7 +503,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
 }
 
 // In CreateRateUpdate method:
-webrtc::NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(
     webrtc::Timestamp at_time) const {
   webrtc::NetworkControlUpdate update;
 
