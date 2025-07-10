@@ -303,13 +303,21 @@ void RtpSenderEgress::CompleteSendPacket(const Packet& compound_packet,
                                         packet->Ssrc());
   }
   options.send_as_ect1 = packet->send_as_ect1();
-  
-  static std::atomic<int> egress_packet_count{0};
-  int current_count = egress_packet_count.fetch_add(1, std::memory_order_relaxed);
-  if (current_count % 1000 == 0) {  // Log every 1000th packet to reduce verbosity
-    RTC_LOG(LS_INFO) << "RtpSenderEgress: Packet #" << current_count
-                     << " send_as_ect1=" << (packet->send_as_ect1() ? "TRUE" : "FALSE");
+
+  if (packet->send_as_ect1()) {
+    options.ecn = EcnMarking::kEct1;
+  } else {
+    options.ecn = EcnMarking::kNotEct;
   }
+  
+
+  RTC_LOG(LS_INFO) << "RtpSenderEgress: Sending packet with id/seq="
+               << options.packet_id.value_or(0)
+               << ", ssrc=" << packet->Ssrc()
+               << ", type=" << RtpPacketMediaTypeToString(*packet->packet_type())
+               << ", size=" << packet->size()
+               << ", send_as_ect1=" << (options.send_as_ect1 ? "TRUE" : "FALSE");
+
   
   options.batchable = enable_send_packet_batching_ && !is_audio_;
   options.last_packet_in_batch = last_in_batch;
