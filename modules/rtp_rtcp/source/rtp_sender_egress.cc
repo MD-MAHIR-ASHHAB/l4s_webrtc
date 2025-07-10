@@ -307,7 +307,7 @@ void RtpSenderEgress::CompleteSendPacket(const Packet& compound_packet,
 
   RTC_LOG(LS_INFO) << "RtpSenderEgress: Sending packet with id/seq="
                << options.packet_id.value_or(0)
-               << ", type=" << RtpPacketMediaTypeToString(*packet->packet_type())
+               << ",MediaType=" << MediaTypeToString(packet->packet_type())
                << ", size=" << packet->size()
                << ", send_as_ect1=" << (options.send_as_ect1 ? "TRUE" : "FALSE");
 
