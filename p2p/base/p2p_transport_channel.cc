@@ -808,12 +808,18 @@ void P2PTransportChannel::ParseFieldTrials(
     stun_dict_writer_.Disable();
   }
 
-  if (field_trials->IsEnabled("WebRTC-RFC8888CongestionControlFeedback")) {
-    int desired_recv_esn = 1;
-    RTC_LOG(LS_INFO) << "Set WebRTC-RFC8888CongestionControlFeedback: Enable "
-                        "and set ECN recving mode";
-    SetOption(Socket::OPT_RECV_ECN, desired_recv_esn);
-  }
+  // if (field_trials->IsEnabled("WebRTC-RFC8888CongestionControlFeedback")) {
+  //   int desired_recv_esn = 1;
+  //   RTC_LOG(LS_INFO) << "Set WebRTC-RFC8888CongestionControlFeedback: Enable "
+  //                       "and set ECN recving mode";
+  //   SetOption(Socket::OPT_RECV_ECN, desired_recv_esn);
+  // }
+
+
+  int desired_recv_esn = 1;
+  RTC_LOG(LS_INFO) << "Forcing ECN recving mode ON for all sockets";
+  SetOption(Socket::OPT_RECV_ECN, desired_recv_esn);
+
 }
 
 const IceConfig& P2PTransportChannel::config() const {
