@@ -37,41 +37,44 @@ namespace webrtc {
 // AdaptiveCapacityEstimator implementation
 AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservative_estimate)
     : conservative_estimate_(initial_conservative_estimate),
-      probe_based_estimate_(initial_conservative_estimate),
       congestion_based_estimate_(initial_conservative_estimate),
       historical_estimate_(initial_conservative_estimate),
-      last_update_time_(Timestamp::MinusInfinity()) {
+      last_update_time_(Timestamp::MinusInfinity()),
+      historic_min_(DataRate::KilobitsPerSec(300)),      // Start with 300 kbps
+      historic_max_(DataRate::KilobitsPerSec(10000)) {   // Start with 10 Mbps
   sustained_rates_history_.push_back(initial_conservative_estimate);
 }
 
 AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 
-void AdaptiveCapacityEstimator::UpdateFromProbeResult(DataRate probe_rate, bool successful) {
-  if (successful) {
-    // Successful probe suggests we can handle this rate
-    DataRate proven_capacity = probe_rate;
-    probe_based_estimate_ = std::min(proven_capacity * 1.2, kAbsoluteMaxLimit);
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Probe success at " << probe_rate.bps() 
-                     << " bps, updating probe_based_estimate to " << probe_based_estimate_.bps() << " bps";
-  } else {
-    // Failed probe suggests we're at or near capacity
-    probe_based_estimate_ = std::min(probe_rate * 0.8, probe_based_estimate_);
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Probe failed at " << probe_rate.bps() 
-                     << " bps, reducing probe_based_estimate to " << probe_based_estimate_.bps() << " bps";
-  }
-}
 
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio) {
-  if (ce_ratio > 0.1) {
-    // High congestion - reduce estimate
-    congestion_based_estimate_ = std::max(current_rate * 0.8, kAbsoluteMinLimit);
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: High congestion (CE ratio=" << ce_ratio 
+  constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
+  // Use min_rtt_ if available, else default to 10ms
+  TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
+
+  if (ce_ratio > 0.01) {
+    // Proportional decrease (already RFC-aligned from previous step)
+    double decrease_factor = std::max(0.0, 1.0 - ce_ratio);
+    DataRate reduced = std::max(current_rate * decrease_factor, historic_min_);
+    congestion_based_estimate_ = std::max(reduced, kAbsoluteMinLimit);
+    if (congestion_based_estimate_ < historic_min_) {
+      historic_min_ = congestion_based_estimate_;
+    }
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Proportional decrease (CE ratio=" << ce_ratio 
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  } else if (ce_ratio < 0.01 && current_rate > congestion_based_estimate_ * 0.9) {
-    // Low congestion and we're using most of our estimate - can increase
-    congestion_based_estimate_ = std::min(current_rate * 1.3, kAbsoluteMaxLimit);
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Low congestion (CE ratio=" << ce_ratio 
-                     << "), increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  } else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
+    // Linear, RTT-aware additive increase: +1 MSS per RTT
+    int64_t bits_per_rtt = kDefaultMssBytes * 8;
+    double rtt_seconds = rtt.seconds<double>();
+    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
+    DataRate increased = std::min(current_rate + DataRate::BitsPerSec(increase_bps), historic_max_);
+    congestion_based_estimate_ = std::min(increased, kAbsoluteMaxLimit);
+    if (congestion_based_estimate_ > historic_max_) {
+      historic_max_ = congestion_based_estimate_;
+    }
+    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+                     << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }
 }
 
@@ -100,7 +103,6 @@ DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
   // Use the most conservative estimate that has been recently validated
   DataRate estimate = std::min({
       conservative_estimate_,
-      probe_based_estimate_,
       congestion_based_estimate_,
       historical_estimate_
   });
@@ -109,10 +111,11 @@ DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
   DataRate periodic_max = std::max(kAbsoluteMinLimit, std::min(estimate, kAbsoluteMaxLimit));
   RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
                    << periodic_max.bps() << " bps (conservative: " 
-                   << conservative_estimate_.bps() << ", probe: " 
-                   << probe_based_estimate_.bps() << ", congestion: " 
-                   << congestion_based_estimate_.bps() << ", historical: " 
-                   << historical_estimate_.bps() << ")";
+                   << conservative_estimate_.bps()
+                   << ", congestion: " << congestion_based_estimate_.bps()
+                   << ", historical: " << historical_estimate_.bps()
+                   << ", historic_min: " << historic_min_.bps()
+                   << ", historic_max: " << historic_max_.bps() << ")";
   return periodic_max;
 }
 
@@ -125,12 +128,18 @@ void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   TimeDelta elapsed = current_time - last_update_time_;
   if (elapsed >= kDecayInterval) {
     // Gradually decay estimates if not reinforced
-    probe_based_estimate_ = std::max(probe_based_estimate_ * 0.95, conservative_estimate_);
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, conservative_estimate_);
     historical_estimate_ = std::max(historical_estimate_ * 0.95, conservative_estimate_);
-    
     last_update_time_ = current_time;
   }
+}
+
+void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate) {
+  // Multiplicative decrease, fallback for loss (e.g., halve the rate)
+  DataRate reduced = std::max(current_rate * 0.5, historic_min_);
+  congestion_based_estimate_ = std::max(reduced, kAbsoluteMinLimit);
+  RTC_LOG(LS_WARNING) << "AdaptiveCapacity: Packet loss detected, halving congestion_based_estimate to "
+                      << congestion_based_estimate_.bps() << " bps";
 }
 
 AdaptiveCapacityEstimator::ConnectionType AdaptiveCapacityEstimator::DetectConnectionType(
@@ -375,6 +384,417 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkRouteChange(
   return update;
 }
 
+// webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
+//     webrtc::ProcessInterval msg) {
+//   webrtc::NetworkControlUpdate update;
+
+//   // Log periodic metrics
+//   LogPeriodicMetrics(msg.at_time);
+//   LogControllerState(msg.at_time);
+
+//   // Get rate from Prague controller if active
+//   if (IsL4SActive()) {
+//     DataRate current_rate_for_transport_ =
+//         target_rate_.value_or(DataRate::KilobitsPerSec(300));
+
+//     // RTC_LOG(LS_INFO)
+//     //     << "L4S DEBUG: Starting cycle with current_rate_for_transport_="
+//     //     << current_rate_for_transport_.bps() << " bps (from target_rate_="
+//     //     << (target_rate_ ? target_rate_->bps() : -1) << ")";
+
+//     // Update the adaptive capacity estimator with time-based decay
+//     capacity_estimator_->OnTimeUpdate(msg.at_time);
+    
+//     // Consider BWE estimates for capacity limiting using adaptive estimator
+//     DataRate adaptive_max_capacity = capacity_estimator_->GetMaxRealisticBandwidth();
+//     DataRate bwe_based_limit = adaptive_max_capacity;
+    
+//     RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using adaptive capacity limit="
+//                      << bwe_based_limit.bps() << " bps";
+
+//     // Use delay-based estimate as the primary capacity indicator, but don't exceed adaptive capacity
+//     if (last_delay_based_estimate_ > DataRate::Zero()) {
+//       // Use 95% consistently (same as feedback processing) to avoid rate jumping
+//       DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.95, adaptive_max_capacity);
+      
+//       RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using delay-based limit="
+//                        << delay_based_limit.bps() << " bps (95% of "
+//                        << last_delay_based_estimate_.bps() << " bps, capped by adaptive_max="
+//                        << adaptive_max_capacity.bps() << " bps)";
+      
+//       bwe_based_limit = delay_based_limit;
+      
+//       // Update capacity estimator with sustained rate information
+//       capacity_estimator_->UpdateFromSustainedRate(last_delay_based_estimate_);
+//     } else {
+//       // No delay estimate yet, use a conservative portion of adaptive capacity
+//       bwe_based_limit = adaptive_max_capacity * 0.1;  // Start with 10% of adaptive max
+//       RTC_LOG(LS_INFO) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
+//                        << bwe_based_limit.bps() << " bps (10% of adaptive_max)";
+//     }
+
+//     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
+//     // better capacity indicator Only apply acknowledged rate limit if it's MUCH
+//     // higher than delay estimate (rare case)
+//     if (last_acknowledged_rate_ > DataRate::Zero() &&
+//         last_acknowledged_rate_ >
+//             last_delay_based_estimate_ *
+//                 5) {  // Very high threshold to rarely trigger
+//       DataRate acked_limit =
+//           last_acknowledged_rate_ * 1.5;  // 50% above acked rate
+//       bwe_based_limit = std::min(bwe_based_limit, acked_limit);
+//       RTC_LOG(LS_WARNING)
+//           << "L4S OnProcessInterval: Applied acknowledged rate limit="
+//           << acked_limit.bps() << " (150% of " << last_acknowledged_rate_.bps()
+//           << "), bwe_based_limit now=" << bwe_based_limit.bps();
+//     }
+
+//     // RTC_LOG(LS_INFO)
+//     //     << "L4S OnProcessInterval: Final BWE-based capacity limit: "
+//     //     << bwe_based_limit.bps() << " bps";
+
+//     // Allow Prague to increase up to BWE-based limit, even if current rate is
+//     // lower This prevents getting stuck when current rate is below the
+//     // available capacity Made more aggressive: 99.5% instead of 98% for faster
+//     // ramp-up and better video quality
+//     DataRate rate_for_prague =
+//         std::min(std::max(current_rate_for_transport_, bwe_based_limit * 0.995),
+//                  bwe_based_limit);
+//     if (rate_for_prague > current_rate_for_transport_) {
+//       // Smooth large rate increases to prevent system instability
+//       DataRate rate_diff = rate_for_prague - current_rate_for_transport_;
+//       DataRate max_increase_per_step = current_rate_for_transport_ * 0.3;  // Max 30% increase per step
+      
+//       if (rate_diff > max_increase_per_step) {
+//         DataRate smoothed_rate = current_rate_for_transport_ + max_increase_per_step;
+//         RTC_LOG(LS_WARNING) << "L4S: Smoothing rate increase from " << current_rate_for_transport_.bps() 
+//                             << " to " << smoothed_rate.bps() << " bps instead of " 
+//                             << rate_for_prague.bps() << " bps (BWE limit: " << bwe_based_limit.bps() << " bps)";
+//         rate_for_prague = smoothed_rate;
+//       } else {
+//         RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
+//                             << rate_for_prague.bps() << " bps instead of current "
+//                             << current_rate_for_transport_.bps()
+//                             << " bps (BWE limit: " << bwe_based_limit.bps()
+//                             << " bps)";
+//       }
+//     }
+
+//     // RTC_LOG(LS_WARNING)
+//     //     << "L4S OnProcessInterval DEBUG: Passing rate_for_prague="
+//     //     << rate_for_prague.bps()
+//     //     << " to Prague (current=" << current_rate_for_transport_.bps()
+//     //     << ", bwe_limit=" << bwe_based_limit.bps() << ")";
+
+//     auto prague_rate =
+//         prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
+//     if (prague_rate) {
+//       // CRITICAL: Validate Prague controller output before using it
+//       if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
+//           target_rate_ = prague_rate;
+//           last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
+//         } else {
+//           RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
+//                               << " bps, using safe fallback";
+//           target_rate_ = DataRate::KilobitsPerSec(300);
+//           last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
+//         }
+//       // CRITICAL: Cap Prague rate immediately to prevent any potential overflow/infinite values
+//       // if (prague_rate.value() > bwe_based_limit) {
+//       //   // RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
+//       //   //                     << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
+        
+//       //   // Validate the capped rate before assignment
+//       //   if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
+//       //     prague_rate = bwe_based_limit;
+//       //     target_rate_ = prague_rate;
+//       //     last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
+//       //   } else {
+//       //     RTC_LOG(LS_WARNING) << "L4S: Invalid BWE limit " << bwe_based_limit.bps() 
+//       //                         << " bps, using safe fallback";
+//       //     prague_rate = DataRate::KilobitsPerSec(300);
+//       //     target_rate_ = prague_rate;
+//       //     last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
+//       //   }
+        
+//       //   // Force a probe to discover if higher rates are actually available
+//       //   DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+//       //   DataRate probe_start = target_rate_.value();
+//       //   DataRate probe_max = target_rate_.value() * 1.5;  // Probe up to 50% above current rate
+        
+//       //   // Fix for low-rate deadlock: If start rate is below min, adjust min downward
+//       //   if (probe_start < probe_min) {
+//       //     probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
+//       //     RTC_LOG(LS_WARNING) << "L4S: Adjusting probe min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
+//       //                         << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
+//       //   }
+        
+//       //   // Validate probe rates before calling SetBitrates
+//       //   if (probe_min.IsFinite() && probe_start.IsFinite() && probe_max.IsFinite() &&
+//       //       probe_min > DataRate::Zero() && probe_start > DataRate::Zero() && probe_max > DataRate::Zero() &&
+//       //       probe_min <= probe_start && probe_start <= probe_max) {
+          
+//       //     auto forced_probe_clusters = probe_controller_->SetBitrates(probe_min, probe_start, probe_max, msg.at_time);
+          
+//       //     if (!forced_probe_clusters.empty()) {
+//       //       update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+//       //                                          forced_probe_clusters.begin(), forced_probe_clusters.end());
+//       //       // RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << target_rate_->bps() << " bps";
+//       //     }
+//       //   } else {
+//       //     RTC_LOG(LS_WARNING) << "L4S: Invalid probe rates - min=" << probe_min.bps() 
+//       //                         << " start=" << probe_start.bps() << " max=" << probe_max.bps() << " bps";
+//       //   }
+//       // } else {
+//       //   // Prague rate is within BWE limit, validate and set it
+//       //   // if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
+//       //   //   target_rate_ = prague_rate;
+//       //   //   last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
+//       //   // } else {
+//       //   //   RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
+//       //   //                       << " bps, using safe fallback";
+//       //   //   target_rate_ = DataRate::KilobitsPerSec(300);
+//       //   //   last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
+//       //   }
+  
+//       MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+//     }
+    
+//     // Final safety check: ensure target_rate_ is always valid before proceeding
+//     if (target_rate_.has_value() && 
+//         (!target_rate_->IsFinite() || target_rate_->bps() <= 0)) {
+//       RTC_LOG(LS_WARNING) << "L4S: Invalid final target_rate_ " << target_rate_->bps() 
+//                           << " bps, resetting to safe fallback";
+//       target_rate_ = DataRate::KilobitsPerSec(300);
+//       last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
+//     }
+    
+//     // Check if we're in ALR (Application Limited Region) to enable probing
+//     // ALR occurs when we're sending below our estimated capacity
+//     DataRate current_sending_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+//     DataRate estimated_capacity = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
+    
+//     // Simplified ALR detection with hysteresis to prevent flickering
+//     bool should_be_in_alr = false;
+//     if (estimated_capacity > DataRate::Zero()) {
+//       if (!alr_start_time_) {
+//         // Not in ALR - require clear signal to enter (95% threshold)
+//         // OR if Prague controller wants to increase but is being capped
+//         bool underutilizing = current_sending_rate < estimated_capacity * 0.95;
+//         bool prague_being_capped = false;
+        
+//         // Check if Prague wants to increase (indicating potential underutilization)
+//         auto test_prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_sending_rate * 1.1);
+//         if (test_prague_rate && test_prague_rate.value() > current_sending_rate * 1.05) {
+//           prague_being_capped = true;
+//           // RTC_LOG(LS_WARNING) << "L4S: Prague wants to increase from " << current_sending_rate.bps() 
+//           //                     << " to " << test_prague_rate.value().bps() << " - triggering ALR for probing";
+//         }
+        
+//         should_be_in_alr = underutilizing || prague_being_capped;
+//       } else {
+//         // In ALR - require stronger signal to exit (98% threshold for hysteresis)
+//         if (current_sending_rate < estimated_capacity * 0.98) {
+//           should_be_in_alr = true;
+//         }
+//       }
+//     }
+    
+//     // Update ALR state
+//     if (should_be_in_alr && !alr_start_time_) {
+//       alr_start_time_ = msg.at_time;
+//       probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
+//       // RTC_LOG(LS_WARNING) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
+//                           // << " bps < 95% of capacity " << estimated_capacity.bps() << " bps";
+//     } else if (!should_be_in_alr && alr_start_time_) {
+//       probe_controller_->SetAlrEndedTimeMs(msg.at_time.ms());
+//       alr_start_time_.reset();
+//       // RTC_LOG(LS_WARNING) << "L4S: Exited ALR state - sending " << current_sending_rate.bps() 
+//                           // << " bps >= 98% of capacity " << estimated_capacity.bps() << " bps";
+//     }
+    
+//     // Log ALR state periodically for debugging
+//     static Timestamp last_alr_log = Timestamp::Zero();
+//     if (msg.at_time - last_alr_log > TimeDelta::Seconds(3)) {  // More frequent ALR logging
+//       last_alr_log = msg.at_time;
+//       // RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
+//       //                     << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
+//       //                     << " sending=" << current_sending_rate.bps() << " bps"
+//       //                     << " capacity=" << estimated_capacity.bps() << " bps"
+//       //                     << " threshold_95%=" << (estimated_capacity * 0.95).bps() << " bps"
+//       //                     << " threshold_98%=" << (estimated_capacity * 0.98).bps() << " bps"
+//       //                     << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
+//       //                     << " acked_est=" << last_acknowledged_rate_.bps() << " bps";
+//     }
+    
+//     // Update ProbeController with our current bandwidth estimate and network state
+//     // This helps it decide when and at what rates to probe
+//     if (target_rate_.has_value()) {
+//       BandwidthLimitedCause cause = BandwidthLimitedCause::kDelayBasedLimited;
+      
+//       // Determine the limiting factor to inform ProbeController's decision making
+//       if (last_acknowledged_rate_ > DataRate::Zero() && 
+//           target_rate_->bps() <= last_acknowledged_rate_.bps() * 1.1) {
+//         // We're limited by acknowledgment-based rate (likely loss or ack rate)
+//         cause = BandwidthLimitedCause::kLossLimitedBwe;
+//       }
+      
+//       // Set network state estimate to help ProbeController make better decisions
+//       // Use the higher of delay-based and acknowledged rate as the current estimate
+//       DataRate network_estimate = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
+//       if (network_estimate > DataRate::Zero()) {
+//         NetworkStateEstimate state_estimate;
+//         state_estimate.update_time = msg.at_time;
+//         state_estimate.link_capacity = network_estimate;
+//         state_estimate.link_capacity_lower = network_estimate * 0.8;
+//         state_estimate.link_capacity_upper = network_estimate * 1.5;
+//         state_estimate.propagation_delay = TimeDelta::Millis(25);  // Default propagation delay
+//         state_estimate.confidence = 0.8;
+        
+//         probe_controller_->SetNetworkStateEstimate(state_estimate);
+//         // RTC_LOG(LS_WARNING) << "L4S: SetNetworkStateEstimate called with rate=" << network_estimate.bps() << " bps";
+//       }
+      
+//       auto estimate_probe_clusters = probe_controller_->SetEstimatedBitrate(
+//           *target_rate_, cause, msg.at_time);
+      
+//       // RTC_LOG(LS_WARNING) << "L4S: SetEstimatedBitrate called with rate=" << target_rate_->bps() 
+//       //                     << " bps, cause=" << static_cast<int>(cause)
+//       //                     << " returned " << estimate_probe_clusters.size() << " probe(s)";
+      
+//       if (!estimate_probe_clusters.empty()) {
+//         // Add any immediate probes triggered by the estimate update
+//         if (update.probe_cluster_configs.empty()) {
+//           update.probe_cluster_configs = std::move(estimate_probe_clusters);
+//         } else {
+//           // Merge with existing probes from Process() call
+//           update.probe_cluster_configs.insert(
+//               update.probe_cluster_configs.end(),
+//               std::make_move_iterator(estimate_probe_clusters.begin()),
+//               std::make_move_iterator(estimate_probe_clusters.end()));
+//         }
+        
+//         RTC_LOG(LS_WARNING) << "L4S: Estimate update triggered " << estimate_probe_clusters.size() 
+//                             << " additional probe(s) at " << target_rate_->bps() << " bps";
+//       }
+//     }
+
+//     // Use ProbeController for bandwidth discovery
+//     // RTC_LOG(LS_WARNING) << "L4S: Calling ProbeController::Process at time " << msg.at_time.ms() << " ms";
+//     auto probe_clusters = probe_controller_->Process(msg.at_time);
+//     if (!probe_clusters.empty()) {
+//       update.probe_cluster_configs = std::move(probe_clusters);
+      
+//       RTC_LOG(LS_WARNING) << "L4S: ProbeController initiated " << update.probe_cluster_configs.size() 
+//                           << " probe cluster(s) at time " << msg.at_time.ms() << " ms";
+//       for (const auto& probe : update.probe_cluster_configs) {
+//         RTC_LOG(LS_WARNING) << "L4S: Probe cluster id=" << probe.id 
+//                             << " target_rate=" << probe.target_data_rate.bps() << " bps"
+//                             << " duration=" << probe.target_duration.ms() << " ms"
+//                             << " count=" << probe.target_probe_count;
+//       }
+      
+//       // Log probe context for debugging
+//       if (alr_start_time_) {
+//         auto alr_duration = msg.at_time - *alr_start_time_;
+//         RTC_LOG(LS_WARNING) << "L4S: Probing while in ALR for " << alr_duration.ms() << " ms";
+//       } else {
+//         RTC_LOG(LS_WARNING) << "L4S: Probing while not in ALR state";
+//       }
+//     } else {
+//       // Log why no probes are being generated (every 3 seconds for debugging)
+//       static Timestamp last_no_probe_log = Timestamp::Zero();
+//       static Timestamp last_forced_probe = Timestamp::Zero();
+//       if (msg.at_time - last_no_probe_log > TimeDelta::Seconds(3)) {
+//         last_no_probe_log = msg.at_time;
+//         RTC_LOG(LS_WARNING) << "L4S: No probes generated - ALR=" << (alr_start_time_.has_value() ? "yes" : "no")
+//                             << " sending_rate=" << current_sending_rate.bps() << " bps"
+//                             << " estimated_capacity=" << estimated_capacity.bps() << " bps"
+//                             << " target_rate=" << (target_rate_.has_value() ? target_rate_->bps() : -1) << " bps"
+//                             << " time=" << msg.at_time.ms() << " ms";
+                            
+//         // Force a probe every 10 seconds if we haven't seen any probes for debugging
+//         if (msg.at_time - last_forced_probe > TimeDelta::Seconds(10) && target_rate_.has_value()) {
+//           last_forced_probe = msg.at_time;
+          
+//           RTC_LOG(LS_WARNING) << "L4S: Attempting to force probe via multiple methods";
+          
+//           // Method 1: Try SetBitrates with higher max bitrate
+//           DataRate current_max = max_bitrate_;
+//           DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(3000));
+//           DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+//           DataRate probe_start = target_rate_.value();
+          
+//           // Fix for low-rate deadlock: If start rate is below min, adjust min downward
+//           if (probe_start < probe_min) {
+//             probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
+//             RTC_LOG(LS_WARNING) << "L4S: Force probe - adjusting min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
+//                                 << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
+//           }
+          
+//           // Validate probe rate to prevent invalid values
+//           if (probe_max > DataRate::KilobitsPerSec(100000)) {
+//             RTC_LOG(LS_WARNING) << "L4S: Probe rate too high (" << probe_max.bps() 
+//                                 << " bps), capping to 100 Mbps";
+//             probe_max = DataRate::KilobitsPerSec(100000);
+//           }
+          
+//           // Temporarily update max_bitrate_ to allow higher probing
+//           max_bitrate_ = probe_max;
+          
+//           auto forced_probe_clusters = probe_controller_->SetBitrates(
+//               probe_min,
+//               probe_start,
+//               probe_max,
+//               msg.at_time);
+          
+//           // Restore original max_bitrate_
+//           max_bitrate_ = current_max;
+          
+//           if (!forced_probe_clusters.empty()) {
+//             update.probe_cluster_configs = std::move(forced_probe_clusters);
+//             RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
+//                                 << " probe(s) via SetBitrates with max=" << probe_max.bps() << " bps";
+//           } else {
+//             // Method 2: Try RequestProbe directly
+//             auto direct_probes = probe_controller_->RequestProbe(msg.at_time);
+//             if (!direct_probes.empty()) {
+//               update.probe_cluster_configs = std::move(direct_probes);
+//               RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
+//                                   << " probe(s) via RequestProbe";
+//             } else {
+//               // Method 3: Force ALR state to trigger probing
+//               if (!alr_start_time_) {
+//                 alr_start_time_ = msg.at_time;
+//                 probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
+//                 RTC_LOG(LS_WARNING) << "L4S: Forced ALR state to trigger probing";
+                
+//                 // Try Process() again after setting ALR
+//                 auto alr_probes = probe_controller_->Process(msg.at_time);
+//                 if (!alr_probes.empty()) {
+//                   update.probe_cluster_configs = std::move(alr_probes);
+//                   RTC_LOG(LS_WARNING) << "L4S: ALR-triggered " << update.probe_cluster_configs.size() << " probe(s)";
+//                 }
+//               } else {
+//                 RTC_LOG(LS_WARNING) << "L4S: Failed to force probes with all methods";
+//               }
+//             }
+//           }
+//         }
+//       }
+//     }
+//   } else if (fallback_to_gcc_) {
+//     // Forward to GCC if we're not using L4S
+//     update = gcc_controller_->OnProcessInterval(msg);
+//   }
+
+//   return update;
+// }
+
+
+//new update onProcessInterval method
+// This method is called periodically to update the network controller state
+
 webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
     webrtc::ProcessInterval msg) {
   webrtc::NetworkControlUpdate update;
@@ -383,404 +803,25 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnProcessInterval(
   LogPeriodicMetrics(msg.at_time);
   LogControllerState(msg.at_time);
 
-  // Get rate from Prague controller if active
   if (IsL4SActive()) {
-    DataRate current_rate_for_transport_ =
-        target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    // Use only ECN-based estimator for rate selection
+    DataRate ecn_based_limit = capacity_estimator_->GetMaxRealisticBandwidth();
 
-    // RTC_LOG(LS_INFO)
-    //     << "L4S DEBUG: Starting cycle with current_rate_for_transport_="
-    //     << current_rate_for_transport_.bps() << " bps (from target_rate_="
-    //     << (target_rate_ ? target_rate_->bps() : -1) << ")";
+    // Set target rate to estimator output
+    target_rate_ = ecn_based_limit;
+    last_target_bitrate_ = ecn_based_limit;
 
-    // Update the adaptive capacity estimator with time-based decay
-    capacity_estimator_->OnTimeUpdate(msg.at_time);
-    
-    // Consider BWE estimates for capacity limiting using adaptive estimator
-    DataRate adaptive_max_capacity = capacity_estimator_->GetMaxRealisticBandwidth();
-    DataRate bwe_based_limit = adaptive_max_capacity;
-    
-    RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using adaptive capacity limit="
-                     << bwe_based_limit.bps() << " bps";
+    RTC_LOG(LS_INFO) << "L4S: ECN-based target rate: " << ecn_based_limit.bps() << " bps";
 
-    // Use delay-based estimate as the primary capacity indicator, but don't exceed adaptive capacity
-    if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Use 95% consistently (same as feedback processing) to avoid rate jumping
-      DataRate delay_based_limit = std::min(last_delay_based_estimate_ * 0.95, adaptive_max_capacity);
-      
-      RTC_LOG(LS_INFO) << "L4S OnProcessInterval: Using delay-based limit="
-                       << delay_based_limit.bps() << " bps (95% of "
-                       << last_delay_based_estimate_.bps() << " bps, capped by adaptive_max="
-                       << adaptive_max_capacity.bps() << " bps)";
-      
-      bwe_based_limit = delay_based_limit;
-      
-      // Update capacity estimator with sustained rate information
-      capacity_estimator_->UpdateFromSustainedRate(last_delay_based_estimate_);
-    } else {
-      // No delay estimate yet, use a conservative portion of adaptive capacity
-      bwe_based_limit = adaptive_max_capacity * 0.1;  // Start with 10% of adaptive max
-      RTC_LOG(LS_INFO) << "L4S OnProcessInterval: No delay estimate, using conservative limit="
-                       << bwe_based_limit.bps() << " bps (10% of adaptive_max)";
-    }
-
-    // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
-    // better capacity indicator Only apply acknowledged rate limit if it's MUCH
-    // higher than delay estimate (rare case)
-    if (last_acknowledged_rate_ > DataRate::Zero() &&
-        last_acknowledged_rate_ >
-            last_delay_based_estimate_ *
-                5) {  // Very high threshold to rarely trigger
-      DataRate acked_limit =
-          last_acknowledged_rate_ * 1.5;  // 50% above acked rate
-      bwe_based_limit = std::min(bwe_based_limit, acked_limit);
-      RTC_LOG(LS_WARNING)
-          << "L4S OnProcessInterval: Applied acknowledged rate limit="
-          << acked_limit.bps() << " (150% of " << last_acknowledged_rate_.bps()
-          << "), bwe_based_limit now=" << bwe_based_limit.bps();
-    }
-
-    // RTC_LOG(LS_INFO)
-    //     << "L4S OnProcessInterval: Final BWE-based capacity limit: "
-    //     << bwe_based_limit.bps() << " bps";
-
-    // Allow Prague to increase up to BWE-based limit, even if current rate is
-    // lower This prevents getting stuck when current rate is below the
-    // available capacity Made more aggressive: 99.5% instead of 98% for faster
-    // ramp-up and better video quality
-    DataRate rate_for_prague =
-        std::min(std::max(current_rate_for_transport_, bwe_based_limit * 0.995),
-                 bwe_based_limit);
-    if (rate_for_prague > current_rate_for_transport_) {
-      // Smooth large rate increases to prevent system instability
-      DataRate rate_diff = rate_for_prague - current_rate_for_transport_;
-      DataRate max_increase_per_step = current_rate_for_transport_ * 0.3;  // Max 30% increase per step
-      
-      if (rate_diff > max_increase_per_step) {
-        DataRate smoothed_rate = current_rate_for_transport_ + max_increase_per_step;
-        RTC_LOG(LS_WARNING) << "L4S: Smoothing rate increase from " << current_rate_for_transport_.bps() 
-                            << " to " << smoothed_rate.bps() << " bps instead of " 
-                            << rate_for_prague.bps() << " bps (BWE limit: " << bwe_based_limit.bps() << " bps)";
-        rate_for_prague = smoothed_rate;
-      } else {
-        RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
-                            << rate_for_prague.bps() << " bps instead of current "
-                            << current_rate_for_transport_.bps()
-                            << " bps (BWE limit: " << bwe_based_limit.bps()
-                            << " bps)";
-      }
-    }
-
-    // RTC_LOG(LS_WARNING)
-    //     << "L4S OnProcessInterval DEBUG: Passing rate_for_prague="
-    //     << rate_for_prague.bps()
-    //     << " to Prague (current=" << current_rate_for_transport_.bps()
-    //     << ", bwe_limit=" << bwe_based_limit.bps() << ")";
-
-    auto prague_rate =
-        prague_controller_->GetTargetRate(msg.at_time, rate_for_prague);
-    if (prague_rate) {
-      // CRITICAL: Validate Prague controller output before using it
-      if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
-          target_rate_ = prague_rate;
-          last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
-        } else {
-          RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
-                              << " bps, using safe fallback";
-          target_rate_ = DataRate::KilobitsPerSec(300);
-          last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
-        }
-      // CRITICAL: Cap Prague rate immediately to prevent any potential overflow/infinite values
-      // if (prague_rate.value() > bwe_based_limit) {
-      //   // RTC_LOG(LS_WARNING) << "L4S: Prague suggested rate " << prague_rate.value().bps()
-      //   //                     << " exceeds BWE-informed limit, capping to " << bwe_based_limit.bps();
-        
-      //   // Validate the capped rate before assignment
-      //   if (bwe_based_limit.IsFinite() && bwe_based_limit > DataRate::Zero()) {
-      //     prague_rate = bwe_based_limit;
-      //     target_rate_ = prague_rate;
-      //     last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
-      //   } else {
-      //     RTC_LOG(LS_WARNING) << "L4S: Invalid BWE limit " << bwe_based_limit.bps() 
-      //                         << " bps, using safe fallback";
-      //     prague_rate = DataRate::KilobitsPerSec(300);
-      //     target_rate_ = prague_rate;
-      //     last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
-      //   }
-        
-      //   // Force a probe to discover if higher rates are actually available
-      //   DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-      //   DataRate probe_start = target_rate_.value();
-      //   DataRate probe_max = target_rate_.value() * 1.5;  // Probe up to 50% above current rate
-        
-      //   // Fix for low-rate deadlock: If start rate is below min, adjust min downward
-      //   if (probe_start < probe_min) {
-      //     probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
-      //     RTC_LOG(LS_WARNING) << "L4S: Adjusting probe min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
-      //                         << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
-      //   }
-        
-      //   // Validate probe rates before calling SetBitrates
-      //   if (probe_min.IsFinite() && probe_start.IsFinite() && probe_max.IsFinite() &&
-      //       probe_min > DataRate::Zero() && probe_start > DataRate::Zero() && probe_max > DataRate::Zero() &&
-      //       probe_min <= probe_start && probe_start <= probe_max) {
-          
-      //     auto forced_probe_clusters = probe_controller_->SetBitrates(probe_min, probe_start, probe_max, msg.at_time);
-          
-      //     if (!forced_probe_clusters.empty()) {
-      //       update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-      //                                          forced_probe_clusters.begin(), forced_probe_clusters.end());
-      //       // RTC_LOG(LS_WARNING) << "L4S: Forced probes to discover capacity above " << target_rate_->bps() << " bps";
-      //     }
-      //   } else {
-      //     RTC_LOG(LS_WARNING) << "L4S: Invalid probe rates - min=" << probe_min.bps() 
-      //                         << " start=" << probe_start.bps() << " max=" << probe_max.bps() << " bps";
-      //   }
-      // } else {
-      //   // Prague rate is within BWE limit, validate and set it
-      //   // if (prague_rate.value().IsFinite() && prague_rate.value() > DataRate::Zero()) {
-      //   //   target_rate_ = prague_rate;
-      //   //   last_target_bitrate_ = prague_rate.value();  // Track target bitrate for metrics
-      //   // } else {
-      //   //   RTC_LOG(LS_WARNING) << "L4S: Invalid Prague rate " << prague_rate.value().bps() 
-      //   //                       << " bps, using safe fallback";
-      //   //   target_rate_ = DataRate::KilobitsPerSec(300);
-      //   //   last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
-      //   }
-  
-      MaybeTriggerOnNetworkChanged(&update, msg.at_time);
-    }
-    
-    // Final safety check: ensure target_rate_ is always valid before proceeding
-    if (target_rate_.has_value() && 
-        (!target_rate_->IsFinite() || target_rate_->bps() <= 0)) {
-      RTC_LOG(LS_WARNING) << "L4S: Invalid final target_rate_ " << target_rate_->bps() 
-                          << " bps, resetting to safe fallback";
-      target_rate_ = DataRate::KilobitsPerSec(300);
-      last_target_bitrate_ = DataRate::KilobitsPerSec(300);  // Track target bitrate for metrics
-    }
-    
-    // Check if we're in ALR (Application Limited Region) to enable probing
-    // ALR occurs when we're sending below our estimated capacity
-    DataRate current_sending_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    DataRate estimated_capacity = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
-    
-    // Simplified ALR detection with hysteresis to prevent flickering
-    bool should_be_in_alr = false;
-    if (estimated_capacity > DataRate::Zero()) {
-      if (!alr_start_time_) {
-        // Not in ALR - require clear signal to enter (95% threshold)
-        // OR if Prague controller wants to increase but is being capped
-        bool underutilizing = current_sending_rate < estimated_capacity * 0.95;
-        bool prague_being_capped = false;
-        
-        // Check if Prague wants to increase (indicating potential underutilization)
-        auto test_prague_rate = prague_controller_->GetTargetRate(msg.at_time, current_sending_rate * 1.1);
-        if (test_prague_rate && test_prague_rate.value() > current_sending_rate * 1.05) {
-          prague_being_capped = true;
-          // RTC_LOG(LS_WARNING) << "L4S: Prague wants to increase from " << current_sending_rate.bps() 
-          //                     << " to " << test_prague_rate.value().bps() << " - triggering ALR for probing";
-        }
-        
-        should_be_in_alr = underutilizing || prague_being_capped;
-      } else {
-        // In ALR - require stronger signal to exit (98% threshold for hysteresis)
-        if (current_sending_rate < estimated_capacity * 0.98) {
-          should_be_in_alr = true;
-        }
-      }
-    }
-    
-    // Update ALR state
-    if (should_be_in_alr && !alr_start_time_) {
-      alr_start_time_ = msg.at_time;
-      probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
-      // RTC_LOG(LS_WARNING) << "L4S: Entered ALR state - sending " << current_sending_rate.bps() 
-                          // << " bps < 95% of capacity " << estimated_capacity.bps() << " bps";
-    } else if (!should_be_in_alr && alr_start_time_) {
-      probe_controller_->SetAlrEndedTimeMs(msg.at_time.ms());
-      alr_start_time_.reset();
-      // RTC_LOG(LS_WARNING) << "L4S: Exited ALR state - sending " << current_sending_rate.bps() 
-                          // << " bps >= 98% of capacity " << estimated_capacity.bps() << " bps";
-    }
-    
-    // Log ALR state periodically for debugging
-    static Timestamp last_alr_log = Timestamp::Zero();
-    if (msg.at_time - last_alr_log > TimeDelta::Seconds(3)) {  // More frequent ALR logging
-      last_alr_log = msg.at_time;
-      // RTC_LOG(LS_WARNING) << "L4S ALR Debug: should_be_in_alr=" << (should_be_in_alr ? "yes" : "no")
-      //                     << " alr_active=" << (alr_start_time_.has_value() ? "yes" : "no")
-      //                     << " sending=" << current_sending_rate.bps() << " bps"
-      //                     << " capacity=" << estimated_capacity.bps() << " bps"
-      //                     << " threshold_95%=" << (estimated_capacity * 0.95).bps() << " bps"
-      //                     << " threshold_98%=" << (estimated_capacity * 0.98).bps() << " bps"
-      //                     << " delay_est=" << last_delay_based_estimate_.bps() << " bps"
-      //                     << " acked_est=" << last_acknowledged_rate_.bps() << " bps";
-    }
-    
-    // Update ProbeController with our current bandwidth estimate and network state
-    // This helps it decide when and at what rates to probe
-    if (target_rate_.has_value()) {
-      BandwidthLimitedCause cause = BandwidthLimitedCause::kDelayBasedLimited;
-      
-      // Determine the limiting factor to inform ProbeController's decision making
-      if (last_acknowledged_rate_ > DataRate::Zero() && 
-          target_rate_->bps() <= last_acknowledged_rate_.bps() * 1.1) {
-        // We're limited by acknowledgment-based rate (likely loss or ack rate)
-        cause = BandwidthLimitedCause::kLossLimitedBwe;
-      }
-      
-      // Set network state estimate to help ProbeController make better decisions
-      // Use the higher of delay-based and acknowledged rate as the current estimate
-      DataRate network_estimate = std::max(last_delay_based_estimate_, last_acknowledged_rate_);
-      if (network_estimate > DataRate::Zero()) {
-        NetworkStateEstimate state_estimate;
-        state_estimate.update_time = msg.at_time;
-        state_estimate.link_capacity = network_estimate;
-        state_estimate.link_capacity_lower = network_estimate * 0.8;
-        state_estimate.link_capacity_upper = network_estimate * 1.5;
-        state_estimate.propagation_delay = TimeDelta::Millis(25);  // Default propagation delay
-        state_estimate.confidence = 0.8;
-        
-        probe_controller_->SetNetworkStateEstimate(state_estimate);
-        // RTC_LOG(LS_WARNING) << "L4S: SetNetworkStateEstimate called with rate=" << network_estimate.bps() << " bps";
-      }
-      
-      auto estimate_probe_clusters = probe_controller_->SetEstimatedBitrate(
-          *target_rate_, cause, msg.at_time);
-      
-      // RTC_LOG(LS_WARNING) << "L4S: SetEstimatedBitrate called with rate=" << target_rate_->bps() 
-      //                     << " bps, cause=" << static_cast<int>(cause)
-      //                     << " returned " << estimate_probe_clusters.size() << " probe(s)";
-      
-      if (!estimate_probe_clusters.empty()) {
-        // Add any immediate probes triggered by the estimate update
-        if (update.probe_cluster_configs.empty()) {
-          update.probe_cluster_configs = std::move(estimate_probe_clusters);
-        } else {
-          // Merge with existing probes from Process() call
-          update.probe_cluster_configs.insert(
-              update.probe_cluster_configs.end(),
-              std::make_move_iterator(estimate_probe_clusters.begin()),
-              std::make_move_iterator(estimate_probe_clusters.end()));
-        }
-        
-        RTC_LOG(LS_WARNING) << "L4S: Estimate update triggered " << estimate_probe_clusters.size() 
-                            << " additional probe(s) at " << target_rate_->bps() << " bps";
-      }
-    }
-
-    // Use ProbeController for bandwidth discovery
-    // RTC_LOG(LS_WARNING) << "L4S: Calling ProbeController::Process at time " << msg.at_time.ms() << " ms";
-    auto probe_clusters = probe_controller_->Process(msg.at_time);
-    if (!probe_clusters.empty()) {
-      update.probe_cluster_configs = std::move(probe_clusters);
-      
-      RTC_LOG(LS_WARNING) << "L4S: ProbeController initiated " << update.probe_cluster_configs.size() 
-                          << " probe cluster(s) at time " << msg.at_time.ms() << " ms";
-      for (const auto& probe : update.probe_cluster_configs) {
-        RTC_LOG(LS_WARNING) << "L4S: Probe cluster id=" << probe.id 
-                            << " target_rate=" << probe.target_data_rate.bps() << " bps"
-                            << " duration=" << probe.target_duration.ms() << " ms"
-                            << " count=" << probe.target_probe_count;
-      }
-      
-      // Log probe context for debugging
-      if (alr_start_time_) {
-        auto alr_duration = msg.at_time - *alr_start_time_;
-        RTC_LOG(LS_WARNING) << "L4S: Probing while in ALR for " << alr_duration.ms() << " ms";
-      } else {
-        RTC_LOG(LS_WARNING) << "L4S: Probing while not in ALR state";
-      }
-    } else {
-      // Log why no probes are being generated (every 3 seconds for debugging)
-      static Timestamp last_no_probe_log = Timestamp::Zero();
-      static Timestamp last_forced_probe = Timestamp::Zero();
-      if (msg.at_time - last_no_probe_log > TimeDelta::Seconds(3)) {
-        last_no_probe_log = msg.at_time;
-        RTC_LOG(LS_WARNING) << "L4S: No probes generated - ALR=" << (alr_start_time_.has_value() ? "yes" : "no")
-                            << " sending_rate=" << current_sending_rate.bps() << " bps"
-                            << " estimated_capacity=" << estimated_capacity.bps() << " bps"
-                            << " target_rate=" << (target_rate_.has_value() ? target_rate_->bps() : -1) << " bps"
-                            << " time=" << msg.at_time.ms() << " ms";
-                            
-        // Force a probe every 10 seconds if we haven't seen any probes for debugging
-        if (msg.at_time - last_forced_probe > TimeDelta::Seconds(10) && target_rate_.has_value()) {
-          last_forced_probe = msg.at_time;
-          
-          RTC_LOG(LS_WARNING) << "L4S: Attempting to force probe via multiple methods";
-          
-          // Method 1: Try SetBitrates with higher max bitrate
-          DataRate current_max = max_bitrate_;
-          DataRate probe_max = std::max(target_rate_.value() * 1.5, DataRate::KilobitsPerSec(3000));
-          DataRate probe_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-          DataRate probe_start = target_rate_.value();
-          
-          // Fix for low-rate deadlock: If start rate is below min, adjust min downward
-          if (probe_start < probe_min) {
-            probe_min = std::max(probe_start, DataRate::KilobitsPerSec(10));  // Never go below 10 kbps
-            RTC_LOG(LS_WARNING) << "L4S: Force probe - adjusting min from " << min_target_rate_.value_or(DataRate::KilobitsPerSec(30)).bps()
-                                << " to " << probe_min.bps() << " bps to match start rate " << probe_start.bps() << " bps";
-          }
-          
-          // Validate probe rate to prevent invalid values
-          if (probe_max > DataRate::KilobitsPerSec(100000)) {
-            RTC_LOG(LS_WARNING) << "L4S: Probe rate too high (" << probe_max.bps() 
-                                << " bps), capping to 100 Mbps";
-            probe_max = DataRate::KilobitsPerSec(100000);
-          }
-          
-          // Temporarily update max_bitrate_ to allow higher probing
-          max_bitrate_ = probe_max;
-          
-          auto forced_probe_clusters = probe_controller_->SetBitrates(
-              probe_min,
-              probe_start,
-              probe_max,
-              msg.at_time);
-          
-          // Restore original max_bitrate_
-          max_bitrate_ = current_max;
-          
-          if (!forced_probe_clusters.empty()) {
-            update.probe_cluster_configs = std::move(forced_probe_clusters);
-            RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
-                                << " probe(s) via SetBitrates with max=" << probe_max.bps() << " bps";
-          } else {
-            // Method 2: Try RequestProbe directly
-            auto direct_probes = probe_controller_->RequestProbe(msg.at_time);
-            if (!direct_probes.empty()) {
-              update.probe_cluster_configs = std::move(direct_probes);
-              RTC_LOG(LS_WARNING) << "L4S: Forced " << update.probe_cluster_configs.size() 
-                                  << " probe(s) via RequestProbe";
-            } else {
-              // Method 3: Force ALR state to trigger probing
-              if (!alr_start_time_) {
-                alr_start_time_ = msg.at_time;
-                probe_controller_->SetAlrStartTimeMs(msg.at_time.ms());
-                RTC_LOG(LS_WARNING) << "L4S: Forced ALR state to trigger probing";
-                
-                // Try Process() again after setting ALR
-                auto alr_probes = probe_controller_->Process(msg.at_time);
-                if (!alr_probes.empty()) {
-                  update.probe_cluster_configs = std::move(alr_probes);
-                  RTC_LOG(LS_WARNING) << "L4S: ALR-triggered " << update.probe_cluster_configs.size() << " probe(s)";
-                }
-              } else {
-                RTC_LOG(LS_WARNING) << "L4S: Failed to force probes with all methods";
-              }
-            }
-          }
-        }
-      }
-    }
+    MaybeTriggerOnNetworkChanged(&update, msg.at_time);
   } else if (fallback_to_gcc_) {
-    // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnProcessInterval(msg);
   }
 
   return update;
 }
+
+
 
 webrtc::NetworkControlUpdate L4SNetworkController::OnRemoteBitrateReport(
     webrtc::RemoteBitrateReport msg) {
@@ -876,6 +917,12 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
     webrtc::TransportLossReport msg) {
   webrtc::NetworkControlUpdate update;
 
+  // Only apply loss fallback if L4S is active
+  if (IsL4SActive() && msg.packets_lost > 0) {
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    capacity_estimator_->OnPacketLoss(current_rate);
+  }
+
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
     update = gcc_controller_->OnTransportLossReport(msg);
@@ -883,334 +930,360 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportLossReport(
 
   return update;
 }
-
 // In OnTransportPacketsFeedback method:
+// webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
+//     webrtc::TransportPacketsFeedback feedback) {
+//   webrtc::NetworkControlUpdate update;
+
+//   // Validate feedback time to prevent invalid timestamps
+//   if (!feedback.feedback_time.IsFinite() || feedback.feedback_time.us() < 0) {
+//     RTC_LOG(LS_WARNING) << "Invalid feedback time: "
+//                         << feedback.feedback_time.us()
+//                         << " us, using current time instead";
+//     feedback.feedback_time =
+//         Timestamp::Millis(env_.clock().TimeInMilliseconds());
+//   }
+
+//   // Log feedback details before processing
+//   // RTC_LOG(LS_INFO) << "L4S OnTransportPacketsFeedback: feedback_time="
+//   //                  << feedback.feedback_time.us() << " us, packet_count="
+//   //                  << feedback.packet_feedbacks.size();
+
+//   // Process ECN feedback to detect if ECN is supported
+//   ProcessEcnFeedback(feedback);
+  
+//   // Log metrics for feedback processing
+//   LogPeriodicMetrics(feedback.feedback_time);
+//   LogControllerState(feedback.feedback_time);
+  
+//   // TODO: Handle probe results when ProbeClusterCreated events are received
+//   // For now, the ProbeController will handle probe result processing internally
+
+//   // GCC-style bandwidth estimation integration
+
+//   // 1. Calculate RTT metrics (like GCC does)
+//   TimeDelta max_feedback_rtt = TimeDelta::MinusInfinity();
+//   TimeDelta min_propagation_rtt = TimeDelta::PlusInfinity();
+//   Timestamp max_recv_time = Timestamp::MinusInfinity();
+
+//   std::vector<PacketResult> feedbacks = feedback.ReceivedWithSendInfo();
+//   for (const auto& fb : feedbacks)
+//     max_recv_time = std::max(max_recv_time, fb.receive_time);
+
+//   for (const auto& fb : feedbacks) {
+//     TimeDelta feedback_rtt = feedback.feedback_time - fb.sent_packet.send_time;
+//     TimeDelta min_pending_time = max_recv_time - fb.receive_time;
+//     TimeDelta propagation_rtt = feedback_rtt - min_pending_time;
+//     max_feedback_rtt = std::max(max_feedback_rtt, feedback_rtt);
+//     min_propagation_rtt = std::min(min_propagation_rtt, propagation_rtt);
+//   }
+
+//   // Update RTT estimates in bandwidth estimation
+//   if (max_feedback_rtt.IsFinite()) {
+//     feedback_max_rtts_.push_back(max_feedback_rtt.ms());
+//     const size_t kMaxFeedbackRttWindow = 32;
+//     if (feedback_max_rtts_.size() > kMaxFeedbackRttWindow)
+//       feedback_max_rtts_.pop_front();
+
+//     bandwidth_estimation_->UpdatePropagationRtt(feedback.feedback_time,
+//                                                 min_propagation_rtt);
+
+//     // Calculate mean RTT for delay-based BWE
+//     if (!feedback_max_rtts_.empty()) {
+//       int64_t sum_rtt_ms =
+//           std::accumulate(feedback_max_rtts_.begin(), feedback_max_rtts_.end(),
+//                           static_cast<int64_t>(0));
+//       int64_t mean_rtt_ms = sum_rtt_ms / feedback_max_rtts_.size();
+//       delay_based_bwe_->OnRttUpdate(TimeDelta::Millis(mean_rtt_ms));
+
+//       // Update Prague controller with RTT
+//       prague_controller_->UpdateRtt(TimeDelta::Millis(mean_rtt_ms));
+//     }
+//   }
+
+//   // 2. Update acknowledged bitrate estimator
+//   acknowledged_bitrate_estimator_->IncomingPacketFeedbackVector(
+//       feedback.SortedByReceiveTime());
+//   auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
+//   if (acknowledged_bitrate) {
+//     last_acknowledged_rate_ = *acknowledged_bitrate;
+//     last_actual_bitrate_ = *acknowledged_bitrate;  // Track actual bitrate for metrics
+//     bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate,
+//                                                feedback.feedback_time);
+
+//     // RTC_LOG(LS_INFO) << "L4S: Acknowledged bitrate estimate: "
+//     //                  << acknowledged_bitrate->bps() << " bps";
+//   }
+
+//   // 3. Run delay-based BWE to get capacity estimate
+//   DelayBasedBwe::Result delay_result =
+//       delay_based_bwe_->IncomingPacketFeedbackVector(
+//           feedback, acknowledged_bitrate, std::nullopt, std::nullopt,
+//           false);
+
+//   if (delay_result.updated) {
+//     // Validate delay-based estimate before setting
+//     if (delay_result.target_bitrate.IsFinite() && delay_result.target_bitrate > DataRate::Zero()) {
+//       last_delay_based_estimate_ = delay_result.target_bitrate;
+//       // RTC_LOG(LS_INFO) << "L4S: Updated delay-based estimate to " << last_delay_based_estimate_.bps() << " bps";
+//     } else {
+//       RTC_LOG(LS_WARNING) << "L4S: Received invalid delay-based estimate: " 
+//                           << delay_result.target_bitrate.bps() << " bps, keeping previous value: "
+//                           << last_delay_based_estimate_.bps() << " bps";
+//     }
+    
+//     bandwidth_estimation_->UpdateDelayBasedEstimate(
+//         feedback.feedback_time, delay_result.target_bitrate);
+                     
+//     // Update ProbeController with the estimated bitrate
+//     BandwidthLimitedCause bandwidth_limited_cause = BandwidthLimitedCause::kDelayBasedLimited;
+//     if (delay_result.delay_detector_state == BandwidthUsage::kBwOverusing) {
+//       bandwidth_limited_cause = BandwidthLimitedCause::kDelayBasedLimitedDelayIncreased;
+//     }
+    
+//     auto probe_clusters = probe_controller_->SetEstimatedBitrate(
+//         delay_result.target_bitrate, bandwidth_limited_cause, feedback.feedback_time);
+    
+//     // RTC_LOG(LS_WARNING) << "L4S: Feedback SetEstimatedBitrate called with rate=" << delay_result.target_bitrate.bps() 
+//     //                     << " bps, cause=" << static_cast<int>(bandwidth_limited_cause)
+//     //                     << " returned " << probe_clusters.size() << " probe(s)";
+    
+//     // Create and set a network state estimate to help ProbeController make decisions
+//     NetworkStateEstimate network_estimate;
+//     network_estimate.update_time = feedback.feedback_time;
+//     network_estimate.link_capacity = delay_result.target_bitrate;
+//     network_estimate.link_capacity_lower = delay_result.target_bitrate * 0.8;  // Conservative lower bound
+//     network_estimate.link_capacity_upper = delay_result.target_bitrate * 1.5;  // Optimistic upper bound
+//     network_estimate.propagation_delay = last_estimated_round_trip_time_.IsFinite() ? 
+//                                          last_estimated_round_trip_time_ / 2 : 
+//                                          TimeDelta::Millis(25);  // Half RTT for propagation delay
+//     network_estimate.confidence = 0.8;  // Reasonably confident in L4S BWE
+    
+//     probe_controller_->SetNetworkStateEstimate(network_estimate);
+//     // RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - link_capacity=" << network_estimate.link_capacity.bps() 
+//     //                     << " bps, lower=" << network_estimate.link_capacity_lower.bps() 
+//     //                     << " bps, upper=" << network_estimate.link_capacity_upper.bps() << " bps";
+        
+//     if (!probe_clusters.empty()) {
+//       // Add probes to the update - will be merged with any existing probes
+//       update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+//                                          probe_clusters.begin(), probe_clusters.end());
+//       RTC_LOG(LS_WARNING) << "L4S: BWE update triggered " << probe_clusters.size() << " probe(s)";
+//     }
+//   }
+
+//   // 4. Update our network capacity estimate based on BWE results
+//   DataRate bwe_estimate = bandwidth_estimation_->target_rate();
+//   // RTC_LOG(LS_WARNING)
+//   //     << "L4S BWE Source Debug: bandwidth_estimation_->target_rate()="
+//   //     << bwe_estimate.bps()
+//   //     << " bps, max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps()
+//   //     << " bps";
+
+//   // Allow max_realistic_bandwidth_ to increase if we observe higher bandwidth
+//   DataRate highest_observed_rate = DataRate::Zero();
+  
+//   // Consider BWE estimate
+//   if (bwe_estimate > DataRate::Zero() && bwe_estimate.IsFinite()) {
+//     highest_observed_rate = std::max(highest_observed_rate, bwe_estimate);
+//   }
+  
+//   // Consider delay-based estimate
+//   if (!last_delay_based_estimate_.IsZero() && last_delay_based_estimate_.IsFinite()) {
+//     highest_observed_rate = std::max(highest_observed_rate, last_delay_based_estimate_);
+//   }
+  
+//   // Consider acknowledged bitrate
+//   if (!last_acknowledged_rate_.IsZero() && last_acknowledged_rate_.IsFinite()) {
+//     highest_observed_rate = std::max(highest_observed_rate, last_acknowledged_rate_);
+//   }
+  
+//   // Update max_realistic_bandwidth_ if we observe significantly higher bandwidth
+//   if (highest_observed_rate > max_realistic_bandwidth_ ) {
+//     DataRate new_max = highest_observed_rate * 1.1; // Add 10% headroom
+//     RTC_LOG(LS_WARNING) << "L4S: Increasing max_realistic_bandwidth_ from "
+//                         << max_realistic_bandwidth_.bps() << " to " 
+//                         << new_max.bps() << " bps based on observed rate "
+//                         << highest_observed_rate.bps() << " bps";
+//     max_realistic_bandwidth_ = new_max;
+//   }
+
+//   // CRITICAL: Ensure max_realistic_bandwidth_ doesn't get stuck below
+//   // reasonable minimums
+//   DataRate minimum_bandwidth = DataRate::KilobitsPerSec(1000);  // 1 Mbps minimum
+//   if (max_realistic_bandwidth_ < minimum_bandwidth) {
+//     if (!last_delay_based_estimate_.IsZero() && last_delay_based_estimate_ > minimum_bandwidth) {
+//       max_realistic_bandwidth_ = last_delay_based_estimate_ * 1.1;  // Use delay estimate with headroom
+//       RTC_LOG(LS_WARNING) << "L4S: Boosting stuck max_realistic_bandwidth_ to "
+//                           << max_realistic_bandwidth_.bps()
+//                           << " bps based on delay estimate "
+//                           << last_delay_based_estimate_.bps() << " bps";
+//     } else {
+//       max_realistic_bandwidth_ = minimum_bandwidth;
+//       RTC_LOG(LS_WARNING) << "L4S: Setting max_realistic_bandwidth_ to minimum "
+//                           << max_realistic_bandwidth_.bps() << " bps";
+//     }
+//   }
+
+//   // Update our estimate of network capacity based on congestion signals
+//   UpdateNetworkCapacityEstimate(feedback);
+
+//   // Log before updating Prague controller
+//   RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback with " 
+//                    << feedback.packet_feedbacks.size() << " packets";
+
+//   // Update Prague controller with ECN feedback
+//   prague_controller_->UpdateEcnFeedback(feedback);
+
+//   // Get updated target rate if L4S is active
+//   if (IsL4SActive()) {
+//     RTC_LOG(LS_INFO)
+//         << "L4S is active, getting target rate from Prague controller";
+//     DataRate current_rate_for_transport_ =
+//         target_rate_.value_or(DataRate::KilobitsPerSec(300));
+
+//     // Consider BWE estimates when determining capacity limits
+//     DataRate bwe_based_limit = max_realistic_bandwidth_;
+
+//     // Use delay-based estimate intelligently, but respect max_realistic_bandwidth_ as hard limit
+//     if (!last_delay_based_estimate_.IsFinite() || last_delay_based_estimate_.bps() < 0) {
+//       RTC_LOG(LS_WARNING) << "L4S: Invalid delay-based estimate " 
+//                           << last_delay_based_estimate_.bps() << " bps, using conservative limit";
+//       bwe_based_limit = max_realistic_bandwidth_ * 0.1;  // Conservative 10% of max
+//     } else {
+//       // Use delay-based estimate but cap it at max_realistic_bandwidth_
+//       DataRate delay_based_limit = std::min(last_delay_based_estimate_, max_realistic_bandwidth_);
+//       bwe_based_limit = delay_based_limit;
+      
+//       RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
+//                           << delay_based_limit.bps() << " bps (98% of "
+//                           << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
+//                           << max_realistic_bandwidth_.bps() << " bps)";
+//     }
+
+//     RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_="
+//                      << max_realistic_bandwidth_.bps()
+//                      << ", last_delay_based_estimate_="
+//                      << last_delay_based_estimate_.bps()
+//                      << ", last_acknowledged_rate_="
+//                      << last_acknowledged_rate_.bps();
+
+//     // Use delay-based estimate as capacity indicator, but keep it simple
+//     if (last_delay_based_estimate_ > DataRate::Zero()) {
+//       // Use a conservative portion of delay estimate, capped by max_realistic_bandwidth_
+//       DataRate delay_limit = std::min(last_delay_based_estimate_ * 0.95, max_realistic_bandwidth_);
+//       bwe_based_limit = delay_limit;
+      
+//       RTC_LOG(LS_INFO) << "L4S: Using delay-based limit=" << delay_limit.bps() 
+//                        << " bps (95% of " << last_delay_based_estimate_.bps() 
+//                        << " bps, max_realistic=" << max_realistic_bandwidth_.bps() << " bps)";
+//     } else {
+//       // No delay estimate, use conservative limit
+//       bwe_based_limit = max_realistic_bandwidth_ * 0.1;
+//       RTC_LOG(LS_INFO) << "L4S: No delay estimate, using conservative limit=" 
+//                        << bwe_based_limit.bps() << " bps";
+//     }
+
+//     // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
+//     // better capacity indicator Only apply acknowledged rate limit if it's MUCH
+//     // higher than delay estimate (rare case)
+//     if (last_acknowledged_rate_ > DataRate::Zero() &&
+//         last_acknowledged_rate_ >
+//             last_delay_based_estimate_ *
+//                 2) {  // Very high threshold to rarely trigger
+//       DataRate acked_limit =
+//           last_acknowledged_rate_ * 2;  // 100% above acked rate
+//       bwe_based_limit = std::min(bwe_based_limit, acked_limit);
+//       RTC_LOG(LS_INFO) << "L4S BWE Debug: Applied acknowledged rate limit="
+//                        << acked_limit.bps() << " (200% of "
+//                        << last_acknowledged_rate_.bps() << ")";
+//     }
+
+//     RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
+//                      << bwe_based_limit.bps() << " bps (acked: " << last_acknowledged_rate_.bps()
+//                      << ", delay: " << last_delay_based_estimate_.bps() << ")";
+
+//     // Allow Prague to increase up to BWE-based limit, even if current rate is
+//     // lower This prevents getting stuck when current rate is below the
+//     // available capacity Made more aggressive: 99.5% instead of 98% for faster
+//     // ramp-up and better video quality
+//     DataRate rate_for_prague = std::min(current_rate_for_transport_, bwe_based_limit);
+//     if (rate_for_prague > current_rate_for_transport_) {
+//       RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
+//                           << rate_for_prague.bps() << " bps instead of current "
+//                           << current_rate_for_transport_.bps()
+//                           << " bps (BWE limit: " << bwe_based_limit.bps()
+//                           << " bps)";
+//     }
+
+//     auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time,
+//                                                          rate_for_prague);
+//     if (prague_rate) {
+//       // CRITICAL: Validate Prague controller output before using it
+//       if (!prague_rate->IsFinite() || prague_rate->bps() <= 0) {
+//         RTC_LOG(LS_WARNING) << "L4S: Prague controller returned invalid rate " 
+//                             << prague_rate->bps() << " bps, using fallback";
+//         prague_rate = DataRate::KilobitsPerSec(300);
+//       }
+//       target_rate_ = prague_rate;
+//       // Double-check Prague's output against BWE-informed bandwidth limits
+//       if (prague_rate.value() > bwe_based_limit) {
+//         RTC_LOG(LS_WARNING)
+//             << "L4S: Prague suggested rate " << prague_rate.value().bps()
+//             << " exceeds BWE-informed limit, capping to "
+//             << bwe_based_limit.bps();
+//         prague_rate = bwe_based_limit;
+
+//         // CRITICAL: Since we're capping, set target_rate_ to the capped value
+//         // so Prague gets the actual rate being used as input for the next
+//         // calculation
+//       }
+
+//       RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps()
+//                        << " bps";
+//       RTC_LOG(LS_INFO) << "L4S setting target_rate_ from "
+//                        << (target_rate_ ? target_rate_->bps() : -1) << " to "
+//                        << prague_rate->bps() << " bps";
+//       target_rate_ = prague_rate;
+//       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
+//     } else {
+//       RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
+//     }
+//   } else if (fallback_to_gcc_) {
+//     RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
+//     // Forward to GCC if we're not using L4S
+//     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
+//   }
+
+//   return update;
+// }
+
+
+// new OnTransportPacketsFeedback method:
+// This method processes transport feedback packets and updates the network controller state
+
 webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
     webrtc::TransportPacketsFeedback feedback) {
   webrtc::NetworkControlUpdate update;
 
-  // Validate feedback time to prevent invalid timestamps
-  if (!feedback.feedback_time.IsFinite() || feedback.feedback_time.us() < 0) {
-    RTC_LOG(LS_WARNING) << "Invalid feedback time: "
-                        << feedback.feedback_time.us()
-                        << " us, using current time instead";
-    feedback.feedback_time =
-        Timestamp::Millis(env_.clock().TimeInMilliseconds());
-  }
-
-  // Log feedback details before processing
-  // RTC_LOG(LS_INFO) << "L4S OnTransportPacketsFeedback: feedback_time="
-  //                  << feedback.feedback_time.us() << " us, packet_count="
-  //                  << feedback.packet_feedbacks.size();
-
-  // Process ECN feedback to detect if ECN is supported
+  // Process ECN feedback to update estimator
   ProcessEcnFeedback(feedback);
-  
-  // Log metrics for feedback processing
-  LogPeriodicMetrics(feedback.feedback_time);
-  LogControllerState(feedback.feedback_time);
-  
-  // TODO: Handle probe results when ProbeClusterCreated events are received
-  // For now, the ProbeController will handle probe result processing internally
 
-  // GCC-style bandwidth estimation integration
-
-  // 1. Calculate RTT metrics (like GCC does)
-  TimeDelta max_feedback_rtt = TimeDelta::MinusInfinity();
-  TimeDelta min_propagation_rtt = TimeDelta::PlusInfinity();
-  Timestamp max_recv_time = Timestamp::MinusInfinity();
-
-  std::vector<PacketResult> feedbacks = feedback.ReceivedWithSendInfo();
-  for (const auto& fb : feedbacks)
-    max_recv_time = std::max(max_recv_time, fb.receive_time);
-
-  for (const auto& fb : feedbacks) {
-    TimeDelta feedback_rtt = feedback.feedback_time - fb.sent_packet.send_time;
-    TimeDelta min_pending_time = max_recv_time - fb.receive_time;
-    TimeDelta propagation_rtt = feedback_rtt - min_pending_time;
-    max_feedback_rtt = std::max(max_feedback_rtt, feedback_rtt);
-    min_propagation_rtt = std::min(min_propagation_rtt, propagation_rtt);
-  }
-
-  // Update RTT estimates in bandwidth estimation
-  if (max_feedback_rtt.IsFinite()) {
-    feedback_max_rtts_.push_back(max_feedback_rtt.ms());
-    const size_t kMaxFeedbackRttWindow = 32;
-    if (feedback_max_rtts_.size() > kMaxFeedbackRttWindow)
-      feedback_max_rtts_.pop_front();
-
-    bandwidth_estimation_->UpdatePropagationRtt(feedback.feedback_time,
-                                                min_propagation_rtt);
-
-    // Calculate mean RTT for delay-based BWE
-    if (!feedback_max_rtts_.empty()) {
-      int64_t sum_rtt_ms =
-          std::accumulate(feedback_max_rtts_.begin(), feedback_max_rtts_.end(),
-                          static_cast<int64_t>(0));
-      int64_t mean_rtt_ms = sum_rtt_ms / feedback_max_rtts_.size();
-      delay_based_bwe_->OnRttUpdate(TimeDelta::Millis(mean_rtt_ms));
-
-      // Update Prague controller with RTT
-      prague_controller_->UpdateRtt(TimeDelta::Millis(mean_rtt_ms));
-    }
-  }
-
-  // 2. Update acknowledged bitrate estimator
-  acknowledged_bitrate_estimator_->IncomingPacketFeedbackVector(
-      feedback.SortedByReceiveTime());
-  auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
-  if (acknowledged_bitrate) {
-    last_acknowledged_rate_ = *acknowledged_bitrate;
-    last_actual_bitrate_ = *acknowledged_bitrate;  // Track actual bitrate for metrics
-    bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate,
-                                               feedback.feedback_time);
-
-    // RTC_LOG(LS_INFO) << "L4S: Acknowledged bitrate estimate: "
-    //                  << acknowledged_bitrate->bps() << " bps";
-  }
-
-  // 3. Run delay-based BWE to get capacity estimate
-  DelayBasedBwe::Result delay_result =
-      delay_based_bwe_->IncomingPacketFeedbackVector(
-          feedback, acknowledged_bitrate, std::nullopt, std::nullopt,
-          false);
-
-  if (delay_result.updated) {
-    // Validate delay-based estimate before setting
-    if (delay_result.target_bitrate.IsFinite() && delay_result.target_bitrate > DataRate::Zero()) {
-      last_delay_based_estimate_ = delay_result.target_bitrate;
-      // RTC_LOG(LS_INFO) << "L4S: Updated delay-based estimate to " << last_delay_based_estimate_.bps() << " bps";
-    } else {
-      RTC_LOG(LS_WARNING) << "L4S: Received invalid delay-based estimate: " 
-                          << delay_result.target_bitrate.bps() << " bps, keeping previous value: "
-                          << last_delay_based_estimate_.bps() << " bps";
-    }
-    
-    bandwidth_estimation_->UpdateDelayBasedEstimate(
-        feedback.feedback_time, delay_result.target_bitrate);
-                     
-    // Update ProbeController with the estimated bitrate
-    BandwidthLimitedCause bandwidth_limited_cause = BandwidthLimitedCause::kDelayBasedLimited;
-    if (delay_result.delay_detector_state == BandwidthUsage::kBwOverusing) {
-      bandwidth_limited_cause = BandwidthLimitedCause::kDelayBasedLimitedDelayIncreased;
-    }
-    
-    auto probe_clusters = probe_controller_->SetEstimatedBitrate(
-        delay_result.target_bitrate, bandwidth_limited_cause, feedback.feedback_time);
-    
-    // RTC_LOG(LS_WARNING) << "L4S: Feedback SetEstimatedBitrate called with rate=" << delay_result.target_bitrate.bps() 
-    //                     << " bps, cause=" << static_cast<int>(bandwidth_limited_cause)
-    //                     << " returned " << probe_clusters.size() << " probe(s)";
-    
-    // Create and set a network state estimate to help ProbeController make decisions
-    NetworkStateEstimate network_estimate;
-    network_estimate.update_time = feedback.feedback_time;
-    network_estimate.link_capacity = delay_result.target_bitrate;
-    network_estimate.link_capacity_lower = delay_result.target_bitrate * 0.8;  // Conservative lower bound
-    network_estimate.link_capacity_upper = delay_result.target_bitrate * 1.5;  // Optimistic upper bound
-    network_estimate.propagation_delay = last_estimated_round_trip_time_.IsFinite() ? 
-                                         last_estimated_round_trip_time_ / 2 : 
-                                         TimeDelta::Millis(25);  // Half RTT for propagation delay
-    network_estimate.confidence = 0.8;  // Reasonably confident in L4S BWE
-    
-    probe_controller_->SetNetworkStateEstimate(network_estimate);
-    // RTC_LOG(LS_WARNING) << "L4S: Set network state estimate - link_capacity=" << network_estimate.link_capacity.bps() 
-    //                     << " bps, lower=" << network_estimate.link_capacity_lower.bps() 
-    //                     << " bps, upper=" << network_estimate.link_capacity_upper.bps() << " bps";
-        
-    if (!probe_clusters.empty()) {
-      // Add probes to the update - will be merged with any existing probes
-      update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-                                         probe_clusters.begin(), probe_clusters.end());
-      RTC_LOG(LS_WARNING) << "L4S: BWE update triggered " << probe_clusters.size() << " probe(s)";
-    }
-  }
-
-  // 4. Update our network capacity estimate based on BWE results
-  DataRate bwe_estimate = bandwidth_estimation_->target_rate();
-  // RTC_LOG(LS_WARNING)
-  //     << "L4S BWE Source Debug: bandwidth_estimation_->target_rate()="
-  //     << bwe_estimate.bps()
-  //     << " bps, max_realistic_bandwidth_=" << max_realistic_bandwidth_.bps()
-  //     << " bps";
-
-  // Allow max_realistic_bandwidth_ to increase if we observe higher bandwidth
-  DataRate highest_observed_rate = DataRate::Zero();
-  
-  // Consider BWE estimate
-  if (bwe_estimate > DataRate::Zero() && bwe_estimate.IsFinite()) {
-    highest_observed_rate = std::max(highest_observed_rate, bwe_estimate);
-  }
-  
-  // Consider delay-based estimate
-  if (!last_delay_based_estimate_.IsZero() && last_delay_based_estimate_.IsFinite()) {
-    highest_observed_rate = std::max(highest_observed_rate, last_delay_based_estimate_);
-  }
-  
-  // Consider acknowledged bitrate
-  if (!last_acknowledged_rate_.IsZero() && last_acknowledged_rate_.IsFinite()) {
-    highest_observed_rate = std::max(highest_observed_rate, last_acknowledged_rate_);
-  }
-  
-  // Update max_realistic_bandwidth_ if we observe significantly higher bandwidth
-  if (highest_observed_rate > max_realistic_bandwidth_ ) {
-    DataRate new_max = highest_observed_rate * 1.1; // Add 10% headroom
-    RTC_LOG(LS_WARNING) << "L4S: Increasing max_realistic_bandwidth_ from "
-                        << max_realistic_bandwidth_.bps() << " to " 
-                        << new_max.bps() << " bps based on observed rate "
-                        << highest_observed_rate.bps() << " bps";
-    max_realistic_bandwidth_ = new_max;
-  }
-
-  // CRITICAL: Ensure max_realistic_bandwidth_ doesn't get stuck below
-  // reasonable minimums
-  DataRate minimum_bandwidth = DataRate::KilobitsPerSec(1000);  // 1 Mbps minimum
-  if (max_realistic_bandwidth_ < minimum_bandwidth) {
-    if (!last_delay_based_estimate_.IsZero() && last_delay_based_estimate_ > minimum_bandwidth) {
-      max_realistic_bandwidth_ = last_delay_based_estimate_ * 1.1;  // Use delay estimate with headroom
-      RTC_LOG(LS_WARNING) << "L4S: Boosting stuck max_realistic_bandwidth_ to "
-                          << max_realistic_bandwidth_.bps()
-                          << " bps based on delay estimate "
-                          << last_delay_based_estimate_.bps() << " bps";
-    } else {
-      max_realistic_bandwidth_ = minimum_bandwidth;
-      RTC_LOG(LS_WARNING) << "L4S: Setting max_realistic_bandwidth_ to minimum "
-                          << max_realistic_bandwidth_.bps() << " bps";
-    }
-  }
-
-  // Update our estimate of network capacity based on congestion signals
-  UpdateNetworkCapacityEstimate(feedback);
-
-  // Log before updating Prague controller
-  RTC_LOG(LS_INFO) << "L4S calling Prague UpdateEcnFeedback with " 
-                   << feedback.packet_feedbacks.size() << " packets";
-
-  // Update Prague controller with ECN feedback
-  prague_controller_->UpdateEcnFeedback(feedback);
-
-  // Get updated target rate if L4S is active
+  // Use only ECN-based estimator for rate selection
   if (IsL4SActive()) {
-    RTC_LOG(LS_INFO)
-        << "L4S is active, getting target rate from Prague controller";
-    DataRate current_rate_for_transport_ =
-        target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    DataRate ecn_based_limit = capacity_estimator_->GetMaxRealisticBandwidth();
+    target_rate_ = ecn_based_limit;
+    last_target_bitrate_ = ecn_based_limit;
 
-    // Consider BWE estimates when determining capacity limits
-    DataRate bwe_based_limit = max_realistic_bandwidth_;
-
-    // Use delay-based estimate intelligently, but respect max_realistic_bandwidth_ as hard limit
-    if (!last_delay_based_estimate_.IsFinite() || last_delay_based_estimate_.bps() < 0) {
-      RTC_LOG(LS_WARNING) << "L4S: Invalid delay-based estimate " 
-                          << last_delay_based_estimate_.bps() << " bps, using conservative limit";
-      bwe_based_limit = max_realistic_bandwidth_ * 0.1;  // Conservative 10% of max
-    } else {
-      // Use delay-based estimate but cap it at max_realistic_bandwidth_
-      DataRate delay_based_limit = std::min(last_delay_based_estimate_, max_realistic_bandwidth_);
-      bwe_based_limit = delay_based_limit;
-      
-      RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
-                          << delay_based_limit.bps() << " bps (98% of "
-                          << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
-                          << max_realistic_bandwidth_.bps() << " bps)";
-    }
-
-    RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_="
-                     << max_realistic_bandwidth_.bps()
-                     << ", last_delay_based_estimate_="
-                     << last_delay_based_estimate_.bps()
-                     << ", last_acknowledged_rate_="
-                     << last_acknowledged_rate_.bps();
-
-    // Use delay-based estimate as capacity indicator, but keep it simple
-    if (last_delay_based_estimate_ > DataRate::Zero()) {
-      // Use a conservative portion of delay estimate, capped by max_realistic_bandwidth_
-      DataRate delay_limit = std::min(last_delay_based_estimate_ * 0.95, max_realistic_bandwidth_);
-      bwe_based_limit = delay_limit;
-      
-      RTC_LOG(LS_INFO) << "L4S: Using delay-based limit=" << delay_limit.bps() 
-                       << " bps (95% of " << last_delay_based_estimate_.bps() 
-                       << " bps, max_realistic=" << max_realistic_bandwidth_.bps() << " bps)";
-    } else {
-      // No delay estimate, use conservative limit
-      bwe_based_limit = max_realistic_bandwidth_ * 0.1;
-      RTC_LOG(LS_INFO) << "L4S: No delay estimate, using conservative limit=" 
-                       << bwe_based_limit.bps() << " bps";
-    }
-
-    // Disable acknowledged rate limit for faster ramp-up - delay-based BWE is a
-    // better capacity indicator Only apply acknowledged rate limit if it's MUCH
-    // higher than delay estimate (rare case)
-    if (last_acknowledged_rate_ > DataRate::Zero() &&
-        last_acknowledged_rate_ >
-            last_delay_based_estimate_ *
-                2) {  // Very high threshold to rarely trigger
-      DataRate acked_limit =
-          last_acknowledged_rate_ * 2;  // 100% above acked rate
-      bwe_based_limit = std::min(bwe_based_limit, acked_limit);
-      RTC_LOG(LS_INFO) << "L4S BWE Debug: Applied acknowledged rate limit="
-                       << acked_limit.bps() << " (200% of "
-                       << last_acknowledged_rate_.bps() << ")";
-    }
-
-    RTC_LOG(LS_INFO) << "L4S: BWE-based capacity limit: "
-                     << bwe_based_limit.bps() << " bps (acked: " << last_acknowledged_rate_.bps()
-                     << ", delay: " << last_delay_based_estimate_.bps() << ")";
-
-    // Allow Prague to increase up to BWE-based limit, even if current rate is
-    // lower This prevents getting stuck when current rate is below the
-    // available capacity Made more aggressive: 99.5% instead of 98% for faster
-    // ramp-up and better video quality
-    DataRate rate_for_prague = std::min(current_rate_for_transport_, bwe_based_limit);
-    if (rate_for_prague > current_rate_for_transport_) {
-      RTC_LOG(LS_WARNING) << "L4S: Allowing Prague to target higher rate "
-                          << rate_for_prague.bps() << " bps instead of current "
-                          << current_rate_for_transport_.bps()
-                          << " bps (BWE limit: " << bwe_based_limit.bps()
-                          << " bps)";
-    }
-
-    auto prague_rate = prague_controller_->GetTargetRate(feedback.feedback_time,
-                                                         rate_for_prague);
-    if (prague_rate) {
-      // CRITICAL: Validate Prague controller output before using it
-      if (!prague_rate->IsFinite() || prague_rate->bps() <= 0) {
-        RTC_LOG(LS_WARNING) << "L4S: Prague controller returned invalid rate " 
-                            << prague_rate->bps() << " bps, using fallback";
-        prague_rate = DataRate::KilobitsPerSec(300);
-      }
-      target_rate_ = prague_rate;
-      // Double-check Prague's output against BWE-informed bandwidth limits
-      if (prague_rate.value() > bwe_based_limit) {
-        RTC_LOG(LS_WARNING)
-            << "L4S: Prague suggested rate " << prague_rate.value().bps()
-            << " exceeds BWE-informed limit, capping to "
-            << bwe_based_limit.bps();
-        prague_rate = bwe_based_limit;
-
-        // CRITICAL: Since we're capping, set target_rate_ to the capped value
-        // so Prague gets the actual rate being used as input for the next
-        // calculation
-      }
-
-      RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps()
-                       << " bps";
-      RTC_LOG(LS_INFO) << "L4S setting target_rate_ from "
-                       << (target_rate_ ? target_rate_->bps() : -1) << " to "
-                       << prague_rate->bps() << " bps";
-      target_rate_ = prague_rate;
-      MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
-    } else {
-      RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
-    }
+    RTC_LOG(LS_INFO) << "L4S: ECN-based target rate (feedback): " << ecn_based_limit.bps() << " bps";
+    MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
   } else if (fallback_to_gcc_) {
-    RTC_LOG(LS_INFO) << "L4S not active, forwarding to GCC";
-    // Forward to GCC if we're not using L4S
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
   }
 
   return update;
 }
+
 
 webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(
     webrtc::NetworkStateEstimate msg) {

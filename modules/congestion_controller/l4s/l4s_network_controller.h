@@ -45,11 +45,16 @@ class AdaptiveCapacityEstimator {
   ~AdaptiveCapacityEstimator();
   
   // Update estimates based on different signals
-  void UpdateFromProbeResult(DataRate probe_rate, bool successful);
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio);
   void UpdateFromSustainedRate(DataRate sustained_rate);
   void UpdateFromRtt(TimeDelta rtt);
+  void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate)
   
+  
+  DataRate GetHistoricMin() const { return historic_min_; }
+  DataRate GetHistoricMax() const { return historic_max_; }
+  void SetHistoricMin(DataRate rate) { historic_min_ = rate; }
+  void SetHistoricMax(DataRate rate) { historic_max_ = rate; }
   // Get the current adaptive estimate
   DataRate GetMaxRealisticBandwidth() const;
   
@@ -65,12 +70,14 @@ class AdaptiveCapacityEstimator {
     UNKNOWN
   };
   
+  DataRate historic_min_;
+  DataRate historic_max_;
+
   ConnectionType DetectConnectionType(TimeDelta rtt, DataRate estimate) const;
   DataRate GetConservativeEstimateForType(ConnectionType type) const;
   
   // Different estimate sources
   DataRate conservative_estimate_;
-  DataRate probe_based_estimate_;
   DataRate congestion_based_estimate_;
   DataRate historical_estimate_;
   
