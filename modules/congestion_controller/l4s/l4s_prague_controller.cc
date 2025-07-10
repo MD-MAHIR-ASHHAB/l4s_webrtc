@@ -200,7 +200,7 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   // Startup protection: Don't reduce rates aggressively when we haven't seen 
   // enough ECN signal history. This prevents startup transients from causing problems.
   // Add timeout-based fallback for non-ECN environments.
-  bool startup_protection = total_ect_packets_ < 5;  // Need at least 5 ECT packets for reliable signal
+  bool startup_protection = total_ect_packets_ < 1;  // Need at least 1 ECT packet for reliable signal
 
   // Check if we've been in startup protection for too long (indicating no ECN support)
   if (startup_protection && startup_time_.IsFinite()) {
