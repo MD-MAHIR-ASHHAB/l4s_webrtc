@@ -233,6 +233,11 @@ std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessTransportFeedback(
     const rtcp::TransportFeedback& feedback,
     Timestamp feedback_receive_time) {
+  
+  int ect_count = 0;
+  int ce_count = 0;
+
+
   if (feedback.GetPacketStatusCount() == 0) {
     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
     return std::nullopt;
@@ -291,6 +296,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
+
       // Use the ECN marking that was applied when the packet was sent
       result.ecn = packet_feedback->sent_ecn_marking;
       packet_result_vector.push_back(result);
@@ -328,11 +334,14 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   for (const auto& result : packet_result_vector) {
     // Only process packets that were actually received (have finite receive times)
     if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
-      if (result.ecn != EcnMarking::kNotEct) {
-        // Uncomment the following lines to enable logging of ECN marking counts
-        //ecn_marked_sent++;
-        //ecn_marked_received++;
+      if (result.ecn == EcnMarking::kEct0 ||
+          result.ecn == EcnMarking::kEct1|| 
+          result.ecn == EcnMarking::kCe) {
+        ect_count++;
         supports_ecn = true;
+      }
+      if (result.ecn == EcnMarking::kCe) {
+        ce_count++;
       }
     }
   }
@@ -347,7 +356,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, supports_ecn);
+                             feedback_receive_time, supports_ecn, ect_count, ce_count);
 }
 
 std::optional<TransportPacketsFeedback>

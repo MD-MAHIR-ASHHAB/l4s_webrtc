@@ -146,7 +146,7 @@ class TransportFeedbackAdapter {
   std::map<int64_t, PacketFeedback> history_;
   
   // Current ECN marking being applied to outgoing packets
-  EcnMarking current_ecn_marking_ = EcnMarking::kNotEct;
+  EcnMarking current_ecn_marking_ = EcnMarking::kEct1;
 };
 
 }  // namespace webrtc
