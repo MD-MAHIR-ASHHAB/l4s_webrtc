@@ -20,7 +20,8 @@ struct TransportPacketsFeedback;
 // See: https://datatracker.ietf.org/doc/draft-ietf-tsvwg-l4s-arch/
 class L4SPragueController {
  public:
-  explicit L4SPragueController(const FieldTrialsView& field_trials);
+  explicit L4SPragueController(const FieldTrialsView& field_trials,
+                               bool use_ect1_marking =false);
   ~L4SPragueController();
 
   // Updates ECN feedback information
