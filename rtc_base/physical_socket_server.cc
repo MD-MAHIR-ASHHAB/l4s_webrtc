@@ -552,22 +552,22 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
   socklen_t addr_len = sizeof(addr_storage);
   sockaddr* addr = reinterpret_cast<sockaddr*>(&addr_storage);
 
-  // if (ecn) {
-  //   if ((cmsg->cmsg_type == IPV6_TCLASS && cmsg->cmsg_level == IPPROTO_IPV6) ||
-  //       (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
-  //     *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
-  //     // Add ECN reception logging
-  //     if (*ecn != EcnMarking::kNotEct) {
-  //       RTC_LOG(LS_INFO) << "Socket received packet with ECN marking: "
-  //                        << (*ecn == EcnMarking::kEct0
-  //                                ? "ECT(0)"
-  //                                : (*ecn == EcnMarking::kEct1 ? "ECT(1)"
-  //                                                             : "CE"));
-  //     } else {
-  //       RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
-  //     }
-  //   }
-  // }
+  if (ecn) {
+    if ((cmsg->cmsg_type == IPV6_TCLASS && cmsg->cmsg_level == IPPROTO_IPV6) ||
+        (cmsg->cmsg_type == IP_TOS && cmsg->cmsg_level == IPPROTO_IP)) {
+      *ecn = EcnFromDs(CMSG_DATA(cmsg)[0]);
+      // Add ECN reception logging
+      if (*ecn != EcnMarking::kNotEct) {
+        RTC_LOG(LS_INFO) << "Socket received packet with ECN marking: "
+                         << (*ecn == EcnMarking::kEct0
+                                 ? "ECT(0)"
+                                 : (*ecn == EcnMarking::kEct1 ? "ECT(1)"
+                                                              : "CE"));
+      } else {
+        RTC_LOG(LS_INFO) << "Socket received packet without ECN marking.";
+      }
+    }
+  }
 
 #if defined(WEBRTC_POSIX)
   int received = 0;
@@ -605,12 +605,12 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
           char hex_str[8];
           snprintf(hex_str, sizeof(hex_str), "0x%02X", static_cast<int>(tos_byte));
           
-          // RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
-                          //  << " TOS/TCLASS byte=" << hex_str
-                          //  << " ECN bits=" << ((tos_byte & 0x03))
-                          //  << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
-                          //                        (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                          //                         (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
+          RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
+                           << " TOS/TCLASS byte=" << hex_str
+                           << " ECN bits=" << ((tos_byte & 0x03))
+                           << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
+                                                 (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                                                  (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
         }
       }
       if (cmsg->cmsg_level != SOL_SOCKET)
