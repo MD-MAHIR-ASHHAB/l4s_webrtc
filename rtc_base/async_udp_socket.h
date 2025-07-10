@@ -72,7 +72,7 @@ class AsyncUDPSocket : public AsyncPacketSocket {
 
   RTC_NO_UNIQUE_ADDRESS SequenceChecker sequence_checker_;
   std::unique_ptr<Socket> socket_;
-  bool has_set_ect1_options_ = false;
+  bool has_set_ect1_options_ = true; // Whether the socket has been set to use ECT(1) for ECN.
   Buffer buffer_ RTC_GUARDED_BY(sequence_checker_);
   std::optional<TimeDelta> socket_time_offset_
       RTC_GUARDED_BY(sequence_checker_);

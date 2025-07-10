@@ -181,7 +181,7 @@ class RtpPacketToSend : public RtpPacket {
   bool is_key_frame_ = false;
   bool fec_protect_packet_ = false;
   bool is_red_ = false;
-  bool send_as_ect1_ = false;
+  bool send_as_ect1_ = true;// Default to true for L4S support.
   std::optional<TimeDelta> time_in_send_queue_;
   EcnMarking ecn_marking_ = EcnMarking::kNotEct;
 };

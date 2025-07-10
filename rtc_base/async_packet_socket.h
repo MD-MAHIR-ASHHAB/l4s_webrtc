@@ -59,7 +59,7 @@ struct RTC_EXPORT AsyncSocketPacketOptions {
   // Packet will be sent with ECN(1), RFC-3168, Section 5.
   // Intended to be used with L4S
   // https://www.rfc-editor.org/rfc/rfc9331.html
-  bool ecn_1 = false;
+  bool ecn_1 = true; // hardcoded to true for L4S support
 
   // When used with RTP packets (for example, webrtc::PacketOptions), the value
   // should be 16 bits. A value of -1 represents "not set".
