@@ -400,13 +400,13 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     
     // Check for ECN support immediately based on feedback content, before packet lookup
     // This prevents ECN detection from being disabled due to lookup failures
-    if (packet_info.ecn != EcnMarking::kNotEct) {
-      supports_ecn = true;
-      RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
+    RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
                       << packet_info.sequence_number
                       << ": " 
                       << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
                           (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+    if (packet_info.ecn != EcnMarking::kNotEct) {
+      supports_ecn = true;
     }
     
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(

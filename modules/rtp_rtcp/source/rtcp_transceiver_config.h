@@ -144,7 +144,7 @@ struct RtcpTransceiverConfig {
   bool initial_ready_to_send = true;
 
   // Delay before 1st periodic compound packet.
-  TimeDelta initial_report_delay = TimeDelta::Millis(500);
+  TimeDelta initial_report_delay = TimeDelta::Millis(100);
 
   // Period between periodic compound packets.
   TimeDelta report_period = TimeDelta::Seconds(1);

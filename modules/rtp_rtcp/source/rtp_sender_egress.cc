@@ -305,11 +305,11 @@ void RtpSenderEgress::CompleteSendPacket(const Packet& compound_packet,
   options.send_as_ect1 = packet->send_as_ect1();
 
 
-  RTC_LOG(LS_INFO) << "RtpSenderEgress: Sending packet with id/seq="
-               << options.packet_id
-               << ",MediaType=" << packet->packet_type().value()
-               << ", size=" << packet->size()
-               << ", send_as_ect1=" << (options.send_as_ect1 ? "TRUE" : "FALSE");
+  // RTC_LOG(LS_INFO) << "RtpSenderEgress: Sending packet with id/seq="
+  //              << options.packet_id
+  //              << ",MediaType=" << packet->packet_type().value()
+  //              << ", size=" << packet->size()
+  //              << ", send_as_ect1=" << (options.send_as_ect1 ? "TRUE" : "FALSE");
 
   
   options.batchable = enable_send_packet_batching_ && !is_audio_;

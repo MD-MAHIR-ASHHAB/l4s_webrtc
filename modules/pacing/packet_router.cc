@@ -105,16 +105,16 @@ void PacketRouter::ConfigureForRfc8888Feedback(bool send_rtp_packets_as_ect1) {
   use_cc_feedback_according_to_rfc8888_ = true;
   send_rtp_packets_as_ect1_ = send_rtp_packets_as_ect1;
 
-  RTC_LOG(LS_INFO) << "PacketRouter: ConfigureForRfc8888Feedback called with send_ect1=" 
-                   << (send_rtp_packets_as_ect1 ? "TRUE" : "FALSE")
-                   << ", modules count=" << send_modules_list_.size();
+  // RTC_LOG(LS_INFO) << "PacketRouter: ConfigureForRfc8888Feedback called with send_ect1=" 
+  //                  << (send_rtp_packets_as_ect1 ? "TRUE" : "FALSE")
+  //                  << ", modules count=" << send_modules_list_.size();
 
   for (RtpRtcpInterface* rtp_module : send_modules_list_) {
     rtp_module->SetRfc8888Feedback(send_rtp_packets_as_ect1);
   }
 
-    RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
-                   << (send_rtp_packets_as_ect1 ? "enabled" : "disabled");
+    // RTC_LOG(LS_INFO) << "PacketRouter configured for RFC 8888 feedback, ECT(1): "
+    //                << (send_rtp_packets_as_ect1 ? "enabled" : "disabled");
 
 }
 
