@@ -38,10 +38,10 @@ namespace webrtc {
 AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservative_estimate)
     : conservative_estimate_(initial_conservative_estimate),
       congestion_based_estimate_(initial_conservative_estimate),
-      historical_estimate_(initial_conservative_estimate),
       historic_min_(DataRate::KilobitsPerSec(300)),      // Start with 300 kbps
       historic_max_(DataRate::KilobitsPerSec(10000)),
-      last_update_time_(Timestamp::MinusInfinity()) {   // Start with 10 Mbps
+      last_update_time_(Timestamp::MinusInfinity()),
+      historical_estimate_(initial_conservative_estimate), {   // Start with 10 Mbps
 
   sustained_rates_history_.push_back(initial_conservative_estimate);
 }
@@ -1540,48 +1540,10 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
   }
 }
 
-void L4SNetworkController::ProcessProbeClusterCreated(ProbeClusterConfig probe_cluster_config) {
-  // This method would be called when a probe cluster is actually created by the pacer
-  // For now, we'll log it for debugging
-  RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe_cluster_config.id 
-                   << " created at " << probe_cluster_config.target_data_rate.bps() << " bps";
-}
 
-void L4SNetworkController::ProcessProbeResultSuccess(DataRate probe_bitrate) {
-  // Update the adaptive capacity estimator with successful probe result
-  capacity_estimator_->UpdateFromProbeResult(probe_bitrate, true);
-  
-  // Log probe success metrics
-  if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->LogProbeEvent(
-        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        probe_bitrate, true);
-  }
-  
-  // This method would be called when we detect a successful probe
-  // Update max_realistic_bandwidth_ if this probe shows higher capacity
-  if (probe_bitrate > max_realistic_bandwidth_) {
-    max_realistic_bandwidth_ = probe_bitrate * 1.1; // Add 10% headroom
-    RTC_LOG(LS_INFO) << "L4S: Successful probe increased max_realistic_bandwidth_ to "
-                     << max_realistic_bandwidth_.bps() << " bps";
-  }
-}
 
-void L4SNetworkController::ProcessProbeResultFailed(DataRate probe_bitrate) {
-  // Update the adaptive capacity estimator with failed probe result
-  capacity_estimator_->UpdateFromProbeResult(probe_bitrate, false);
-  
-  // Log probe failure metrics
-  if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->LogProbeEvent(
-        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        probe_bitrate, false);
-  }
-  
-  RTC_LOG(LS_INFO) << "L4S: Probe failed at " << probe_bitrate.bps() 
-                   << " bps, updated adaptive capacity estimate to "
-                   << capacity_estimator_->GetMaxRealisticBandwidth().bps() << " bps";
-}
+
+
 
 // L4SMetricsCollector implementation
 L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger, 
@@ -1675,12 +1637,6 @@ void L4SMetricsCollector::LogControllerState(Timestamp at_time, const std::strin
                                  {"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogProbeEvent(Timestamp at_time, DataRate probe_rate, bool successful) {
-  logger_->LogSingleValueMetric("probe_rate_mbps", test_case_name_, probe_rate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"success", successful ? "true" : "false"},
-                                 {"timestamp_ms", std::to_string(at_time.ms())}});
-}
 
 void L4SMetricsCollector::LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
                                              const std::string& to_controller, const std::string& reason) {

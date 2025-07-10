@@ -16,10 +16,10 @@
 namespace webrtc {
 
 // Forward declarations
-class AcknowledgedBitrateEstimator;
-class DelayBasedBwe;
-class SendSideBandwidthEstimation;
-class ProbeController;
+// class AcknowledgedBitrateEstimator;
+// class DelayBasedBwe;
+// class SendSideBandwidthEstimation;
+// class ProbeController;
 namespace test {
 class MetricsLogger;
 }
@@ -48,7 +48,7 @@ class AdaptiveCapacityEstimator {
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio);
   void UpdateFromSustainedRate(DataRate sustained_rate);
   void UpdateFromRtt(TimeDelta rtt);
-  void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate);
+  void OnPacketLoss(DataRate current_rate);
   
   
   DataRate GetHistoricMin() const { return historic_min_; }
@@ -188,10 +188,6 @@ class L4SNetworkController : public NetworkControllerInterface {
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
   void UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback);
   
-  // ProbeController integration methods
-  void ProcessProbeClusterCreated(ProbeClusterConfig probe_cluster_config);
-  void ProcessProbeResultSuccess(DataRate probe_bitrate);
-  void ProcessProbeResultFailed(DataRate probe_bitrate);
 
   std::optional<Timestamp> last_update_time_;
   TimeDelta update_interval_ = TimeDelta::Millis(25);
@@ -229,9 +225,6 @@ class L4SNetworkController : public NetworkControllerInterface {
 
   // GCC-inspired bandwidth estimation components  
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
-  std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
-  std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
-  std::unique_ptr<ProbeController> probe_controller_;
   
   // Bandwidth estimation tracking
   DataRate last_acknowledged_rate_ = DataRate::Zero();
@@ -241,10 +234,6 @@ class L4SNetworkController : public NetworkControllerInterface {
   std::deque<int64_t> feedback_max_rtts_;
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::PlusInfinity();
   
-  // Probing state tracking
-  DataRate start_bitrate_ = DataRate::Zero();
-  DataRate max_bitrate_ = DataRate::PlusInfinity();
-  std::optional<Timestamp> alr_start_time_;
   
   // Metrics collection
   std::unique_ptr<L4SMetricsCollector> metrics_collector_;
