@@ -94,7 +94,7 @@ void CongestionControlFeedbackTracker::AddPacketsToFeedback(
     RTC_DCHECK(packet_it != packets_.end());
     RTC_DCHECK_EQ(ssrc, packet_it->ssrc);
 
-    EcnMarking ecn = EcnMarking::kNotEct;
+    EcnMarking ecn = EcnMarking::kEct1;  // Default to ECT(1) for L4S support.
     TimeDelta arrival_time_offset = TimeDelta::MinusInfinity();
 
     if (sequence_number == packet_it->unwrapped_sequence_number) {

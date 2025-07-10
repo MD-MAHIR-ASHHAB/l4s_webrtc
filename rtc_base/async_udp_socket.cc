@@ -64,7 +64,7 @@ AsyncUDPSocket::AsyncUDPSocket(Socket* socket) : socket_(socket) {
   if (recv_ecn_result == 0) {
     LogEcnSocketOptions();
   }
-  
+
   // Force ECN marking (ECT(1)) for all outgoing packets
   int send_ecn_result = socket_->SetOption(Socket::OPT_SEND_ECN, 1);
   RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN marking for send, result=" << send_ecn_result;
@@ -206,7 +206,9 @@ void AsyncUDPSocket::OnReadEvent(Socket* socket) {
     // Spurios wakeup.
     return;
   }
-
+  RTC_LOG(LS_INFO) << "RECV: len=" << len
+                   << " ECN=" << static_cast<int>(receive_buffer.ecn)
+                   << " from=" << receive_buffer.source_address.ToString();
   if (!receive_buffer.arrival_time) {
     // Timestamp from socket is not available.
     receive_buffer.arrival_time = Timestamp::Micros(TimeMicros());

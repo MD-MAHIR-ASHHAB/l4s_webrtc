@@ -73,7 +73,7 @@ class RtpPacketReceived : public RtpPacket {
 
  private:
   webrtc::Timestamp arrival_time_ = Timestamp::MinusInfinity();
-  EcnMarking ecn_ = EcnMarking::kNotEct;
+  EcnMarking ecn_ = EcnMarking::kEct1; // Default to ECT(1) for L4S support.
   int payload_type_frequency_ = 0;
   bool recovered_ = false;
   scoped_refptr<RefCountedBase> additional_data_;
