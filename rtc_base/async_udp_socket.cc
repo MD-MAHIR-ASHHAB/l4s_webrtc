@@ -93,8 +93,8 @@ int AsyncUDPSocket::SendTo(const void* pv,
                              options.info_signaled_after_sent);
   CopySocketInformationToPacketInfo(cb, *this, &sent_packet.info);
                             
-  Enhanced ECN logging for socket-level debugging
-  // RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
+  // Enhanced ECN logging for socket-level debugging
+  RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
                    << " to=" << addr.ToString()
                    << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
                    << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
