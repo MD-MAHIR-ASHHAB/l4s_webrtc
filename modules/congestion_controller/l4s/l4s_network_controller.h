@@ -223,9 +223,6 @@ class L4SNetworkController : public NetworkControllerInterface {
   std::unique_ptr<AdaptiveCapacityEstimator> capacity_estimator_;
   DataRate max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // Will be replaced by adaptive estimator
 
-  // GCC-inspired bandwidth estimation components  
-  std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
-  
   // Bandwidth estimation tracking
   DataRate last_acknowledged_rate_ = DataRate::Zero();
   DataRate last_delay_based_estimate_ = DataRate::Zero();

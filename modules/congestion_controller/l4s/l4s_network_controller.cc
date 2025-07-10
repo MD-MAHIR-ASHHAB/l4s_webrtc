@@ -179,19 +179,6 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
               DataRate::KilobitsPerSec(10000))),  // Start with 10 Mbps conservative estimate
-      // Initialize GCC-style bandwidth estimation components
-      acknowledged_bitrate_estimator_(
-          std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials())),
-      delay_based_bwe_(std::make_unique<DelayBasedBwe>(
-          &env_.field_trials(),
-          &env_.event_log(),
-          nullptr)),  // No network state predictor
-      bandwidth_estimation_(
-          std::make_unique<SendSideBandwidthEstimation>(&env_.field_trials(),
-                                                        &env_.event_log())),
-      probe_controller_(
-          std::make_unique<ProbeController>(&env_.field_trials(),
-                                            &env_.event_log())),
       // Initialize metrics collection
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {
