@@ -303,17 +303,10 @@ void RtpSenderEgress::CompleteSendPacket(const Packet& compound_packet,
                                         packet->Ssrc());
   }
   options.send_as_ect1 = packet->send_as_ect1();
-
-  if (packet->send_as_ect1()) {
-    options.ecn = EcnMarking::kEct1;
-  } else {
-    options.ecn = EcnMarking::kNotEct;
-  }
   
 
   RTC_LOG(LS_INFO) << "RtpSenderEgress: Sending packet with id/seq="
                << options.packet_id.value_or(0)
-               << ", ssrc=" << packet->Ssrc()
                << ", type=" << RtpPacketMediaTypeToString(*packet->packet_type())
                << ", size=" << packet->size()
                << ", send_as_ect1=" << (options.send_as_ect1 ? "TRUE" : "FALSE");
