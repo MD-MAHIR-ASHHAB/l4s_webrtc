@@ -385,10 +385,10 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // Rate limit updates to prevent excessive increases (minimum 10ms between
     // rate increases for faster ramp-up, reduced from 25ms for better video quality)
     if (time_since_update < TimeDelta::Millis(10)) {
-      // RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
-      //                  << time_since_update.ms()
-      //                  << "ms < 10ms), returning base rate " << base_rate.bps()
-      //                  << " bps";
+      RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
+                       << time_since_update.ms()
+                       << "ms < 10ms), returning base rate " << base_rate.bps()
+                       << " bps";
       return base_rate;
     }
 
@@ -465,9 +465,9 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
     // GCC-style final rate clamping: ensure we never go below minimum
     increased_rate = std::max(kCongestionControllerMinBitrate, increased_rate);
 
-    // RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
-    //                  << increased_rate.bps()
-    //                  << " bps (factor=" << increase_factor << ")";
+    RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
+                     << increased_rate.bps()
+                     << " bps (factor=" << increase_factor << ")";
     base_rate = increased_rate;  // Update base rate for next calculations
     return increased_rate;
   }
