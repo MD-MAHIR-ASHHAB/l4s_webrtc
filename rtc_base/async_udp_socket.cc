@@ -94,10 +94,10 @@ int AsyncUDPSocket::SendTo(const void* pv,
   CopySocketInformationToPacketInfo(cb, *this, &sent_packet.info);
                             
   // Enhanced ECN logging for socket-level debugging
-  RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
-                   << " to=" << addr.ToString()
-                   << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
-                   << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
+  // RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
+  //                  << " to=" << addr.ToString()
+  //                  << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
+  //                  << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
 
   if (has_set_ect1_options_ != options.ecn_1) {
     // It is unclear what is most efficient, setting options on every sent
@@ -146,9 +146,9 @@ int AsyncUDPSocket::SetOption(Socket::Option opt, int value) {
   
   // Log ECN-related socket option changes
   if (opt == Socket::OPT_SEND_ECN || opt == Socket::OPT_RECV_ECN) {
-    RTC_LOG(LS_INFO) << "SOCKET OPTION: Set " 
-                     << (opt == Socket::OPT_SEND_ECN ? "SEND_ECN" : "RECV_ECN")
-                     << " to " << value << " result=" << result;
+    // RTC_LOG(LS_INFO) << "SOCKET OPTION: Set " 
+    //                  << (opt == Socket::OPT_SEND_ECN ? "SEND_ECN" : "RECV_ECN")
+    //                  << " to " << value << " result=" << result;
     LogEcnSocketOptions();
   }
   
@@ -171,10 +171,10 @@ void AsyncUDPSocket::LogEcnSocketOptions() {
   int send_result = socket_->GetOption(Socket::OPT_SEND_ECN, &send_ecn_value);
   int recv_result = socket_->GetOption(Socket::OPT_RECV_ECN, &recv_ecn_value);
   
-  RTC_LOG(LS_INFO) << "SOCKET ECN OPTIONS: "
-                   << "SEND_ECN=" << (send_result == 0 ? std::to_string(send_ecn_value) : "ERROR")
-                   << " RECV_ECN=" << (recv_result == 0 ? std::to_string(recv_ecn_value) : "ERROR")
-                   << " Internal ECT1 flag=" << (has_set_ect1_options_ ? "true" : "false");
+  // RTC_LOG(LS_INFO) << "SOCKET ECN OPTIONS: "
+  //                  << "SEND_ECN=" << (send_result == 0 ? std::to_string(send_ecn_value) : "ERROR")
+  //                  << " RECV_ECN=" << (recv_result == 0 ? std::to_string(recv_ecn_value) : "ERROR")
+  //                  << " Internal ECT1 flag=" << (has_set_ect1_options_ ? "true" : "false");
 }
 
 void AsyncUDPSocket::OnReadEvent(Socket* socket) {

@@ -123,8 +123,8 @@ void ReceiveSideCongestionController::OnReceivedPacket(
   
 RTC_LOG(LS_INFO) << "Received packet with media type: "
                  << MediaTypeToString(media_type)
-                 << ", has transport sequence number: "
-                 << (has_transport_sequence_number ? "true" : "false")
+                 << ", sequence number: "
+                 << (packet.sequence_number() < 0 ? "N/A" : std::to_string(packet.sequence_number()))
                  << ", packet size: "
                  << packet.size() << " bytes, SSRC: "
                  << packet.Ssrc()

@@ -588,12 +588,12 @@ int PhysicalSocket::DoReadFromSocket(void* buffer,
           char hex_str[8];
           snprintf(hex_str, sizeof(hex_str), "0x%02X", static_cast<int>(tos_byte));
           
-          RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
-                           << " TOS/TCLASS byte=" << hex_str
-                           << " ECN bits=" << ((tos_byte & 0x03))
-                           << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
-                                                 (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                                                  (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
+          // RTC_LOG(LS_INFO) << "SOCKET RECV: Received " << received << " bytes"
+          //                  << " TOS/TCLASS byte=" << hex_str
+          //                  << " ECN bits=" << ((tos_byte & 0x03))
+          //                  << " ECN marking=" << (*ecn == EcnMarking::kNotEct ? "Not ECT" :
+          //                                        (*ecn == EcnMarking::kEct0 ? "ECT(0)" :
+          //                                         (*ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")));
         }
       }
       if (cmsg->cmsg_level != SOL_SOCKET)
