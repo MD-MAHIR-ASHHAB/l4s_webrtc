@@ -409,8 +409,6 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   std::vector<PacketResult> packet_result_vector;
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
-
-
     if (packet_info.ecn == EcnMarking::kEct0 ||
       packet_info.ecn == EcnMarking::kEct1 ||
       packet_info.ecn == EcnMarking::kCe) {
@@ -425,7 +423,9 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
                       << packet_info.sequence_number
                       << ": " 
                       << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                          (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
+                          (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
+                            (packet_info.ecn == EcnMarking::kCe ? "CE" : 
+                              (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
     if (packet_info.ecn != EcnMarking::kNotEct) {
       supports_ecn = true;
     }
