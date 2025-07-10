@@ -39,9 +39,10 @@ AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservati
     : conservative_estimate_(initial_conservative_estimate),
       congestion_based_estimate_(initial_conservative_estimate),
       historical_estimate_(initial_conservative_estimate),
-      last_update_time_(Timestamp::MinusInfinity()),
       historic_min_(DataRate::KilobitsPerSec(300)),      // Start with 300 kbps
-      historic_max_(DataRate::KilobitsPerSec(10000)) {   // Start with 10 Mbps
+      historic_max_(DataRate::KilobitsPerSec(10000)),
+      last_update_time_(Timestamp::MinusInfinity()) {   // Start with 10 Mbps
+
   sustained_rates_history_.push_back(initial_conservative_estimate);
 }
 

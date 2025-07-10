@@ -48,7 +48,7 @@ class AdaptiveCapacityEstimator {
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio);
   void UpdateFromSustainedRate(DataRate sustained_rate);
   void UpdateFromRtt(TimeDelta rtt);
-  void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate)
+  void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate);
   
   
   DataRate GetHistoricMin() const { return historic_min_; }
