@@ -1109,10 +1109,10 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       DataRate delay_based_limit = std::min(last_delay_based_estimate_, max_realistic_bandwidth_);
       bwe_based_limit = delay_based_limit;
       
-      // RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
-      //                     << delay_based_limit.bps() << " bps (98% of "
-      //                     << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
-      //                     << max_realistic_bandwidth_.bps() << " bps)";
+      RTC_LOG(LS_WARNING) << "L4S OnTransportFeedback: Using delay-based limit="
+                          << delay_based_limit.bps() << " bps (98% of "
+                          << last_delay_based_estimate_.bps() << " bps, capped by max_realistic="
+                          << max_realistic_bandwidth_.bps() << " bps)";
     }
 
     RTC_LOG(LS_INFO) << "L4S BWE Debug: max_realistic_bandwidth_="
@@ -1191,9 +1191,6 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
         // CRITICAL: Since we're capping, set target_rate_ to the capped value
         // so Prague gets the actual rate being used as input for the next
         // calculation
-        target_rate_ = prague_rate;
-      } else {
-        target_rate_ = prague_rate;
       }
 
       RTC_LOG(LS_INFO) << "L4S got target rate: " << prague_rate->bps()
@@ -1201,6 +1198,7 @@ webrtc::NetworkControlUpdate L4SNetworkController::OnTransportPacketsFeedback(
       RTC_LOG(LS_INFO) << "L4S setting target_rate_ from "
                        << (target_rate_ ? target_rate_->bps() : -1) << " to "
                        << prague_rate->bps() << " bps";
+      target_rate_ = prague_rate;
       MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
     } else {
       RTC_LOG(LS_INFO) << "L4S Prague controller returned no target rate";
@@ -1264,13 +1262,13 @@ webrtc::NetworkControlUpdate L4SNetworkController::CreateRateUpdate(
   //                  << ", current_rate=" << current_rate_for_transport_.bps() << " bps";
 
   if (min_target_rate_ && current_rate_for_transport_ < *min_target_rate_) {
-    // RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " <<
-    // min_target_rate_->bps() << " bps";
+    RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " <<
+    min_target_rate_->bps() << " bps";
     current_rate_for_transport_ = *min_target_rate_;
   }
   if (max_target_rate_ && current_rate_for_transport_ > *max_target_rate_) {
-    // RTC_LOG(LS_INFO) << "L4S applying max_target_rate: " <<
-    // max_target_rate_->bps() << " bps";
+    RTC_LOG(LS_INFO) << "L4S applying max_target_rate: " <<
+    max_target_rate_->bps() << " bps";
     current_rate_for_transport_ = *max_target_rate_;
   }
 
