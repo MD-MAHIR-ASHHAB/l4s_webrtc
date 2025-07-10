@@ -447,6 +447,18 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       ++ignored_packets;
       continue;
     }
+
+    // Only log ECN for media packets (not control/feedback)
+    if (!packet_feedback->sent.audio && packet_feedback->sent.size > DataSize::Bytes(200)) { // adjust threshold as needed
+      RTC_LOG(LS_INFO) << "MEDIA Feedback contains ECN marking for seq=" 
+                       << packet_info.sequence_number
+                       << ": " 
+                       << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+                           (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
+                             (packet_info.ecn == EcnMarking::kCe ? "CE" : 
+                               (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
+    }
+
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
