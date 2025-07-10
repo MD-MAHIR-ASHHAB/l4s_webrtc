@@ -168,6 +168,9 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
            .rtp_sequence_number = feedback.rtp_sequence_number}),
       feedback.sent.sequence_number);
   history_.emplace(feedback.sent.sequence_number, feedback);
+
+  RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
+                   << " ECN marking=" << static_cast<int>(current_ecn_marking_);
 }
 
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
