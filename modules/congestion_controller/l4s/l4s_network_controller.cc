@@ -304,6 +304,8 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnNetworkRouteChange
   // Reset ECN support detection on network change
   ecn_supported_ = false;
   ecn_capable_network_ = false;
+  ect_count_ = 0;
+  ce_count_ = 0;
 
   // Set initial rates
   if (msg.constraints.starting_rate) {
@@ -663,23 +665,20 @@ void L4SNetworkController::ProcessEcnFeedback(
   int new_ect_count = 0;
   int new_ce_count = 0;
 
-  for (const auto& packet : feedback.packet_feedbacks) {
-    // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Packet seq=" 
-    //                  << packet.sent_packet.sequence_number
-    //                  << " ECN=" << static_cast<int>(packet.ecn) << " ("
-    //                  << (packet.ecn == EcnMarking::kNotEct ? "NotECT" :
-    //                      (packet.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-    //                       (packet.ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE")))
-    //                  << ")";
-
-    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
-      new_ect_count++;
-    } else if (packet.ecn == EcnMarking::kCe) {
-      new_ce_count++;
-      last_congestion_signal_ = feedback.feedback_time;
-      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << (ce_count_ + new_ce_count);
-    }
+for (const auto& packet : feedback.packet_feedbacks) {
+  // Count all ECN-capable packets (ECT(0), ECT(1), CE) as ECT
+  if (packet.ecn == EcnMarking::kEct0 ||
+      packet.ecn == EcnMarking::kEct1 ||
+      packet.ecn == EcnMarking::kCe) {
+    new_ect_count++;
   }
+  // Count CE separately for the numerator
+  if (packet.ecn == EcnMarking::kCe) {
+    new_ce_count++;
+    last_congestion_signal_ = feedback.feedback_time;
+    RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << (ce_count_ + new_ce_count);
+  }
+}
 
   // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: ECT count=" << new_ect_count 
   //                  << ", CE count=" << new_ce_count 

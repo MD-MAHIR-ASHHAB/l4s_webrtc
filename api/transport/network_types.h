@@ -189,6 +189,8 @@ struct RTC_EXPORT TransportPacketsFeedback {
   std::vector<PacketResult> LostWithSendInfo() const;
   std::vector<PacketResult> PacketsWithFeedback() const;
   std::vector<PacketResult> SortedByReceiveTime() const;
+  int ect_count = 0;
+  int ce_count = 0;
 };
 
 // Network estimation

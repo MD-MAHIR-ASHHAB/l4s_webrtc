@@ -354,6 +354,9 @@ std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     const rtcp::CongestionControlFeedback& feedback,
     Timestamp feedback_receive_time) {
+
+  int ect_count = 0;
+  int ce_count = 0;    
   if (feedback.packets().empty()) {
     RTC_LOG(LS_INFO) << "Empty congestion control feedback packet received.";
     return std::nullopt;
@@ -397,7 +400,16 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   std::vector<PacketResult> packet_result_vector;
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
-    
+
+
+    if (packet_info.ecn == EcnMarking::kEct0 ||
+      packet_info.ecn == EcnMarking::kEct1 ||
+      packet_info.ecn == EcnMarking::kCe) {
+        ect_count++;
+    }
+    if (packet_info.ecn == EcnMarking::kCe) {
+      ce_count++;
+    }
     // Check for ECN support immediately based on feedback content, before packet lookup
     // This prevents ECN detection from being disabled due to lookup failures
     RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
@@ -457,18 +469,22 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   });
   
   RTC_LOG(LS_INFO) << "Congestion Control Feedback processed: " 
-                   << packet_result_vector.size() << " packets, "
-                   << "ECN support detected: " << (supports_ecn ? "YES" : "NO");
+                 << packet_result_vector.size() << " packets, "
+                << "ECT count: " << ect_count << ", "
+                 << "CE count: " << ce_count << ", "
+                 << "ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, supports_ecn);
+                             feedback_receive_time, supports_ecn,ect_count, ce_count);
 }
 
 std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ToTransportFeedback(
     std::vector<PacketResult> packet_results,
     Timestamp feedback_receive_time,
-    bool supports_ecn) {
+    bool supports_ecn,
+    int ect_count = 0,
+    int ce_count = 0) {
   TransportPacketsFeedback msg;
   msg.feedback_time = feedback_receive_time;
   if (packet_results.empty()) {
@@ -477,7 +493,8 @@ TransportFeedbackAdapter::ToTransportFeedback(
   msg.packet_feedbacks = std::move(packet_results);
   msg.data_in_flight = in_flight_.GetOutstandingData(network_route_);
   msg.transport_supports_ecn = supports_ecn;
-
+  msg.ect_count = ect_count;   
+  msg.ce_count = ce_count;  
   return msg;
 }
 
