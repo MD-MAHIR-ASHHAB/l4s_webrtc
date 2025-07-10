@@ -29,14 +29,20 @@ constexpr double kDefaultInitCwnd = 2.0;  // Initial cwnd = 2 * BDP
 constexpr double kDefaultBeta = 0.8;      // Multiplicative decrease factor
 }  // namespace
 
-L4SPragueController::L4SPragueController(const FieldTrialsView& field_trials)
+L4SPragueController::L4SPragueController(const FieldTrialsView& field_trials,
+                                         bool use_ect1_marking)
     : alpha_("alpha", kDefaultAlpha),
       rtt_filter_time_("rtt_filter_time", kDefaultRttFilterTime),
       min_rtt_("min_rtt", kDefaultMinRtt),
       init_cwnd_("init_cwnd", kDefaultInitCwnd),
-      beta_("beta", kDefaultBeta) {
+      beta_("beta", kDefaultBeta),
+      use_ect1_marking_(use_ect1_marking) {
   ParseFieldTrial({&alpha_, &rtt_filter_time_, &min_rtt_, &init_cwnd_, &beta_},
                   field_trials.Lookup("WebRTC-L4SPragueController"));
+  if (use_ect1_marking_) {
+    active_ = true;
+    RTC_LOG(LS_INFO) << "Prague: Controller activated at initialization due to ECT(1) marking enabled";
+  }
 }
 
 L4SPragueController::~L4SPragueController() = default;
@@ -109,7 +115,7 @@ void L4SPragueController::UpdateEcnFeedback(
     // Only deactivate if we've seen sustained NotECT packets AND we were previously active
     // This prevents startup transients from causing problems
     // Increased limit from 10 to 25 to allow more time for ECN marking to stabilize
-    if (active_ && consecutive_notect_feedbacks_ >= 25) {
+    if (active_ && consecutive_notect_feedbacks_ >= 50) {
       RTC_LOG(LS_WARNING) << "Prague: Deactivating due to " << consecutive_notect_feedbacks_ 
                           << " consecutive NotECT-only feedbacks";
       active_ = false;
@@ -207,13 +213,13 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
   // Startup protection: Don't reduce rates aggressively when we haven't seen 
   // enough ECN signal history. This prevents startup transients from causing problems.
   // Add timeout-based fallback for non-ECN environments.
-  bool startup_protection = total_ect_packets_ < 50;  // Need at least 50 ECT packets for reliable signal
-  
+  bool startup_protection = total_ect_packets_ < 5;  // Need at least 5 ECT packets for reliable signal
+
   // Check if we've been in startup protection for too long (indicating no ECN support)
   if (startup_protection && startup_time_.IsFinite()) {
     TimeDelta startup_duration = now - startup_time_;
-    const TimeDelta kStartupProtectionTimeout = TimeDelta::Seconds(30);  // 30 second timeout
-    
+    const TimeDelta kStartupProtectionTimeout = TimeDelta::Seconds(15);  // 15 second timeout
+
     if (startup_duration > kStartupProtectionTimeout) {
       RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " << startup_duration.ms() 
                        << "ms with only " << total_ect_packets_ << " ECT packets. "
@@ -525,29 +531,29 @@ std::optional<DataRate> L4SPragueController::GetTargetRate(
 
 bool L4SPragueController::IsActive() const {
   // Check if we're still in startup protection
-  if (startup_time_.IsFinite()) {
-    Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
-    TimeDelta startup_duration = now - startup_time_;
+  // if (startup_time_.IsFinite()) {
+  //   Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
+  //   TimeDelta startup_duration = now - startup_time_;
     
-    // If startup protection has timed out without ECN feedback, we're not active
-    if (startup_duration > TimeDelta::Seconds(30)) {
-      // Only log this message occasionally to avoid spam
-      static Timestamp last_timeout_log = Timestamp::MinusInfinity();
-      if (now - last_timeout_log > TimeDelta::Seconds(10)) {
-        RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
-                         << startup_duration.seconds() << " seconds, controller not active";
-        last_timeout_log = now;
-      }
-      return false;
-    }
-  }
+  //   // If startup protection has timed out without ECN feedback, we're not active
+  //   if (startup_duration > TimeDelta::Seconds(30)) {
+  //     // Only log this message occasionally to avoid spam
+  //     static Timestamp last_timeout_log = Timestamp::MinusInfinity();
+  //     if (now - last_timeout_log > TimeDelta::Seconds(10)) {
+  //       RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
+  //                        << startup_duration.seconds() << " seconds, controller not active";
+  //       last_timeout_log = now;
+  //     }
+  //     return false;
+  //   }
+  // }
   
   // We're active if we have enough ECN feedback and haven't timed out
   bool has_ecn_feedback = (total_ect_packets_ > 0 || total_ce_packets_ > 0);
-  bool sufficient_feedback = (total_ect_packets_ + total_ce_packets_) >= 10;
+  bool sufficient_feedback = (total_ect_packets_ + total_ce_packets_) >= 5;  // Require at least 5 ECT/CE packets for reliable signal
   
   // Not active if we've received too many consecutive NotECT-only feedbacks
-  if (consecutive_notect_feedbacks_ >= 20) {
+  if (consecutive_notect_feedbacks_ >= 50) {
     static Timestamp last_notect_log = Timestamp::MinusInfinity();
     Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
     if (now - last_notect_log > TimeDelta::Seconds(10)) {
@@ -558,7 +564,7 @@ bool L4SPragueController::IsActive() const {
     return false;
   }
   
-  return active_ && has_ecn_feedback && sufficient_feedback;
+  return active_ || has_ecn_feedback || sufficient_feedback;
 }
 
 DataSize L4SPragueController::CalculateCongestionWindow() const {

@@ -45,6 +45,7 @@ class L4SPragueController {
   FieldTrialParameter<TimeDelta> min_rtt_; // Minimum RTT assumed
   FieldTrialParameter<double> init_cwnd_; // Initial congestion window multiplier
   FieldTrialParameter<double> beta_;     // Multiplicative decrease factor
+  bool use_ect1_marking_ = false; // Whether to use ECT(1) marking
 
   // Current state
   std::optional<TimeDelta> rtt_;
