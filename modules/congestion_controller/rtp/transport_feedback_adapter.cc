@@ -493,11 +493,11 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     return lhs.sent_packet.sequence_number < rhs.sent_packet.sequence_number;
   });
   
-  RTC_LOG(LS_INFO) << "Congestion Control Feedback processed: " 
-                 << packet_result_vector.size() << " packets, "
-                << "ECT count: " << ect_count << ", "
-                 << "CE count: " << ce_count << ", "
-                 << "ECN support detected: " << (supports_ecn ? "YES" : "NO");
+  // RTC_LOG(LS_INFO) << "Congestion Control Feedback processed: " 
+  //                << packet_result_vector.size() << " packets, "
+  //               << "ECT count: " << ect_count << ", "
+  //                << "CE count: " << ce_count << ", "
+  //                << "ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn,ect_count, ce_count);

@@ -682,8 +682,8 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   ++feedback_count_;
   
-  RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Received RFC 8888 feedback with " 
-                   << feedback.packets().size() << " packets at " << receive_time.us() << " us";
+  // RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Received RFC 8888 feedback with " 
+  //                  << feedback.packets().size() << " packets at " << receive_time.us() << " us";
   
   // TODO: bugs.webrtc.org/42225697 - update feedback demuxer for RFC 8888.
   // Suggest feedback_demuxer_.OnTransportFeedback use TransportPacketFeedback
@@ -692,8 +692,8 @@ void RtpTransportControllerSend::OnCongestionControlFeedback(
       transport_feedback_adapter_.ProcessCongestionControlFeedback(
           feedback, receive_time);
   if (feedback_msg) {
-    RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Successfully processed into TransportPacketsFeedback with " 
-                     << feedback_msg->packet_feedbacks.size() << " packets";
+    // RTC_LOG(LS_INFO) << "OnCongestionControlFeedback: Successfully processed into TransportPacketsFeedback with " 
+    //                  << feedback_msg->packet_feedbacks.size() << " packets";
     HandleTransportPacketsFeedback(*feedback_msg);
   } else {
     RTC_LOG(LS_WARNING) << "OnCongestionControlFeedback: Failed to process into TransportPacketsFeedback";
