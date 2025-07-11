@@ -112,6 +112,7 @@ class RTC_EXPORT BasicPortAllocator : public PortAllocator {
   // Always externally-owned pointer to a socket factory.
   PacketSocketFactory* const socket_factory_;
   int network_ignore_mask_ = kDefaultNetworkIgnoreMask;
+  IPAddress preferred_local_address_;  // Preferred local IP address
 
   AlwaysValidPointer<RelayPortFactoryInterface, TurnPortFactory>
       relay_port_factory_;

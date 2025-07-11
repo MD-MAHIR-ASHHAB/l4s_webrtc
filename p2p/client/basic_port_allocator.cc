@@ -25,6 +25,7 @@
 #include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/match.h"
 #include "api/candidate.h"
 #include "api/environment/environment.h"
 #include "api/field_trials_view.h"
@@ -740,6 +741,28 @@ std::vector<const Network*> BasicPortAllocatorSession::GetNetworks() {
         "costly");
     FilterNetworks(&networks, costly_filter);
   }
+
+
+  // Filter networks to only allow 10.0.x.x addresses
+  std::vector<const Network*> filtered_networks;
+  for (const Network* network : networks) {
+    std::string ip_str = network->GetBestIP().ToString();
+    // Check if the IP address starts with "10.0.".
+    // Note: This is a simple check, you can modify the prefix as needed.
+    if (absl::StartsWith(ip_str, "10.0.")) {
+      filtered_networks.push_back(network);
+      RTC_LOG(LS_INFO) << "Using interface: " << network->name() << " with IP: " << ip_str;
+    } else {
+      RTC_LOG(LS_INFO) << "Skipping interface: " << network->name() << " with IP: " << ip_str;
+    }
+  }
+  if (!filtered_networks.empty()) {
+    networks = filtered_networks;
+    RTC_LOG(LS_INFO) << "Applied 10.0.x.x filtering, networks count: " << networks.size();
+  } else {
+    RTC_LOG(LS_WARNING) << "No 10.0.x.x networks found, using all networks as fallback";
+  }
+
 
   // Lastly, if we have a limit for the number of IPv6 network interfaces (by
   // default, it's 5), pick IPv6 networks from different interfaces in a
