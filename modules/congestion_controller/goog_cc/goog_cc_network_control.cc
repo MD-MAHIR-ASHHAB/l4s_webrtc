@@ -147,10 +147,10 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
   if (!logger_to_use) {
     logger_to_use = GetGlobalMetricsLogger();
   }
-  metrics_collector_ = std::make_unique<L4SMetricsCollector>(
-      logger_to_use, l4s_config.test_case_name, &env_.clock());
-  RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
-                   << l4s_config.test_case_name;
+  metrics_collector_ = std::make_unique<GCCMetricsCollector>(
+      logger_to_use, goog_cc_config.test_case_name, &env_.clock());
+  RTC_LOG(LS_INFO) << "GCC: Metrics collection enabled for test case: "
+                   << goog_cc_config.test_case_name;
 
             
   RTC_DCHECK(config.constraints.at_time.IsFinite());
@@ -617,7 +617,8 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     last_actual_bitrate_ = DataRate::Zero();
   }
 
-  Per-packet delay and jitter logging (this is outside the above if/else)
+  // Per-packet delay and jitter logging (this is outside the above if/else)
+  
   TimeDelta prev_delay;
   bool have_prev = false;
   for (const auto& packet : report.packet_feedbacks) {

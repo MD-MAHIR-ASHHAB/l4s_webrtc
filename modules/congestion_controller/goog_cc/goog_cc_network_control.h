@@ -47,7 +47,7 @@ struct GoogCcConfig {
   std::unique_ptr<NetworkStatePredictor> network_state_predictor = nullptr;
     // Metrics collection configuration
   bool enable_metrics_collection = true;
-  std::string test_case_name = "l4s_vs_gcc_comparison";
+  std::string test_case_name = "gcc_vs_l4s_comparison";
 };
 namespace test {
 class MetricsLogger;
