@@ -45,6 +45,9 @@ namespace webrtc {
 struct GoogCcConfig {
   std::unique_ptr<NetworkStateEstimator> network_state_estimator = nullptr;
   std::unique_ptr<NetworkStatePredictor> network_state_predictor = nullptr;
+    // Metrics collection configuration
+  bool enable_metrics_collection = true;
+  std::string test_case_name = "l4s_vs_gcc_comparison";
 };
 namespace test {
 class MetricsLogger;
@@ -106,7 +109,8 @@ class GCCMetricsCollector {
 class GoogCcNetworkController : public NetworkControllerInterface {
  public:
   GoogCcNetworkController(NetworkControllerConfig config,
-                          GoogCcConfig goog_cc_config);
+                          GoogCcConfig goog_cc_config, test::MetricsLogger* metrics_logger = nullptr);
+                          
 
   GoogCcNetworkController() = delete;
   GoogCcNetworkController(const GoogCcNetworkController&) = delete;

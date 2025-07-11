@@ -128,19 +128,6 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
                                          network_state_predictor_.get())),
       acknowledged_bitrate_estimator_(
           AcknowledgedBitrateEstimatorInterface::Create(&env_.field_trials())),
-                metrics_enabled_(true),
-      current_active_controller_("l4s_initializing") {
-  
-      // Always initialize metrics collector with a valid logger
-      using webrtc::test::GetGlobalMetricsLogger;
-      test::MetricsLogger* logger_to_use = metrics_logger;
-      if (!logger_to_use) {
-        logger_to_use = GetGlobalMetricsLogger();
-      }
-      metrics_collector_ = std::make_unique<GCCMetricsCollector>(
-          logger_to_use, goog_cc_config.test_case_name, &env_.clock());
-      RTC_LOG(LS_INFO) << "GCC: Metrics collection enabled for test case: "
-                       << goog_cc_config.test_case_name;
       initial_config_(config),
       last_loss_based_target_rate_(*config.constraints.starting_rate),
       last_pushback_target_rate_(last_loss_based_target_rate_),
@@ -151,7 +138,21 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
           config.stream_based_config.min_total_allocated_bitrate.value_or(
               DataRate::Zero())),
       max_padding_rate_(config.stream_based_config.max_padding_rate.value_or(
-          DataRate::Zero())) {
+          DataRate::Zero())),
+      metrics_enabled_(true),
+      current_active_controller_("GCC_initializing") {
+
+  using webrtc::test::GetGlobalMetricsLogger;
+  test::MetricsLogger* logger_to_use = metrics_logger;
+  if (!logger_to_use) {
+    logger_to_use = GetGlobalMetricsLogger();
+  }
+  metrics_collector_ = std::make_unique<L4SMetricsCollector>(
+      logger_to_use, l4s_config.test_case_name, &env_.clock());
+  RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
+                   << l4s_config.test_case_name;
+
+            
   RTC_DCHECK(config.constraints.at_time.IsFinite());
   ParseFieldTrial(
       {&safe_reset_on_route_change_, &safe_reset_acknowledged_rate_},
