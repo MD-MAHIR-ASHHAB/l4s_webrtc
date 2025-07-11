@@ -402,7 +402,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
   RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time << " ms";
   // Update local RTT tracking for metrics
-  TimeDelta min_rtt = capacity_estimator_->GetMinRtt();
+  TimeDelta min_rtt = capacity_estimator_->GetMinRTT();
   last_rtt_ = std::min(min_rtt, msg.round_trip_time);
 
   // Log RTT metrics
