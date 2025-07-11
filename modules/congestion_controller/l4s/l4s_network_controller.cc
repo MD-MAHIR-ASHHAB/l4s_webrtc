@@ -63,13 +63,34 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     rtt_seconds = 0.003; // Avoid division by zero
   }
 
-  // DCTCP-style alpha update (EWMA of CE ratio)
-  alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
+
+
+  // // typical prague
+
+  // if (ce_ratio > 0.05) {
+    // DCTCP-style alpha update (EWMA of CE ratio)
+    // alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+  //   // Proportional decrease on CE marks
+  //   double reduction_factor = 1.0 - alpha_ / 2.0;
+  //   DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+  //   congestion_based_estimate_ = reduced;
+  //   if (congestion_based_estimate_ < historic_min_) {
+  //     historic_min_ = congestion_based_estimate_;
+  //   }
+  //   // Clamp to min_target_rate_
+  //   if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+  //   if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
+  //   RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
+  //                    << ", ce_ratio=" << ce_ratio
+  //                    << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  // } 
+
+//according to rfc 6679 section 7.3.3
 
   if (ce_ratio > 0.05) {
     // Proportional decrease on CE marks
-    double reduction_factor = 1.0 - alpha_ / 2.0;
+    double reduction_factor = 0.5;
     DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
     congestion_based_estimate_ = reduced;
     if (congestion_based_estimate_ < historic_min_) {
@@ -81,7 +102,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
                      << ", ce_ratio=" << ce_ratio
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  } else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
+  }  else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double ai_factor = 0.1; // 0.5 MSS per RTT
