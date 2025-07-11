@@ -1816,16 +1816,6 @@ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
   RTC_DCHECK_RUN_ON(encoder_queue_.get());
   input_state_provider_.OnFrameSizeObserved(video_frame.size());
 
-    // --- Frame rate logging block ---
-  static int64_t last_fps_log_ms = 0;
-  int64_t now_ms = env_.clock().TimeInMilliseconds();
-  const int64_t kFpsLogIntervalMs = 1000; // Log every second
-  if (now_ms - last_fps_log_ms > kFpsLogIntervalMs) {
-    uint32_t framerate_fps = GetInputFramerateFps();
-    LogFrameRateToJson(static_cast<double>(framerate_fps), now_ms);
-    last_fps_log_ms = now_ms;
-  }
-
   if (!last_frame_info_ || video_frame.width() != last_frame_info_->width ||
       video_frame.height() != last_frame_info_->height ||
       video_frame.is_texture() != last_frame_info_->is_texture) {
@@ -1859,6 +1849,17 @@ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
   uint32_t framerate_fps = GetInputFramerateFps();
 
   int64_t now_ms = env_.clock().TimeInMilliseconds();
+
+     // --- Frame rate logging block ---
+  static int64_t last_fps_log_ms = 0;
+  const int64_t kFpsLogIntervalMs = 1000; // Log every second
+  if (now_ms - last_fps_log_ms > kFpsLogIntervalMs) {
+    framerate_fps = GetInputFramerateFps();
+    LogFrameRateToJson(static_cast<double>(framerate_fps), now_ms);
+    last_fps_log_ms = now_ms;
+  }
+
+
   if (pending_encoder_reconfiguration_) {
     ReconfigureEncoder();
     last_parameters_update_ms_.emplace(now_ms);
