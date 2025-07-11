@@ -69,7 +69,7 @@ class AdaptiveCapacityEstimator {
     WIRED_FAST,     // 100+ Mbps
     UNKNOWN
   };
-  
+
   DataRate historic_min_;
   DataRate historic_max_;
 
@@ -77,9 +77,9 @@ class AdaptiveCapacityEstimator {
   DataRate GetConservativeEstimateForType(ConnectionType type) const;
   
   // Different estimate sources
-  DataRate conservative_estimate_;
   DataRate congestion_based_estimate_;
-  DataRate historical_estimate_;
+  DataRate min_target_rate_;
+  DataRate max_target_rate_;
   
   // Tracking data
   std::deque<DataRate> sustained_rates_history_;
