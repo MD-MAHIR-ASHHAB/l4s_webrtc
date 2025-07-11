@@ -84,8 +84,13 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   } else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
-    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
+    double ai_factor = 0.1; // 0.5 MSS per RTT
+    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
     DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+        
+    // int64_t bits_per_rtt = kDefaultMssBytes * 8;
+    // int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
+    // DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
     congestion_based_estimate_ = increased;
     if (congestion_based_estimate_ > historic_max_) {
       historic_max_ = congestion_based_estimate_;
@@ -179,7 +184,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       // Initialize adaptive capacity estimator first (based on header order)
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(100000))),
+              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(20000))),
       // Initialize metrics collection
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {
