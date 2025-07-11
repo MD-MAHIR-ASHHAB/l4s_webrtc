@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <fstream>
 
 #include "api/crypto/frame_decryptor_interface.h"
 #include "api/environment/environment.h"
@@ -227,7 +228,7 @@ class VideoReceiveStream2
   bool incoming_frame_rate_log_initialized_ = false;
 
   void LogIncomingFrameRateToJson(int64_t now_ms);
-  
+
   struct DecodeFrameResult {
     // True if the decoder returned code WEBRTC_VIDEO_CODEC_OK_REQUEST_KEYFRAME,
     // or if the decoder failed and a keyframe is required. When true, a
