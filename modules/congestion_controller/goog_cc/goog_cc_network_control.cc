@@ -817,7 +817,7 @@ void GCCMetricsCollector::UpdateLossStats(double loss_fraction) {
 }
 
 // GCCNetworkController metrics helper methods implementation
-void GCCNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   if (!metrics_enabled_ || !metrics_collector_) {
     return;
   }
@@ -830,7 +830,7 @@ void GCCNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   metrics_last_logged_ = at_time;
   
   // Log bandwidth metrics
-  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
+  DataRate target_rate = last_target_rate_;
   DataRate actual_rate = last_actual_bitrate_;
   metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate);
   

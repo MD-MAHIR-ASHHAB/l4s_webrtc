@@ -64,7 +64,7 @@ class GCCMetricsCollector {
                           DataRate actual_bitrate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                       TimeDelta jitter = TimeDelta::Zero());
-  void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
+  void LogLossMetrics(Timestamp at_time, double loss_fraction);
 
 
   // Periodic summary metrics
