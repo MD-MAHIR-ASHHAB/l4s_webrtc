@@ -400,10 +400,10 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   
   // Update the adaptive capacity estimator with RTT information
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
-
+  RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time << " ms";
   // Update local RTT tracking for metrics
-  last_rtt_ = msg.round_trip_time;
-  
+  last_rtt_ = std::min(min_rtt_, msg.round_trip_time);
+
   // Log RTT metrics
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
