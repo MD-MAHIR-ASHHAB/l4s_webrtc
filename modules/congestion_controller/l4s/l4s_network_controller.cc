@@ -40,7 +40,8 @@ AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate starting_rate, Dat
       historic_max_(starting_rate),
       congestion_based_estimate_(starting_rate),
       min_target_rate_(min_target_rate),
-      max_target_rate_(max_target_rate) {
+      max_target_rate_(max_target_rate),
+      last_update_time_(Timestamp::MinusInfinity()) {
   // Clamp all to min/max target rates
   if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
   if (historic_max_ < min_target_rate_) historic_max_ = min_target_rate_;
@@ -85,6 +86,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
                      << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }
+  last_update_time_ = current_time;
 }
 
 void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate) {
@@ -96,16 +98,12 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate)
   // Update historical estimate based on maximum sustained rate
   DataRate historical_max = *std::max_element(sustained_rates_history_.begin(), 
                                              sustained_rates_history_.end());
-  historical_estimate_ = std::min(historical_max * 1.2, max_target_rate_);
+
+  last_update_time_ = current_time;
 }
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   min_rtt_ = std::min(min_rtt_, rtt);
-  // Update conservative estimate based on connection type
-  ConnectionType type = DetectConnectionType(min_rtt_, GetMaxRealisticBandwidth());
-  conservative_estimate_ = GetConservativeEstimateForType(type);
-  // Clamp conservative_estimate_ to max_target_rate_
-  if (conservative_estimate_ > max_target_rate_) conservative_estimate_ = max_target_rate_;
 }
 
 
@@ -131,7 +129,6 @@ void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   if (elapsed >= kDecayInterval) {
     // Gradually decay estimates if not reinforced
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
-    historical_estimate_ = std::max(historical_estimate_ * 0.95, min_target_rate_);
     last_update_time_ = current_time;
   }
 }
@@ -148,31 +145,11 @@ void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate) {
   if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
   RTC_LOG(LS_WARNING) << "AdaptiveCapacity: Packet loss detected, halving congestion_based_estimate to "
                       << congestion_based_estimate_.bps() << " bps";
+
+  last_update_time_ = current_time;
 }
 
-AdaptiveCapacityEstimator::ConnectionType AdaptiveCapacityEstimator::DetectConnectionType(
-    TimeDelta rtt, DataRate estimate) const {
-  if (rtt > TimeDelta::Millis(200)) return ConnectionType::MOBILE_SLOW;
-  if (rtt > TimeDelta::Millis(100)) return ConnectionType::MOBILE_FAST;
-  if (estimate < DataRate::KilobitsPerSec(50000)) return ConnectionType::WIFI_TYPICAL;
-  return ConnectionType::WIRED_FAST;
-}
 
-DataRate AdaptiveCapacityEstimator::GetConservativeEstimateForType(ConnectionType type) const {
-  switch (type) {
-    case ConnectionType::MOBILE_SLOW:
-      return DataRate::KilobitsPerSec(5000);    // 5 Mbps
-    case ConnectionType::MOBILE_FAST:
-      return DataRate::KilobitsPerSec(20000);   // 20 Mbps
-    case ConnectionType::WIFI_TYPICAL:
-      return DataRate::KilobitsPerSec(50000);   // 50 Mbps
-    case ConnectionType::WIRED_FAST:
-      return DataRate::KilobitsPerSec(100000);  // 100 Mbps
-    case ConnectionType::UNKNOWN:
-    default:
-      return DataRate::KilobitsPerSec(300);   // 300 Kbps conservative default
-  }
-}
 
 L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                                            L4SControllerConfig l4s_config,

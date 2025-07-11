@@ -73,9 +73,6 @@ class AdaptiveCapacityEstimator {
   DataRate historic_min_;
   DataRate historic_max_;
 
-  ConnectionType DetectConnectionType(TimeDelta rtt, DataRate estimate) const;
-  DataRate GetConservativeEstimateForType(ConnectionType type) const;
-  
   // Different estimate sources
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
