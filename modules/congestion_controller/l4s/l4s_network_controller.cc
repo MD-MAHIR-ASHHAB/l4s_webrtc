@@ -58,7 +58,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
 
-  if (ce_ratio > 0.1) {
+  if (ce_ratio > 0.05) {
     // Proportional decrease on CE marks
     DataRate reduced = std::max(current_rate * (1.0 - ce_ratio), min_target_rate_);
     congestion_based_estimate_ = reduced;
@@ -70,10 +70,13 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Proportional decrease (CE ratio=" << ce_ratio 
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  } else if (ce_ratio < 0.1 && current_rate >= congestion_based_estimate_ * 0.9) {
+  } else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double rtt_seconds = rtt.seconds<double>();
+    if (rtt_seconds < 0.001) {
+      rtt_seconds = 0.001; // Avoid division by zero
+    }
     int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
     DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
     congestion_based_estimate_ = increased;
@@ -85,6 +88,10 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
                      << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  }
+  else{
+    // No action needed if CE ratio is low and rate is stable
+
   }
   last_update_time_ = current_time;
 }
