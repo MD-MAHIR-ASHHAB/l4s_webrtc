@@ -69,7 +69,8 @@ class AdaptiveCapacityEstimator {
     WIRED_FAST,     // 100+ Mbps
     UNKNOWN
   };
-
+  double alpha_ = 0.0;
+  
   DataRate historic_min_;
   DataRate historic_max_;
 
