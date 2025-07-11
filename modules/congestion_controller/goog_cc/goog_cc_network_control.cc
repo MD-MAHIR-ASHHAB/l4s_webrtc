@@ -698,11 +698,11 @@ webrtc::PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) c
 
 
 // GCCMetricsCollector implementation
-webrtc::GCCMetricsCollector(test::MetricsLogger* logger, 
-                                        const std::string& test_case_name,
-                                        Clock* clock)
-    : logger_(logger), 
-      test_case_name_(test_case_name), 
+webrtc::GCCMetricsCollector::GCCMetricsCollector(webrtc::test::MetricsLogger* logger,
+                                                 const std::string& test_case_name,
+                                                 webrtc::Clock* clock)
+    : logger_(logger),
+      test_case_name_(test_case_name),
       clock_(clock) {
   RTC_CHECK(logger_);
   RTC_CHECK(clock_);
@@ -750,7 +750,7 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   }
 }
 
-void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
+void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction) {
   if (at_time - last_loss_log_ < kLossLogInterval) {
     return;
   }
@@ -840,12 +840,7 @@ void GCCNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   }
   
   // Log loss metrics
-  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
-  
-  // Log congestion metrics (L4S-specific)
-  double congestion_ratio = (ce_count_ + ect_count_) > 0 ? 
-                           (double)ce_count_ / (ce_count_ + ect_count_) : 0.0;
-  metrics_collector_->LogCongestionMetrics(at_time, ce_count_, ect_count_, congestion_ratio);
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_); // TODO: Track packet count
   
   // Log periodic summary
   metrics_collector_->LogPeriodicSummary(at_time);
