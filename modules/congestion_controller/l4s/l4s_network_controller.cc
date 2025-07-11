@@ -73,6 +73,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     if (congestion_based_estimate_ > historic_max_) {
       historic_max_ = congestion_based_estimate_;
     }
+    historical_estimate_ = std::max(historical_estimate_, congestion_based_estimate_);
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
                      << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }
@@ -101,12 +102,13 @@ void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 
 DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
   // Use the most conservative estimate that has been recently validated
-  DataRate estimate = std::min({
-      conservative_estimate_,
-      congestion_based_estimate_,
-      historical_estimate_
-  });
-  
+  // DataRate estimate = std::min({
+  //     conservative_estimate_,
+  //     congestion_based_estimate_,
+  //     historical_estimate_
+  // });
+  DataRate estimate = std::max(congestion_based_estimate_, historical_estimate_);
+  estimate = std::min(estimate, conservative_estimate_);
   // Ensure we stay within absolute bounds
   DataRate periodic_max = std::max(kAbsoluteMinLimit, std::min(estimate, kAbsoluteMaxLimit));
   RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
