@@ -58,7 +58,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
 
-  if (ce_ratio > 0.01) {
+  if (ce_ratio > 0.1) {
     // Proportional decrease on CE marks
     DataRate reduced = std::max(current_rate * (1.0 - ce_ratio), min_target_rate_);
     congestion_based_estimate_ = reduced;
@@ -70,7 +70,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Proportional decrease (CE ratio=" << ce_ratio 
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  } else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
+  } else if (ce_ratio < 0.1 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double rtt_seconds = rtt.seconds<double>();
@@ -634,56 +634,35 @@ void L4SNetworkController::ProcessEcnFeedback(
     return;
   }
 
-  // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: Processing " << feedback.packet_feedbacks.size() 
-  //                  << " packets, transport_supports_ecn=" << feedback.transport_supports_ecn;
-
-  // Count ECT and CE packets
   int new_ect_count = 0;
   int new_ce_count = 0;
 
-for (const auto& packet : feedback.packet_feedbacks) {
-  // Count all ECN-capable packets (ECT(0), ECT(1), CE) as ECT
-  if (packet.ecn == EcnMarking::kEct0 ||
-      packet.ecn == EcnMarking::kEct1 ||
-      packet.ecn == EcnMarking::kCe) {
-    new_ect_count++;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kEct0 ||
+        packet.ecn == EcnMarking::kEct1 ||
+        packet.ecn == EcnMarking::kCe) {
+      new_ect_count++;
+    }
+    if (packet.ecn == EcnMarking::kCe) {
+      new_ce_count++;
+      last_congestion_signal_ = feedback.feedback_time;
+      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << new_ce_count;
+    }
   }
-  // Count CE separately for the numerator
-  if (packet.ecn == EcnMarking::kCe) {
-    new_ce_count++;
-    last_congestion_signal_ = feedback.feedback_time;
-    RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << (ce_count_ + new_ce_count);
-  }
-}
-
-  // RTC_LOG(LS_INFO) << "ProcessEcnFeedback: ECT count=" << new_ect_count 
-  //                  << ", CE count=" << new_ce_count 
-  //                  << " (total so far: ECT=" << (ect_count_ + new_ect_count)
-  //                  << ", CE=" << (ce_count_ + new_ce_count) << ")";
 
   // If we received any ECT or CE packets, consider ECN supported
   if (new_ect_count > 0 || new_ce_count > 0) {
     ecn_supported_ = true;
   }
 
-  // Update total counts
-  ect_count_ += new_ect_count;
-  ce_count_ += new_ce_count;
-
-  // Update the adaptive capacity estimator based on congestion signals
-  if (ect_count_ + ce_count_ > 0) {
-    double ce_ratio = static_cast<double>(ce_count_) / (ect_count_ + ce_count_);
+  // Use only the current interval for CE ratio:
+  if (new_ect_count + new_ce_count > 0) {
+    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio,
-                                                    feedback.feedback_time);
-  }
-
-  // Consider the network ECN capable if we've received at least 1 packets
-  // and have seen at least one CE mark or a reasonable proportion of ECT
-  // packets
-  if (ect_count_ + ce_count_ >= 1) {
+    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
     ecn_capable_network_ = true;
   }
+
 }
 
 void L4SNetworkController::UpdateNetworkCapacityEstimate(
