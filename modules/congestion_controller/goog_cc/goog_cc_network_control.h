@@ -228,6 +228,7 @@ void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc
 
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);
+  
 };
 
 }  // namespace webrtc
