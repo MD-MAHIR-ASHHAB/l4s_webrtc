@@ -230,7 +230,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                       
   // Initialize the adaptive capacity estimator with reasonable starting values
   if (config.constraints.starting_rate) {
-    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate, env_.clock().Now());
+    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate, env_.clock().CurrentTime());
   }
   
   // Keep max_realistic_bandwidth_ as backup, but primary logic will use capacity_estimator_
@@ -431,7 +431,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
   // Only apply loss fallback if L4S is active
   if (IsL4SActive()) {
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->OnPacketLoss(current_rate, msg.at_time);
+    capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
   }
 
   // Forward to GCC if we're using it as fallback
