@@ -653,6 +653,18 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
                         << last_pushback_target_rate_.bps()
                         << " estimate_bps=" << loss_based_target_rate.bps();
   }
+
+  if (metrics_collector_) {
+    target_rate_ = update->target_rate;
+    last_actual_bitrate_ = acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
+    last_rtt_ = round_trip_time;
+    last_loss_fraction_ = fraction_loss / 255.0f;
+    last_packets_lost_ =  bandwidth_estimation_->GetPacketsLostCount().value_or(0);
+    LogPeriodicMetrics(msg.at_time);
+    metrics_collector_->LogPeriodicSummary(at_time);
+  }
+  // Add any other metrics as needed
+}
 }
 
 PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
@@ -682,5 +694,190 @@ PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
   msg.pad_window = padding_rate * msg.time_window;
   return msg;
 }
+
+
+
+// GCCMetricsCollector implementation
+GCCMetricsCollector::GCCMetricsCollector(test::MetricsLogger* logger, 
+                                        const std::string& test_case_name,
+                                        Clock* clock)
+    : logger_(logger), 
+      test_case_name_(test_case_name), 
+      clock_(clock) {
+  RTC_CHECK(logger_);
+  RTC_CHECK(clock_);
+  RTC_LOG(LS_INFO) << "GCCMetricsCollector initialized for test case: " << test_case_name_;
+}
+
+
+void GCCMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
+                                             DataRate actual_bitrate) {
+  if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
+    return; // Don't spam logs
+  }
+  
+  last_bandwidth_log_ = at_time;
+  UpdateThroughputStats(actual_bitrate);
+  
+  // Log time-series data for bandwidth
+  logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+}
+
+void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
+                                         TimeDelta jitter) {
+  if (at_time - last_delay_log_ < kDelayLogInterval) {
+    return;
+  }
+  
+  last_delay_log_ = at_time;
+  UpdateDelayStats(rtt);
+  
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
+                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  if (one_way_delay.IsFinite()) {
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+  if (jitter.IsFinite()) {
+    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
+    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+}
+
+void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
+  if (at_time - last_loss_log_ < kLossLogInterval) {
+    return;
+  }
+  
+  last_loss_log_ = at_time;
+  UpdateLossStats(loss_fraction);
+  
+  // logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+  //                               webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+
+void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
+  if (at_time - last_summary_log_ < kSummaryLogInterval) {
+    return;
+  }
+  
+  last_summary_log_ = at_time;
+  
+  // Log summary statistics
+  if (throughput_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
+                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "throughput"}});
+    logger_->LogSingleValueMetric("throughput_std_mbps", test_case_name_, throughput_stats_.GetStandardDeviation() / 1e6, 
+                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "throughput"}});
+  }
+  
+  if (delay_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "delay"}});
+    logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
+  }
+  
+  if (loss_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "loss"}});
+  }
+  // Periodically export all metrics to JSON
+  ExportToJsonFile("gcc_test_1.json");
+}
+
+void GCCMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
+  throughput_stats_.AddSample(actual_bitrate.bps());
+}
+
+void GCCMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
+  if (rtt.IsFinite()) {
+    delay_stats_.AddSample(rtt.ms());
+  }
+}
+
+void GCCMetricsCollector::UpdateLossStats(double loss_fraction) {
+  loss_stats_.AddSample(loss_fraction);
+}
+
+// GCCNetworkController metrics helper methods implementation
+void GCCNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  // Check if it's time to log metrics
+  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
+    return;
+  }
+  
+  metrics_last_logged_ = at_time;
+  
+  // Log bandwidth metrics
+  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
+  DataRate actual_rate = last_actual_bitrate_;
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate);
+  
+  // Log delay metrics
+  if (last_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); // Estimate one-way delay
+  }
+  
+  // Log loss metrics
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
+  
+  // Log congestion metrics (L4S-specific)
+  double congestion_ratio = (ce_count_ + ect_count_) > 0 ? 
+                           (double)ce_count_ / (ce_count_ + ect_count_) : 0.0;
+  metrics_collector_->LogCongestionMetrics(at_time, ce_count_, ect_count_, congestion_ratio);
+  
+  // Log periodic summary
+  metrics_collector_->LogPeriodicSummary(at_time);
+}
+
+
+
+void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
+  if (!logger_) return;
+  auto metrics = logger_->GetCollectedMetrics();
+  FILE* f = fopen(filename.c_str(), "w");
+  if (!f) return;
+  fprintf(f, "[\n");
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    const auto& m = metrics[i];
+    fprintf(f, "  {\n");
+    fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
+    fprintf(f, "    \"samples\": [");
+    for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
+      const auto& s = m.time_series.samples[j];
+      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
+        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
+    }
+    fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
+  }
+  fprintf(f, "]\n");
+  fclose(f);
+}
+
+
+
+
+
 
 }  // namespace webrtc
