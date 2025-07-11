@@ -203,13 +203,10 @@ void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc
   DataRate last_acknowledged_rate_ = DataRate::Zero();
   DataRate last_delay_based_estimate_ = DataRate::Zero();
   
-  // Enhanced RTT tracking (similar to GCC)
-  std::deque<int64_t> feedback_max_rtts_;
-  TimeDelta last_estimated_round_trip_time_ = TimeDelta::PlusInfinity();
   
   
   // Metrics collection
-  std::unique_ptr<L4SMetricsCollector> metrics_collector_;
+  std::unique_ptr<GCCMetricsCollector> metrics_collector_;
   bool metrics_enabled_ = true;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
@@ -228,7 +225,7 @@ void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc
 
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);
-  
+
 };
 
 }  // namespace webrtc
