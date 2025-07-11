@@ -37,6 +37,7 @@
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
+#include "modules/include/samples_stats_counter.h"
 
 namespace webrtc {
 struct GoogCcConfig {
@@ -200,6 +201,7 @@ void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc
 
   
   // Bandwidth estimation tracking
+  DataRate last_target_rate_ = DataRate::Zero();
   DataRate last_acknowledged_rate_ = DataRate::Zero();
   DataRate last_delay_based_estimate_ = DataRate::Zero();
   
