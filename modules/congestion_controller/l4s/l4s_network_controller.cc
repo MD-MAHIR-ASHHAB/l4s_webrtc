@@ -526,9 +526,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
       TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
       if (!first) {
-        TimeDelta jitter = (delay - prev_delay).Abs();
-        jitter_ = jitter;
-        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter);
+        double diff = (delay - prev_delay).ms();
+        rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
+        jitter_ = TimeDelta::Millis(rfc3550_jitter_);
+        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
       }
       prev_delay = delay;
       first = false;
@@ -807,15 +808,6 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   // Log time-series data for bandwidth
   logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
-  
-  // Calculate utilization ratio
-  double utilization = target_bitrate.bps() > 0 ? (double)actual_bitrate.bps() / target_bitrate.bps() : 0.0;
-  logger_->LogSingleValueMetric("bandwidth_utilization_ratio", test_case_name_, utilization, 
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 

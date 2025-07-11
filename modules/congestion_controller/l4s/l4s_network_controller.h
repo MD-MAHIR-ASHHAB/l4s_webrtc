@@ -122,6 +122,7 @@ class L4SMetricsCollector {
   test::MetricsLogger* logger_;
   std::string test_case_name_;
   Clock* clock_;
+  double rfc3550_jitter_ = 0.0;
   
   // Statistics tracking
   SamplesStatsCounter throughput_stats_;
@@ -187,8 +188,8 @@ class L4SNetworkController : public NetworkControllerInterface {
   const bool fallback_to_gcc_;
   const bool use_ect1_marking_;
 
-  // L4S-specific controllers
-  std::unique_ptr<L4SPragueController> prague_controller_;
+  // // L4S-specific controllers
+  // std::unique_ptr<L4SPragueController> prague_controller_;
   
   // Current state
   bool ecn_supported_ = false;
@@ -232,7 +233,7 @@ class L4SNetworkController : public NetworkControllerInterface {
   DataRate last_actual_bitrate_ = DataRate::Zero();
   DataRate last_target_bitrate_ = DataRate::Zero();
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
-  TimeDelta jitter_ = TimeDelta::PlusInfinity();
+  TimeDelta jitter_ = TimeDelta::Zero();
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
   std::string current_active_controller_ = "initializing";
