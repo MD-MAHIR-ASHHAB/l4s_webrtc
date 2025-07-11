@@ -241,6 +241,10 @@ NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
   } else {
     update.congestion_window = current_data_window_;
   }
+
+  // Log metrics periodically on each process interval
+  LogPeriodicMetrics(msg.at_time);
+
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
   return update;
 }
@@ -258,6 +262,16 @@ NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
     return NetworkControlUpdate();
   }
   RTC_DCHECK(!msg.round_trip_time.IsZero());
+
+  last_rtt_ = msg.round_trip_time;
+  
+  // Log RTT metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+  }
+
   if (delay_based_bwe_)
     delay_based_bwe_->OnRttUpdate(msg.round_trip_time);
   bandwidth_estimation_->UpdateRtt(msg.round_trip_time, msg.receive_time);
@@ -384,6 +398,15 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     TransportLossReport msg) {
   int64_t total_packets_delta =
       msg.packets_received_delta + msg.packets_lost_delta;
+  // Update loss metrics for logging
+  if (total_packets_delta > 0) {
+    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets_delta;
+  } else {
+    last_loss_fraction_ = 0.0;
+  }
+  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+
+
   bandwidth_estimation_->UpdatePacketsLost(
       msg.packets_lost_delta, total_packets_delta, msg.receive_time);
   return NetworkControlUpdate();
@@ -542,6 +565,63 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     update.congestion_window = current_data_window_;
   }
 
+  // --- Throughput calculation using a sliding window for stability ---
+  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
+  Timestamp now = report.feedback_time;
+
+  // Add new packets to the window
+  for (const auto& packet : report.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
+    }
+  }
+  // Remove old packets outside the window
+  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
+    throughput_window_.pop_front();
+  }
+  // Calculate throughput over the window
+  int64_t window_bytes = 0;
+  Timestamp window_start = now;
+  Timestamp window_end = now;
+  if (!throughput_window_.empty()) {
+    window_start = throughput_window_.front().first;
+    window_end = throughput_window_.back().first;
+    for (const auto& entry : throughput_window_) {
+      window_bytes += entry.second;
+    }
+  }
+  TimeDelta window_interval = window_end - window_start;
+  if (window_interval > TimeDelta::Millis(1)) {
+    last_actual_bitrate_ = DataRate::BitsPerSec(static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+  } else {
+    last_actual_bitrate_ = DataRate::Zero();
+  }
+
+  // Per-packet delay and jitter logging (this is outside the above if/else)
+  TimeDelta prev_delay;
+  bool have_prev = false;
+  for (const auto& packet : report.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
+      if (have_prev) {
+        double diff = (delay - prev_delay).ms();
+        rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
+        jitter_ = TimeDelta::Millis(rfc3550_jitter_);
+        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
+      }
+      prev_delay = delay;
+      have_prev = true;
+    }
+  }
+
+
+
+
+
+
+
+
+
   return update;
 }
 
@@ -661,7 +741,6 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
     last_actual_bitrate_ = acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
     last_rtt_ = round_trip_time;
     last_loss_fraction_ = fraction_loss / 255.0f;
-    LogPeriodicMetrics(at_time);
     metrics_collector_->LogPeriodicSummary(at_time);
   }
   // Add any other metrics as needed
@@ -750,7 +829,8 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   }
 }
 
-void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction) {
+void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction,
+                                         int packets_lost_count) {
   if (at_time - last_loss_log_ < kLossLogInterval) {
     return;
   }
@@ -761,9 +841,9 @@ void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
-  // logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, 
-  //                               webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost_count,
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 
@@ -840,8 +920,8 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   }
   
   // Log loss metrics
-  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_); // TODO: Track packet count
-  
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
+
   // Log periodic summary
   metrics_collector_->LogPeriodicSummary(at_time);
 }

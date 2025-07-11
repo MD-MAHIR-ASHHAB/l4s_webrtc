@@ -64,8 +64,8 @@ class GCCMetricsCollector {
                           DataRate actual_bitrate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                       TimeDelta jitter = TimeDelta::Zero());
-  void LogLossMetrics(Timestamp at_time, double loss_fraction);
-
+   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
+  
 
   // Periodic summary metrics
   void LogPeriodicSummary(Timestamp at_time);
@@ -224,6 +224,7 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   TimeDelta jitter_ = TimeDelta::Zero();
   double rfc3550_jitter_ = 0.0;
   double last_loss_fraction_ = 0.0;
+  int last_packets_lost_ = 0;
   std::string current_active_controller_ = "initializing";
 
   // Helper methods for metrics
