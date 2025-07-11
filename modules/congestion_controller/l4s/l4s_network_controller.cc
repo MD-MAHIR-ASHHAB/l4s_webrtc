@@ -521,14 +521,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 
 
   // --- Throughput calculation using a sliding window for stability ---
-  static constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
-  static std::deque<std::pair<Timestamp, int>> throughput_window_;
+  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
   Timestamp now = feedback.feedback_time;
 
   // Add new packets to the window
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
-      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size);
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
     }
   }
   // Remove old packets outside the window
