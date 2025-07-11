@@ -108,21 +108,24 @@ int AsyncUDPSocket::SendTo(const void* pv,
   //                  << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
   //                  << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
 
-  if (has_set_ect1_options_ != options.ecn_1) {
-    // It is unclear what is most efficient, setting options on every sent
-    // packet or when changed. Potentially, can separate send sockets be used?
-    // This is the easier implementation.
-    int set_result = socket_->SetOption(Socket::Option::OPT_SEND_ECN,
-                                       options.ecn_1 ? 1 : 0);
-    if (set_result == 0) {
-      has_set_ect1_options_ = options.ecn_1;
-      // RTC_LOG(LS_INFO) << "SOCKET SEND: Successfully set ECN socket option to " 
-      //                  << (options.ecn_1 ? "ECT(1)" : "Not ECT");
-    } else {
-      RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
-                        << " Requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT");
-    }
-  }
+  //may be a problem?????
+
+
+  // if (has_set_ect1_options_ != options.ecn_1) {
+  //   // It is unclear what is most efficient, setting options on every sent
+  //   // packet or when changed. Potentially, can separate send sockets be used?
+  //   // This is the easier implementation.
+  //   int set_result = socket_->SetOption(Socket::Option::OPT_SEND_ECN,
+  //                                      options.ecn_1 ? 1 : 0);
+  //   if (set_result == 0) {
+  //     has_set_ect1_options_ = options.ecn_1;
+  //     // RTC_LOG(LS_INFO) << "SOCKET SEND: Successfully set ECN socket option to " 
+  //     //                  << (options.ecn_1 ? "ECT(1)" : "Not ECT");
+  //   } else {
+  //     RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
+  //                       << " Requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT");
+  //   }
+  // }
   
   int ret = socket_->SendTo(pv, cb, addr);
   
