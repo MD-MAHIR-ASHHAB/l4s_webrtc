@@ -59,8 +59,8 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
 
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
   double rtt_seconds = rtt.seconds<double>();
-  if (rtt_seconds < 0.003) {
-    rtt_seconds = 0.003; // Avoid division by zero
+  if (rtt_seconds < 0.002) {
+    rtt_seconds = 0.002; // Avoid division by zero
   }
 
 
@@ -147,8 +147,8 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 
   min_rtt_ = std::min(min_rtt_, rtt);
-  if (min_rtt_ < TimeDelta::Millis(30)) {
-    min_rtt_ = TimeDelta::Millis(30); // Ensure non-negative RTT
+  if (min_rtt_ < TimeDelta::Millis(20)) {
+    min_rtt_ = TimeDelta::Millis(20); // Ensure non-negative RTT
   }
 }
 
