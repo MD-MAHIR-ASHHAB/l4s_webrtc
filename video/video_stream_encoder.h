@@ -67,17 +67,6 @@
 
 namespace webrtc {
 
-
-class VideoStreamEncoder {
-  // ...existing code...
- private:
-  void LogFrameRateToJson(double fps, int64_t timestamp_ms);
-
-  // Add this member to keep the log open
-  std::ofstream frame_rate_json_log_;
-  bool frame_rate_json_log_initialized_ = false;
-};
-
 // VideoStreamEncoder represent a video encoder that accepts raw video frames as
 // input and produces an encoded bit stream.
 // Usage:
@@ -113,7 +102,6 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
 
   VideoStreamEncoder(const VideoStreamEncoder&) = delete;
   VideoStreamEncoder& operator=(const VideoStreamEncoder&) = delete;
-
   void AddAdaptationResource(scoped_refptr<Resource> resource) override;
   std::vector<scoped_refptr<Resource>> GetAdaptationResources() override;
 
@@ -178,6 +166,13 @@ class VideoStreamEncoder : public VideoStreamEncoderInterface,
       VideoSourceRestrictionsListener* restrictions_listener);
 
  private:
+  void LogFrameRateToJson(double fps, int64_t timestamp_ms);
+
+  // Add this member to keep the log open
+  std::ofstream frame_rate_json_log_;
+  bool frame_rate_json_log_initialized_ = false;
+
+  
   class CadenceCallback : public FrameCadenceAdapterInterface::Callback {
    public:
     explicit CadenceCallback(VideoStreamEncoder& video_stream_encoder)
