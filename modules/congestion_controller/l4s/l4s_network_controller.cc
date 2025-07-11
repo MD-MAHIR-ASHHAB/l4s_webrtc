@@ -457,6 +457,15 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
     capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
   }
 
+  // Update loss metrics for logging
+  int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
+  if (total_packets > 0) {
+    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
+  } else {
+    last_loss_fraction_ = 0.0;
+  }
+  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_ && !IsL4SActive()) {
     update = gcc_controller_->OnTransportLossReport(msg);
@@ -486,6 +495,23 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   } else if (fallback_to_gcc_) {
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
   }
+
+
+  // Per-packet delay and jitter logging (this is outside the above if/else)
+  TimeDelta prev_delay = TimeDelta::Zero();
+  bool first = true;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.send_time.IsFinite()) {
+      TimeDelta delay = packet.receive_time - packet.send_time;
+      if (!first) {
+        TimeDelta jitter = (delay - prev_delay).Abs();
+        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2);
+      }
+      prev_delay = delay;
+      first = false;
+    }
+  }
+      
 
   return update;
 }
@@ -659,6 +685,8 @@ void L4SNetworkController::ProcessEcnFeedback(
 
   int new_ect_count = 0;
   int new_ce_count = 0;
+  ce_packets_ = 0;
+  ect_packets_ = 0; 
 
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 ||
@@ -671,6 +699,12 @@ void L4SNetworkController::ProcessEcnFeedback(
       last_congestion_signal_ = feedback.feedback_time;
       RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << new_ce_count
                          << ", ECT count=" << new_ect_count;
+
+      if (metrics_enabled_ && metrics_collector_) {
+        double congestion_ratio = (new_ce_count + new_ect_count) > 0 ?
+                                  static_cast<double>(new_ce_count) / (new_ce_count + new_ect_count) : 0.0;
+        metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, congestion_ratio);
+      }
     }
   }
 
@@ -686,6 +720,8 @@ void L4SNetworkController::ProcessEcnFeedback(
     capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
     ecn_capable_network_ = true;
   }
+  ce_packets_ += new_ce_count;
+  ect_packets_ += new_ect_count;
 
 }
 
@@ -725,8 +761,6 @@ void L4SNetworkController::UpdateNetworkCapacityEstimate(
 
 
 
-
-
 // L4SMetricsCollector implementation
 L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger, 
                                         const std::string& test_case_name,
@@ -740,7 +774,7 @@ L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
 }
 
 void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
-                                             DataRate actual_bitrate, const std::string& controller) {
+                                             DataRate actual_bitrate) {
   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
     return; // Don't spam logs
   }
@@ -760,7 +794,7 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   double utilization = target_bitrate.bps() > 0 ? (double)actual_bitrate.bps() / target_bitrate.bps() : 0.0;
   logger_->LogSingleValueMetric("bandwidth_utilization_ratio", test_case_name_, utilization, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay) {
@@ -810,34 +844,7 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, 
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogControllerState(Timestamp at_time, const std::string& active_controller,
-                                           const std::string& state_info) {
-  logger_->LogSingleValueMetric("active_controller", test_case_name_, 0, // Value not meaningful for string metrics
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
-                                {{"controller", active_controller}, 
-                                 {"state_info", state_info},
-                                 {"timestamp_ms", std::to_string(at_time.ms())}});
-}
 
-
-void L4SMetricsCollector::LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
-                                             const std::string& to_controller, const std::string& reason) {
-  logger_->LogSingleValueMetric("controller_switch", test_case_name_, 0, // Value not meaningful
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
-                                {{"from", from_controller}, 
-                                 {"to", to_controller},
-                                 {"reason", reason},
-                                 {"timestamp_ms", std::to_string(at_time.ms())}});
-}
-
-void L4SMetricsCollector::LogNetworkEvent(Timestamp at_time, const std::string& event_type,
-                                        const std::string& event_data) {
-  logger_->LogSingleValueMetric("network_event", test_case_name_, 0, // Value not meaningful
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kNeitherIsBetter,
-                                {{"event_type", event_type}, 
-                                 {"event_data", event_data},
-                                 {"timestamp_ms", std::to_string(at_time.ms())}});
-}
 
 void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   if (at_time - last_summary_log_ < kSummaryLogInterval) {
@@ -904,7 +911,7 @@ void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   // Log bandwidth metrics
   DataRate target_rate = target_rate_.value_or(DataRate::Zero());
   DataRate actual_rate = last_actual_bitrate_;
-  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate, current_active_controller_);
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate);
   
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
@@ -912,7 +919,7 @@ void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   }
   
   // Log loss metrics
-  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, 0); // TODO: Track packet count
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
   
   // Log congestion metrics (L4S-specific)
   double congestion_ratio = (ce_count_ + ect_count_) > 0 ? 
