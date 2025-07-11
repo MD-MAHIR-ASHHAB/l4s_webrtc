@@ -469,6 +469,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTargetRateConstrai
   return update;
 }
 
+
 webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossReport(
     webrtc::TransportLossReport msg) {
   webrtc::NetworkControlUpdate update;
@@ -553,19 +554,19 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   }
 
   // Per-packet delay and jitter logging (this is outside the above if/else)
-  TimeDelta prev_delay = TimeDelta::Zero();
-  bool first = true;
+  TimeDelta prev_delay;
+  bool have_prev = false;
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
       TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
-      if (!first) {
+      if (have_prev) {
         double diff = (delay - prev_delay).ms();
         rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
         jitter_ = TimeDelta::Millis(rfc3550_jitter_);
         metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
       }
       prev_delay = delay;
-      first = false;
+      have_prev = true;
     }
   }
 
@@ -829,6 +830,7 @@ L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
   RTC_LOG(LS_INFO) << "L4SMetricsCollector initialized for test case: " << test_case_name_;
 }
 
+
 void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
                                              DataRate actual_bitrate) {
   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
@@ -863,9 +865,9 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
   if (jitter.IsFinite()) {
-    logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
-                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
+    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
 }
 
@@ -877,9 +879,9 @@ void L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
   
-  logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  // logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+  //                               webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
   logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
@@ -890,9 +892,9 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, 
   logger_->LogSingleValueMetric("congestion_ce_count", test_case_name_, ce_count, 
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogSingleValueMetric("congestion_ect_count", test_case_name_, ect_count, 
-                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  // logger_->LogSingleValueMetric("congestion_ect_count", test_case_name_, ect_count, 
+  //                               webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
   logger_->LogSingleValueMetric("congestion_ratio", test_case_name_, congestion_ratio, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
