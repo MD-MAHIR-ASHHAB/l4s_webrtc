@@ -35,14 +35,19 @@
 namespace webrtc {
 
 // AdaptiveCapacityEstimator implementation
-AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservative_estimate)
-    : historic_min_(DataRate::KilobitsPerSec(300)),      // Start with 300 kbps
-      historic_max_(DataRate::KilobitsPerSec(1000000)), // 1 Gbps
-      conservative_estimate_(initial_conservative_estimate),
-      congestion_based_estimate_(initial_conservative_estimate),
-      historical_estimate_(initial_conservative_estimate),
-      last_update_time_(Timestamp::MinusInfinity()) {
-  sustained_rates_history_.push_back(initial_conservative_estimate);
+AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate starting_rate, DataRate min_target_rate, DataRate max_target_rate)
+    : historic_min_(starting_rate),
+      historic_max_(starting_rate),
+      congestion_based_estimate_(starting_rate),
+      min_target_rate_(min_target_rate),
+      max_target_rate_(max_target_rate) {
+  // Clamp all to min/max target rates
+  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+  if (historic_max_ < min_target_rate_) historic_max_ = min_target_rate_;
+  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
+  if (historic_min_ > max_target_rate_) historic_min_ = max_target_rate_;
+  if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
+  if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
 }
 
 AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
@@ -50,17 +55,18 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio) {
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
-  // Use min_rtt_ if available, else default to 10ms
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
 
   if (ce_ratio > 0.01) {
-    // Proportional decrease (already RFC-aligned from previous step)
-    double decrease_factor = std::max(0.0, 1.0 - ce_ratio);
-    DataRate reduced = std::max(current_rate * decrease_factor, historic_min_);
-    congestion_based_estimate_ = std::max(reduced, kAbsoluteMinLimit);
+    // Proportional decrease on CE marks
+    DataRate reduced = std::max(current_rate * (1.0 - ce_ratio), min_target_rate_);
+    congestion_based_estimate_ = reduced;
     if (congestion_based_estimate_ < historic_min_) {
       historic_min_ = congestion_based_estimate_;
     }
+    // Clamp to min_target_rate_
+    if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+    if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Proportional decrease (CE ratio=" << ce_ratio 
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   } else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
@@ -68,12 +74,14 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double rtt_seconds = rtt.seconds<double>();
     int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
-    DataRate increased = std::min(current_rate + DataRate::BitsPerSec(increase_bps), historic_max_);
-    congestion_based_estimate_ = std::min(increased, kAbsoluteMaxLimit);
+    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+    congestion_based_estimate_ = increased;
     if (congestion_based_estimate_ > historic_max_) {
       historic_max_ = congestion_based_estimate_;
     }
-    historical_estimate_ = std::max(historical_estimate_, congestion_based_estimate_);
+    // Clamp to max_target_rate_
+    if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
+    if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
                      << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }
@@ -85,37 +93,30 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate)
   if (sustained_rates_history_.size() > kHistoryWindowSize) {
     sustained_rates_history_.pop_front();
   }
-  
   // Update historical estimate based on maximum sustained rate
   DataRate historical_max = *std::max_element(sustained_rates_history_.begin(), 
                                              sustained_rates_history_.end());
-  historical_estimate_ = std::min(historical_max * 1.2, kAbsoluteMaxLimit);
+  historical_estimate_ = std::min(historical_max * 1.2, max_target_rate_);
 }
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   min_rtt_ = std::min(min_rtt_, rtt);
-  
   // Update conservative estimate based on connection type
   ConnectionType type = DetectConnectionType(min_rtt_, GetMaxRealisticBandwidth());
   conservative_estimate_ = GetConservativeEstimateForType(type);
+  // Clamp conservative_estimate_ to max_target_rate_
+  if (conservative_estimate_ > max_target_rate_) conservative_estimate_ = max_target_rate_;
 }
 
+
 DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
-  // Use the most conservative estimate that has been recently validated
-  // DataRate estimate = std::min({
-  //     conservative_estimate_,
-  //     congestion_based_estimate_,
-  //     historical_estimate_
-  // });
-  DataRate estimate = std::max(congestion_based_estimate_, historical_estimate_);
-  estimate = std::min(estimate, conservative_estimate_);
+  // Use the higher of congestion-based and historic min, but never above max_target_rate_
+  DataRate estimate = std::max(congestion_based_estimate_, historic_min_);
+  estimate = std::min(estimate, max_target_rate_);
   // Ensure we stay within absolute bounds
-  DataRate periodic_max = std::max(kAbsoluteMinLimit, std::min(estimate, kAbsoluteMaxLimit));
+  DataRate periodic_max = std::max(min_target_rate_, std::min(estimate, max_target_rate_));
   RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
-                   << periodic_max.bps() << " bps (conservative: " 
-                   << conservative_estimate_.bps()
-                   << ", congestion: " << congestion_based_estimate_.bps()
-                   << ", historical: " << historical_estimate_.bps()
+                   << periodic_max.bps() << " bps (congestion: " << congestion_based_estimate_.bps()
                    << ", historic_min: " << historic_min_.bps()
                    << ", historic_max: " << historic_max_.bps() << ")";
   return periodic_max;
@@ -126,20 +127,25 @@ void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
     last_update_time_ = current_time;
     return;
   }
-  
   TimeDelta elapsed = current_time - last_update_time_;
   if (elapsed >= kDecayInterval) {
     // Gradually decay estimates if not reinforced
-    congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, conservative_estimate_);
-    historical_estimate_ = std::max(historical_estimate_ * 0.95, conservative_estimate_);
+    congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
+    historical_estimate_ = std::max(historical_estimate_ * 0.95, min_target_rate_);
     last_update_time_ = current_time;
   }
 }
 
 void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate) {
   // Multiplicative decrease, fallback for loss (e.g., halve the rate)
-  DataRate reduced = std::max(current_rate * 0.5, historic_min_);
-  congestion_based_estimate_ = std::max(reduced, kAbsoluteMinLimit);
+  DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
+  congestion_based_estimate_ = reduced;
+  if (congestion_based_estimate_ < historic_min_) {
+    historic_min_ = congestion_based_estimate_;
+  }
+  // Clamp to min_target_rate_
+  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
   RTC_LOG(LS_WARNING) << "AdaptiveCapacity: Packet loss detected, halving congestion_based_estimate to "
                       << congestion_based_estimate_.bps() << " bps";
 }
@@ -177,7 +183,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       // Initialize adaptive capacity estimator first (based on header order)
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(100))),  // Start with 100 Kbps conservative estimate
+              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(100000))),
       // Initialize metrics collection
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {

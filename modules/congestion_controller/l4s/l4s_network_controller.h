@@ -41,7 +41,7 @@ struct L4SControllerConfig {
 // Adaptive capacity estimator for realistic bandwidth estimation
 class AdaptiveCapacityEstimator {
  public:
-  explicit AdaptiveCapacityEstimator(DataRate initial_conservative_estimate);
+  explicit AdaptiveCapacityEstimator(DataRate starting_rate, DataRate min_target_rate, DataRate max_target_rate);
   ~AdaptiveCapacityEstimator();
   
   // Update estimates based on different signals
