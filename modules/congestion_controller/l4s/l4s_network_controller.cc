@@ -943,11 +943,6 @@ void L4SNetworkController::LogControllerState(Timestamp at_time) {
   
   // Create state info string
   std::string state_info = "target_rate=" + std::to_string(target_rate_.value_or(DataRate::Zero()).bps()) + 
-                           ";actual_rate=" + std::to_string(last_actual_bitrate_.bps()) +
-                           ";max_realistic_bandwidth=" + std::to_string(max_realistic_bandwidth_.bps()) +
-                           ";last_rtt_ms=" + std::to_string(last_rtt_.ms()) +
-                           ";ce_count=" + std::to_string(ce_count_) +
-                           ";ect_count=" + std::to_string(ect_count_) +
                           ";ecn_supported=" + (ecn_supported_ ? "true" : "false");
   
   // Log controller state only if it changed
