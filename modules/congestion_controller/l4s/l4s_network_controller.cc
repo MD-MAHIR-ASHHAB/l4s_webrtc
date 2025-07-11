@@ -98,6 +98,7 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
   // Update historical estimate based on maximum sustained rate
   DataRate historical_max = *std::max_element(sustained_rates_history_.begin(), 
                                              sustained_rates_history_.end());
+  historic_max_ = historical_max;
 
   last_update_time_ = current_time;
 }
@@ -229,7 +230,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
                       
   // Initialize the adaptive capacity estimator with reasonable starting values
   if (config.constraints.starting_rate) {
-    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate);
+    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate, env_.clock().Now());
   }
   
   // Keep max_realistic_bandwidth_ as backup, but primary logic will use capacity_estimator_
@@ -430,7 +431,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
   // Only apply loss fallback if L4S is active
   if (IsL4SActive()) {
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->OnPacketLoss(current_rate);
+    capacity_estimator_->OnPacketLoss(current_rate, msg.at_time);
   }
 
   // Forward to GCC if we're using it as fallback
@@ -673,7 +674,8 @@ for (const auto& packet : feedback.packet_feedbacks) {
   if (ect_count_ + ce_count_ > 0) {
     double ce_ratio = static_cast<double>(ce_count_) / (ect_count_ + ce_count_);
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio);
+    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio,
+                                                    feedback.feedback_time);
   }
 
   // Consider the network ECN capable if we've received at least 1 packets
