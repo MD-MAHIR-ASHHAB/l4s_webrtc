@@ -386,7 +386,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, msg.round_trip_time / 2);
+        msg.round_trip_time, msg.round_trip_time / 2, 0);
   }
 
   // Forward to GCC if we're using it as fallback
@@ -501,17 +501,17 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   TimeDelta prev_delay = TimeDelta::Zero();
   bool first = true;
   for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.receive_time.IsFinite() && packet.send_time.IsFinite()) {
-      TimeDelta delay = packet.receive_time - packet.send_time;
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
       if (!first) {
         TimeDelta jitter = (delay - prev_delay).Abs();
-        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2);
+        jitter_ = jitter;
+        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter);
       }
       prev_delay = delay;
       first = false;
     }
   }
-      
 
   return update;
 }
@@ -797,7 +797,8 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay) {
+void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
+                                         TimeDelta jitter) {
   if (at_time - last_delay_log_ < kDelayLogInterval) {
     return;
   }
@@ -810,6 +811,11 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   if (one_way_delay.IsFinite()) {
     logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+  if (jitter.IsFinite()) {
+    logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
@@ -915,7 +921,7 @@ void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
-    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2); // Estimate one-way delay
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); // Estimate one-way delay
   }
   
   // Log loss metrics

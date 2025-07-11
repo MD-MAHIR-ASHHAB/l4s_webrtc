@@ -102,7 +102,8 @@ class L4SMetricsCollector {
   // Time-series metrics logging
   void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
                           DataRate actual_bitrate);
-  void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay);
+  void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
+                      TimeDelta jitter = TimeDelta::Zero());
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
                            double congestion_ratio);
@@ -231,13 +232,14 @@ class L4SNetworkController : public NetworkControllerInterface {
   DataRate last_actual_bitrate_ = DataRate::Zero();
   DataRate last_target_bitrate_ = DataRate::Zero();
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta jitter_ = TimeDelta::PlusInfinity();
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
+  std::string current_active_controller_ = "initializing";
   
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);
   void LogControllerState(Timestamp at_time);
-
 
 
 };
