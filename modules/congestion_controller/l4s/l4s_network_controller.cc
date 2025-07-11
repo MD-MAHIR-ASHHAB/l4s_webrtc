@@ -56,7 +56,7 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1000; // Typical Ethernet MSS
-  constexpr double g = 1.0 / 16.0;       // DCTCP recommended EWMA gain
+
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
   double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds < 0.003) {
@@ -70,6 +70,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
 
   // if (ce_ratio > 0.05) {
     // DCTCP-style alpha update (EWMA of CE ratio)
+    //  constexpr double g = 1.0 / 16.0;       // DCTCP recommended EWMA gain
     // alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
   //   // Proportional decrease on CE marks
   //   double reduction_factor = 1.0 - alpha_ / 2.0;
