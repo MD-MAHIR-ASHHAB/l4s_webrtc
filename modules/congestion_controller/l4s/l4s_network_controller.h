@@ -228,6 +228,8 @@ class L4SNetworkController : public NetworkControllerInterface {
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
   
+  std::deque<std::pair<Timestamp, int>> throughput_window_;
+
   // Performance tracking for metrics
   DataRate last_actual_bitrate_ = DataRate::Zero();
   DataRate last_target_bitrate_ = DataRate::Zero();

@@ -522,27 +522,27 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 
   // --- Throughput calculation using a sliding window for stability ---
   static constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
-  static std::deque<std::pair<Timestamp, int>> throughput_window;
+  static std::deque<std::pair<Timestamp, int>> throughput_window_;
   Timestamp now = feedback.feedback_time;
 
   // Add new packets to the window
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
-      throughput_window.emplace_back(packet.receive_time, packet.payload_size);
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size);
     }
   }
   // Remove old packets outside the window
-  while (!throughput_window.empty() && now - throughput_window.front().first > kThroughputWindow) {
-    throughput_window.pop_front();
+  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
+    throughput_window_.pop_front();
   }
   // Calculate throughput over the window
   int64_t window_bytes = 0;
   Timestamp window_start = now;
   Timestamp window_end = now;
-  if (!throughput_window.empty()) {
-    window_start = throughput_window.front().first;
-    window_end = throughput_window.back().first;
-    for (const auto& entry : throughput_window) {
+  if (!throughput_window_.empty()) {
+    window_start = throughput_window_.front().first;
+    window_end = throughput_window_.back().first;
+    for (const auto& entry : throughput_window_) {
       window_bytes += entry.second;
     }
   }
