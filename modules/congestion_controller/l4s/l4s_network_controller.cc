@@ -337,7 +337,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnProcessInterval(
 
   // Log periodic metrics
   LogPeriodicMetrics(msg.at_time);
-  LogControllerState(msg.at_time);
+
 
   if (IsL4SActive()) {
     // Use only ECN-based estimator for rate selection
