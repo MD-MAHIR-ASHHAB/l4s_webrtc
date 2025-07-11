@@ -38,9 +38,8 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "api/numerics/samples_stats_counter.h"
-
-
-#include "modules/test/metrics_logger.h"
+#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+#include "api/test/metrics/metrics_logger.h"
 
 namespace webrtc {
 struct GoogCcConfig {
