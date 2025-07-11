@@ -162,7 +162,7 @@ DataRate AdaptiveCapacityEstimator::GetConservativeEstimateForType(ConnectionTyp
       return DataRate::KilobitsPerSec(100000);  // 100 Mbps
     case ConnectionType::UNKNOWN:
     default:
-      return DataRate::KilobitsPerSec(10000);   // 10 Mbps conservative default
+      return DataRate::KilobitsPerSec(1000);   // 1 Mbps conservative default
   }
 }
 

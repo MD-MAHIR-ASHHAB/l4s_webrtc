@@ -91,7 +91,7 @@ class AdaptiveCapacityEstimator {
   
   // Absolute limits
   static constexpr DataRate kAbsoluteMaxLimit = DataRate::KilobitsPerSec(1000000); // 1 Gbps
-  static constexpr DataRate kAbsoluteMinLimit = DataRate::KilobitsPerSec(1000);    // 1 Mbps
+  static constexpr DataRate kAbsoluteMinLimit = DataRate::KilobitsPerSec(300);    // 300 Kbps
 };
 
 // L4S Metrics Collector for comprehensive performance analysis
