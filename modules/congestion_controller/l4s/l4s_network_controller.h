@@ -45,12 +45,12 @@ class AdaptiveCapacityEstimator {
   ~AdaptiveCapacityEstimator();
   
   // Update estimates based on different signals
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio);
-  void UpdateFromSustainedRate(DataRate sustained_rate);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
+  void UpdateFromSustainedRate(DataRate sustained_rate, Timestamp current_time);
   void UpdateFromRtt(TimeDelta rtt);
-  void OnPacketLoss(DataRate current_rate);
-  
-  
+  void OnPacketLoss(DataRate current_rate, Timestamp current_time);
+
+
   DataRate GetHistoricMin() const { return historic_min_; }
   DataRate GetHistoricMax() const { return historic_max_; }
   void SetHistoricMin(DataRate rate) { historic_min_ = rate; }

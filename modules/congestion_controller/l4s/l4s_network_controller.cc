@@ -54,7 +54,7 @@ AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate starting_rate, Dat
 AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 
 
-void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio) {
+void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
 
@@ -89,7 +89,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   last_update_time_ = current_time;
 }
 
-void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate) {
+void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate, Timestamp current_time) {
   // Add to history
   sustained_rates_history_.push_back(sustained_rate);
   if (sustained_rates_history_.size() > kHistoryWindowSize) {
@@ -133,7 +133,7 @@ void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   }
 }
 
-void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate) {
+void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
   // Multiplicative decrease, fallback for loss (e.g., halve the rate)
   DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
   congestion_based_estimate_ = reduced;
