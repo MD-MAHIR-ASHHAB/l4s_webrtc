@@ -43,6 +43,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
+#include "modules/test/metrics_logger.h"
 
 namespace webrtc {
 
@@ -655,19 +656,17 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
   }
 
   if (metrics_collector_) {
-    last_target_rate_ = bandwidth_estimation_->target_rate().value_or(DataRate::Zero());
+    last_target_rate_ = bandwidth_estimation_->target_rate();
     last_actual_bitrate_ = acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
     last_rtt_ = round_trip_time;
     last_loss_fraction_ = fraction_loss / 255.0f;
-    last_packets_lost_ =  bandwidth_estimation_->GetPacketsLostCount().value_or(0);
-    LogPeriodicMetrics(msg.at_time);
+    LogPeriodicMetrics(at_time);
     metrics_collector_->LogPeriodicSummary(at_time);
   }
   // Add any other metrics as needed
 }
-}
 
-PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
+webrtc::PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
   // Pacing rate is based on target rate before congestion window pushback,
   // because we don't want to build queues in the pacer when pushback occurs.
   DataRate pacing_rate =
@@ -698,7 +697,7 @@ PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
 
 
 // GCCMetricsCollector implementation
-GCCMetricsCollector::GCCMetricsCollector(test::MetricsLogger* logger, 
+webrtc::GCCMetricsCollector(test::MetricsLogger* logger, 
                                         const std::string& test_case_name,
                                         Clock* clock)
     : logger_(logger), 
@@ -874,10 +873,5 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fprintf(f, "]\n");
   fclose(f);
 }
-
-
-
-
-
 
 }  // namespace webrtc

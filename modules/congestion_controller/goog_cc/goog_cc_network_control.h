@@ -39,6 +39,9 @@
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "api/numerics/samples_stats_counter.h"
 
+
+#include "modules/test/metrics_logger.h"
+
 namespace webrtc {
 struct GoogCcConfig {
   std::unique_ptr<NetworkStateEstimator> network_state_estimator = nullptr;
@@ -136,7 +139,7 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   std::ofstream googcc_metrics_log_;
   bool googcc_metrics_log_initialized_ = false;
 
-void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc::TimeDelta rtt);
+  void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc::TimeDelta rtt);
   friend class GoogCcStatePrinter;
   std::vector<ProbeClusterConfig> ResetConstraints(
       TargetRateConstraints new_constraints);
@@ -222,7 +225,6 @@ void LogGoogCcMetrics(Timestamp at_time, webrtc::DataRate target_bitrate, webrtc
   TimeDelta jitter_ = TimeDelta::Zero();
   double rfc3550_jitter_ = 0.0;
   double last_loss_fraction_ = 0.0;
-  int last_packets_lost_ = 0;
   std::string current_active_controller_ = "initializing";
 
   // Helper methods for metrics
