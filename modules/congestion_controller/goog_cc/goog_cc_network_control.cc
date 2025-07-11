@@ -655,7 +655,7 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
   }
 
   if (metrics_collector_) {
-    last_target_rate_ = update->target_rate;
+    last_target_rate_ = bandwidth_estimation_->target_rate().value_or(DataRate::Zero());
     last_actual_bitrate_ = acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
     last_rtt_ = round_trip_time;
     last_loss_fraction_ = fraction_loss / 255.0f;
