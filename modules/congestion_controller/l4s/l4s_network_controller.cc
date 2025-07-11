@@ -386,7 +386,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, msg.round_trip_time / 2, 0);
+        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
   }
 
   // Forward to GCC if we're using it as fallback
@@ -685,8 +685,8 @@ void L4SNetworkController::ProcessEcnFeedback(
 
   int new_ect_count = 0;
   int new_ce_count = 0;
-  ce_packets_ = 0;
-  ect_packets_ = 0; 
+  ce_count_ = 0;
+  ect_count_ = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 ||
@@ -720,8 +720,8 @@ void L4SNetworkController::ProcessEcnFeedback(
     capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
     ecn_capable_network_ = true;
   }
-  ce_packets_ += new_ce_count;
-  ect_packets_ += new_ect_count;
+  ce_count_ += new_ce_count;
+  ect_count_ += new_ect_count;
 
 }
 
@@ -785,10 +785,10 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   // Log time-series data for bandwidth
   logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
   logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"controller", controller}, {"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
   
   // Calculate utilization ratio
   double utilization = target_bitrate.bps() > 0 ? (double)actual_bitrate.bps() / target_bitrate.bps() : 0.0;
@@ -936,29 +936,6 @@ void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   metrics_collector_->LogPeriodicSummary(at_time);
 }
 
-void L4SNetworkController::LogControllerState(Timestamp at_time) {
-  if (!metrics_enabled_ || !metrics_collector_) {
-    return;
-  }
-  
-  // Determine which controller is active
-  std::string active_controller = IsL4SActive() ? "l4s_prague" : "gcc_fallback";
-  
-  // Create state info string
-  std::string state_info = "target_rate=" + std::to_string(target_rate_.value_or(DataRate::Zero()).bps()) + 
-                          ";ecn_supported=" + (ecn_supported_ ? "true" : "false");
-  
-  // Log controller state only if it changed
-  if (current_active_controller_ != active_controller) {
-    std::string old_controller = current_active_controller_;
-    current_active_controller_ = active_controller;
-    
-    metrics_collector_->LogControllerSwitch(at_time, old_controller, active_controller, 
-                                           ecn_supported_ ? "ecn_available" : "ecn_unavailable");
-  }
-  
-  metrics_collector_->LogControllerState(at_time, active_controller, state_info);
-}
 
 void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   if (!logger_) return;
