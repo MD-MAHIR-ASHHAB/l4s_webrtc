@@ -664,7 +664,8 @@ void L4SNetworkController::ProcessEcnFeedback(
     if (packet.ecn == EcnMarking::kCe) {
       new_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
-      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << new_ce_count;
+      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << new_ce_count
+                         << ", ECT count=" << new_ect_count;
     }
   }
 
