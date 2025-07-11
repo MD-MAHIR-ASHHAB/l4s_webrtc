@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <fstream>
 
 #include "absl/container/inlined_vector.h"
 #include "api/adaptation/resource.h"
@@ -65,6 +66,17 @@
 #include "video/video_stream_encoder_observer.h"
 
 namespace webrtc {
+
+
+class VideoStreamEncoder {
+  // ...existing code...
+ private:
+  void LogFrameRateToJson(double fps, int64_t timestamp_ms);
+
+  // Add this member to keep the log open
+  std::ofstream frame_rate_json_log_;
+  bool frame_rate_json_log_initialized_ = false;
+};
 
 // VideoStreamEncoder represent a video encoder that accepts raw video frames as
 // input and produces an encoded bit stream.

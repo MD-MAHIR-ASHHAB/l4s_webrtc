@@ -108,6 +108,8 @@ class L4SMetricsCollector {
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
                            double congestion_ratio);
 
+  void LogFrameRateMetrics(Timestamp at_time, double network_fps, double decode_fps, double render_fps);
+
   // Periodic summary metrics
   void LogPeriodicSummary(Timestamp at_time);
   
@@ -133,6 +135,11 @@ class L4SMetricsCollector {
   Timestamp last_delay_log_ = Timestamp::MinusInfinity();
   Timestamp last_loss_log_ = Timestamp::MinusInfinity();
   Timestamp last_summary_log_ = Timestamp::MinusInfinity();
+
+
+  double last_network_fps_ = 0.0;
+  double last_decode_fps_ = 0.0;
+  double last_render_fps_ = 0.0;
   
   // Minimum intervals between logs
   static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(100);
@@ -168,6 +175,9 @@ class L4SNetworkController : public NetworkControllerInterface {
   NetworkControlUpdate OnNetworkStateEstimate(
       NetworkStateEstimate msg) override;
 
+
+  void OnFrameRateUpdate(double network_fps, double decode_fps, double render_fps, Timestamp at_time);
+  
 
  private:
   NetworkControlUpdate CreateRateUpdate(Timestamp at_time) const;
@@ -239,6 +249,10 @@ class L4SNetworkController : public NetworkControllerInterface {
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
   std::string current_active_controller_ = "initializing";
+
+  double last_network_fps_ = 0.0;
+  double last_decode_fps_ = 0.0;
+  double last_render_fps_ = 0.0;
   
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);

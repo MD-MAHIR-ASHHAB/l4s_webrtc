@@ -1647,6 +1647,8 @@ void VideoStreamEncoder::OnFrame(Timestamp post_time,
                      << ", dropped (due to encoder blocked) "
                      << dropped_frame_encoder_block_count_ << ", interval_ms "
                      << kFrameLogIntervalMs;
+
+    
     captured_frame_count_ = 0;
     dropped_frame_cwnd_pushback_count_ = 0;
     dropped_frame_encoder_block_count_ = 0;
@@ -1813,6 +1815,16 @@ void VideoStreamEncoder::MaybeEncodeVideoFrame(const VideoFrame& video_frame,
                                                int64_t time_when_posted_us) {
   RTC_DCHECK_RUN_ON(encoder_queue_.get());
   input_state_provider_.OnFrameSizeObserved(video_frame.size());
+
+    // --- Frame rate logging block ---
+  static int64_t last_fps_log_ms = 0;
+  int64_t now_ms = env_.clock().TimeInMilliseconds();
+  const int64_t kFpsLogIntervalMs = 1000; // Log every second
+  if (now_ms - last_fps_log_ms > kFpsLogIntervalMs) {
+    uint32_t framerate_fps = GetInputFramerateFps();
+    LogFrameRateToJson(static_cast<double>(framerate_fps), now_ms);
+    last_fps_log_ms = now_ms;
+  }
 
   if (!last_frame_info_ || video_frame.width() != last_frame_info_->width ||
       video_frame.height() != last_frame_info_->height ||
@@ -2620,6 +2632,22 @@ void VideoStreamEncoder::ProcessDroppedFrame(
     OnDroppedFrame(*converted_reason);
   }
   encoder_stats_observer_->OnFrameDropped(reason);
+}
+
+
+
+void VideoStreamEncoder::LogFrameRateToJson(double fps, int64_t timestamp_ms) {
+  if (!frame_rate_json_log_initialized_) {
+    frame_rate_json_log_.open("frame_rate_log.json", std::ios::app);
+    frame_rate_json_log_initialized_ = true;
+  }
+  if (frame_rate_json_log_.is_open()) {
+    // Manually write a JSON object per line
+    frame_rate_json_log_ << "{"
+                         << "\"timestamp_ms\":" << timestamp_ms << ","
+                         << "\"fps\":" << fps
+                         << "}" << std::endl;
+  }
 }
 
 }  // namespace webrtc
