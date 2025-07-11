@@ -55,7 +55,7 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 
 
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-  constexpr int kDefaultMssBytes = 1000; // Typical Ethernet MSS
+  constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
 
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
   double rtt_seconds = rtt.seconds<double>();
@@ -87,9 +87,9 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   //                    << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   // } 
 
-//according to rfc 6679 section 7.3.3
+  //according to rfc 6679 section 7.3.3
 
-  if (ce_ratio > 0.05) {
+  if (ce_ratio > 0.1) {
     // Proportional decrease on CE marks
     double reduction_factor = 0.5;
     DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
@@ -103,7 +103,7 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
                      << ", ce_ratio=" << ce_ratio
                      << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  }  else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
+  }  else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double ai_factor = 0.1; // 0.5 MSS per RTT
