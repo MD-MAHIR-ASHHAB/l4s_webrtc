@@ -37,7 +37,7 @@ namespace webrtc {
 // AdaptiveCapacityEstimator implementation
 AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate initial_conservative_estimate)
     : historic_min_(DataRate::KilobitsPerSec(300)),      // Start with 300 kbps
-      historic_max_(DataRate::KilobitsPerSec(10000)),
+      historic_max_(DataRate::KilobitsPerSec(1000000)), // 1 Gbps
       conservative_estimate_(initial_conservative_estimate),
       congestion_based_estimate_(initial_conservative_estimate),
       historical_estimate_(initial_conservative_estimate),
@@ -162,7 +162,7 @@ DataRate AdaptiveCapacityEstimator::GetConservativeEstimateForType(ConnectionTyp
       return DataRate::KilobitsPerSec(100000);  // 100 Mbps
     case ConnectionType::UNKNOWN:
     default:
-      return DataRate::KilobitsPerSec(1000);   // 1 Mbps conservative default
+      return DataRate::KilobitsPerSec(300);   // 300 Kbps conservative default
   }
 }
 
@@ -175,7 +175,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       // Initialize adaptive capacity estimator first (based on header order)
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(10000))),  // Start with 10 Mbps conservative estimate
+              DataRate::KilobitsPerSec(100))),  // Start with 100 Kbps conservative estimate
       // Initialize metrics collection
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {
@@ -204,7 +204,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
     if (!starting_rate_->IsFinite() || starting_rate_->bps() <= 0) {
       RTC_LOG(LS_WARNING) << "L4S: Invalid starting rate " << starting_rate_->bps() 
                           << " bps, using 300 kbps";
-      starting_rate_ = DataRate::KilobitsPerSec(300);
+      starting_rate_ = DataRate::KilobitsPerSec(300); // Default to 300 kbps
     }
   }
 
@@ -253,17 +253,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
   // Validate critical member variables after initialization
   if (!max_realistic_bandwidth_.IsFinite()) {
     RTC_LOG(LS_ERROR) << "L4S: CRITICAL - max_realistic_bandwidth_ is not finite!";
-    max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000);
-  }
-  if (!last_acknowledged_rate_.IsFinite()) {
-    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - last_acknowledged_rate_ is not finite!";
-    // last_acknowledged_rate_ = DataRate::Zero();
-    last_acknowledged_rate_ = DataRate::KilobitsPerSec(300);  // Default to 300 kbps
-  }
-  if (!last_delay_based_estimate_.IsFinite()) {
-    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - last_delay_based_estimate_ is not finite!";
-    // last_delay_based_estimate_ = DataRate::Zero();
-    last_delay_based_estimate_ = DataRate::KilobitsPerSec(300);  // Default to 300 kbps
+    max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // Fallback to 100 Mbps
   }
 }
 
@@ -953,8 +943,11 @@ void L4SNetworkController::LogControllerState(Timestamp at_time) {
   
   // Create state info string
   std::string state_info = "target_rate=" + std::to_string(target_rate_.value_or(DataRate::Zero()).bps()) + 
-                          ";delay_est=" + std::to_string(last_delay_based_estimate_.bps()) +
-                          ";acked_est=" + std::to_string(last_acknowledged_rate_.bps()) +
+                           ";actual_rate=" + std::to_string(last_actual_bitrate_.bps()) +
+                           ";max_realistic_bandwidth=" + std::to_string(max_realistic_bandwidth_.bps()) +
+                           ";last_rtt_ms=" + std::to_string(last_rtt_.ms()) +
+                           ";ce_count=" + std::to_string(ce_count_) +
+                           ";ect_count=" + std::to_string(ect_count_) +
                           ";ecn_supported=" + (ecn_supported_ ? "true" : "false");
   
   // Log controller state only if it changed
