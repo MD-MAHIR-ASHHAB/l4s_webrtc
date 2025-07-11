@@ -758,12 +758,12 @@ void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
   
-  // logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
-  //                               webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
-  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
-                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
+  // logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, 
+  //                               webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 
