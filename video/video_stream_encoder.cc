@@ -2639,7 +2639,7 @@ void VideoStreamEncoder::ProcessDroppedFrame(
 
 void VideoStreamEncoder::LogFrameRateToJson(double fps, int64_t timestamp_ms) {
   if (!frame_rate_json_log_initialized_) {
-    frame_rate_json_log_.open("incoming_frame_rate_log.json", std::ios::app);
+    frame_rate_json_log_.open("outgoing_frame_rate_log.json", std::ios::app);
     frame_rate_json_log_initialized_ = true;
   }
   if (frame_rate_json_log_.is_open()) {
