@@ -106,16 +106,7 @@ class L4SMetricsCollector {
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
                            double congestion_ratio);
-  void LogControllerState(Timestamp at_time, const std::string& active_controller,
-                         const std::string& state_info);
-  
-  // Event-based metrics
-  void LogProbeEvent(Timestamp at_time, DataRate probe_rate, bool successful);
-  void LogControllerSwitch(Timestamp at_time, const std::string& from_controller,
-                          const std::string& to_controller, const std::string& reason);
-  void LogNetworkEvent(Timestamp at_time, const std::string& event_type,
-                      const std::string& event_data);
-  
+
   // Periodic summary metrics
   void LogPeriodicSummary(Timestamp at_time);
   
@@ -241,16 +232,14 @@ class L4SNetworkController : public NetworkControllerInterface {
   DataRate last_target_bitrate_ = DataRate::Zero();
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
   double last_loss_fraction_ = 0.0;
-  std::string current_active_controller_ = "initializing";
+  int last_packets_lost_ = 0;
   
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);
   void LogControllerState(Timestamp at_time);
 
 
-    // Add to private section:
-  double last_loss_fraction_ = 0.0;
-  int last_packets_lost_ = 0;
+
 };
 
 /*
