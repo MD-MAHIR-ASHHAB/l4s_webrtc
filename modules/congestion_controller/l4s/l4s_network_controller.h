@@ -50,7 +50,7 @@ class AdaptiveCapacityEstimator {
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
 
-
+  TimeDelta GetMinRTT() const { return min_rtt_; }
   DataRate GetHistoricMin() const { return historic_min_; }
   DataRate GetHistoricMax() const { return historic_max_; }
   void SetHistoricMin(DataRate rate) { historic_min_ = rate; }
