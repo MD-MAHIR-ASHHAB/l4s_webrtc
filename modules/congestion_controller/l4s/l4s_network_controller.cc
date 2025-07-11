@@ -58,10 +58,10 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
   constexpr double g = 1.0 / 16.0;       // DCTCP recommended EWMA gain
   TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
+  double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds < 0.001) {
     rtt_seconds = 0.001; // Avoid division by zero
   }
-
 
   // DCTCP-style alpha update (EWMA of CE ratio)
   alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
@@ -84,7 +84,6 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   } else if (ce_ratio < 0.005 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
-    double rtt_seconds = rtt.seconds<double>();
     int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
     DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
     congestion_based_estimate_ = increased;
