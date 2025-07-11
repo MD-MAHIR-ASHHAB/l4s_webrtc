@@ -169,8 +169,8 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
       feedback.sent.sequence_number);
   history_.emplace(feedback.sent.sequence_number, feedback);
 
-  RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
-                   << " ECN marking=" << static_cast<int>(current_ecn_marking_);
+  // RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
+  //                  << " ECN marking=" << static_cast<int>(current_ecn_marking_);
 }
 
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
@@ -422,13 +422,13 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     }
     // Check for ECN support immediately based on feedback content, before packet lookup
     // This prevents ECN detection from being disabled due to lookup failures
-    RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
-                      << packet_info.sequence_number
-                      << ": " 
-                      << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                          (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-                            (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-                              (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
+    // RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
+    //                   << packet_info.sequence_number
+    //                   << ": " 
+    //                   << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+    //                       (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
+    //                         (packet_info.ecn == EcnMarking::kCe ? "CE" : 
+    //                           (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
     if (packet_info.ecn != EcnMarking::kNotEct) {
       supports_ecn = true;
     }
@@ -449,16 +449,16 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     }
 
     // Only log ECN for media packets (not control/feedback)
-    if (!packet_feedback->sent.audio) { // adjust threshold as needed
-      RTC_LOG(LS_INFO) << "MEDIA Feedback contains ECN marking for seq=" 
-                       << packet_info.sequence_number
-                       << " size=" << packet_feedback->sent.size
-                       << ": " 
-                       << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-                           (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-                             (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-                               (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
-    }
+    // if (!packet_feedback->sent.audio) { // adjust threshold as needed
+    //   // RTC_LOG(LS_INFO) << "MEDIA Feedback contains ECN marking for seq=" 
+    //   //                  << packet_info.sequence_number
+    //   //                  << " size=" << packet_feedback->sent.size
+    //   //                  << ": " 
+    //   //                  << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
+    //   //                      (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
+    //   //                        (packet_info.ecn == EcnMarking::kCe ? "CE" : 
+    //   //                          (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
+    // }
 
     PacketResult result;
     result.sent_packet = packet_feedback->sent;

@@ -112,9 +112,9 @@ void CongestionControlFeedbackTracker::AddPacketsToFeedback(
         if (packet_it->ecn == EcnMarking::kCe) {
           ecn = EcnMarking::kCe;
         }
-        RTC_LOG(LS_WARNING) << "Received duplicate packet ssrc:" << ssrc
-                            << " seq:" << static_cast<uint16_t>(sequence_number)
-                            << " ecn: " << static_cast<int>(ecn);
+        // RTC_LOG(LS_WARNING) << "Received duplicate packet ssrc:" << ssrc
+        //                     << " seq:" << static_cast<uint16_t>(sequence_number)
+        //                     << " ecn: " << static_cast<int>(ecn);
         ++packet_it;
       }
     }  // else - the packet has not been received yet.

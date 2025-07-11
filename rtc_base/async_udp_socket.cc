@@ -56,13 +56,13 @@ AsyncUDPSocket::AsyncUDPSocket(Socket* socket) : socket_(socket) {
   // Log initial ECN socket capabilities
   RTC_LOG(LS_INFO) << "SOCKET INIT: Created AsyncUDPSocket for address=" 
                    << socket_->GetLocalAddress().ToString();
-  LogEcnSocketOptions();
+  //LogEcnSocketOptions();
   
   // Try to enable ECN reception by default
   int recv_ecn_result = socket_->SetOption(Socket::OPT_RECV_ECN, 1);
   RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN reception, result=" << recv_ecn_result;
   if (recv_ecn_result == 0) {
-    LogEcnSocketOptions();
+    //LogEcnSocketOptions();
   }
 
   // Force ECN marking (ECT(1)) for all outgoing packets
@@ -70,7 +70,7 @@ AsyncUDPSocket::AsyncUDPSocket(Socket* socket) : socket_(socket) {
   RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN marking for send, result=" << send_ecn_result;
   if (send_ecn_result == 0) {
     has_set_ect1_options_ = true;
-    LogEcnSocketOptions();
+    //LogEcnSocketOptions();
   }
 
 }
@@ -156,13 +156,13 @@ int AsyncUDPSocket::GetOption(Socket::Option opt, int* value) {
 int AsyncUDPSocket::SetOption(Socket::Option opt, int value) {
   int result = socket_->SetOption(opt, value);
   
-  // Log ECN-related socket option changes
-  if (opt == Socket::OPT_SEND_ECN || opt == Socket::OPT_RECV_ECN) {
-    // RTC_LOG(LS_INFO) << "SOCKET OPTION: Set " 
-    //                  << (opt == Socket::OPT_SEND_ECN ? "SEND_ECN" : "RECV_ECN")
-    //                  << " to " << value << " result=" << result;
-    LogEcnSocketOptions();
-  }
+  // // Log ECN-related socket option changes
+  // if (opt == Socket::OPT_SEND_ECN || opt == Socket::OPT_RECV_ECN) {
+  //   // RTC_LOG(LS_INFO) << "SOCKET OPTION: Set " 
+  //   //                  << (opt == Socket::OPT_SEND_ECN ? "SEND_ECN" : "RECV_ECN")
+  //   //                  << " to " << value << " result=" << result;
+  //   LogEcnSocketOptions();
+  // }
   
   return result;
 }
@@ -209,9 +209,9 @@ void AsyncUDPSocket::OnReadEvent(Socket* socket) {
     // Spurios wakeup.
     return;
   }
-  RTC_LOG(LS_INFO) << "RECV: len=" << len
-                   << " ECN=" << static_cast<int>(receive_buffer.ecn)
-                   << " from=" << receive_buffer.source_address.ToString();
+  // RTC_LOG(LS_INFO) << "RECV: len=" << len
+  //                  << " ECN=" << static_cast<int>(receive_buffer.ecn)
+  //                  << " from=" << receive_buffer.source_address.ToString();
   if (!receive_buffer.arrival_time) {
     // Timestamp from socket is not available.
     receive_buffer.arrival_time = Timestamp::Micros(TimeMicros());
