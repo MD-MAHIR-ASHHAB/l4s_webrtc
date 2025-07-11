@@ -127,6 +127,19 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
                                          network_state_predictor_.get())),
       acknowledged_bitrate_estimator_(
           AcknowledgedBitrateEstimatorInterface::Create(&env_.field_trials())),
+                metrics_enabled_(true),
+      current_active_controller_("l4s_initializing") {
+  
+      // Always initialize metrics collector with a valid logger
+      using webrtc::test::GetGlobalMetricsLogger;
+      test::MetricsLogger* logger_to_use = metrics_logger;
+      if (!logger_to_use) {
+        logger_to_use = GetGlobalMetricsLogger();
+      }
+      metrics_collector_ = std::make_unique<GCCMetricsCollector>(
+          logger_to_use, goog_cc_config.test_case_name, &env_.clock());
+      RTC_LOG(LS_INFO) << "GCC: Metrics collection enabled for test case: "
+                       << goog_cc_config.test_case_name;
       initial_config_(config),
       last_loss_based_target_rate_(*config.constraints.starting_rate),
       last_pushback_target_rate_(last_loss_based_target_rate_),
@@ -193,6 +206,11 @@ NetworkControlUpdate GoogCcNetworkController::OnNetworkRouteChange(
 
 NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
     ProcessInterval msg) {
+
+        // Log metrics periodically on each process interval
+  LogPeriodicMetrics(msg.at_time);
+
+
   NetworkControlUpdate update;
   if (initial_config_) {
     update.probe_cluster_configs =
