@@ -221,7 +221,13 @@ class VideoReceiveStream2
   void OnDecodableFrameTimeout(TimeDelta wait) override;
 
   void CreateAndRegisterExternalDecoder(const Decoder& decoder);
+  int received_frame_count_ = 0;
+  int64_t last_fps_log_ms_ = 0;
+  std::ofstream incoming_frame_rate_log_;
+  bool incoming_frame_rate_log_initialized_ = false;
 
+  void LogIncomingFrameRateToJson(int64_t now_ms);
+  
   struct DecodeFrameResult {
     // True if the decoder returned code WEBRTC_VIDEO_CODEC_OK_REQUEST_KEYFRAME,
     // or if the decoder failed and a keyframe is required. When true, a

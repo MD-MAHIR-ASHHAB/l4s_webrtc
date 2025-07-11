@@ -679,6 +679,8 @@ int VideoReceiveStream2::GetBaseMinimumPlayoutDelayMs() const {
 }
 
 void VideoReceiveStream2::OnFrame(const VideoFrame& video_frame) {
+  int64_t now_ms = env_.clock().TimeInMilliseconds();
+  LogIncomingFrameRateToJson(now_ms);
   config_.renderer->OnFrame(video_frame);
 
   // TODO: bugs.webrtc.org/42220804 - we should set local capture clock offset
@@ -1199,6 +1201,26 @@ void VideoReceiveStream2::UpdateRtxSsrc(uint32_t ssrc) {
   updated_rtx_ssrc_ = ssrc;
   rtx_receiver_ = receiver_controller_->CreateReceiver(
       rtx_ssrc(), rtx_receive_stream_.get());
+}
+
+void VideoReceiveStream2::LogIncomingFrameRateToJson(int64_t now_ms) {
+  ++received_frame_count_;
+  const int64_t kFpsLogIntervalMs = 1000;
+  if (!incoming_frame_rate_log_initialized_) {
+    incoming_frame_rate_log_.open("incoming_frame_rate_log.json", std::ios::app);
+    incoming_frame_rate_log_initialized_ = true;
+  }
+  if (now_ms - last_fps_log_ms_ > kFpsLogIntervalMs) {
+    double fps = static_cast<double>(received_frame_count_) * 1000.0 / (now_ms - last_fps_log_ms_);
+    if (incoming_frame_rate_log_.is_open()) {
+      incoming_frame_rate_log_ << "{"
+                               << "\"timestamp_ms\":" << now_ms << ","
+                               << "\"fps\":" << fps
+                               << "}" << std::endl;
+    }
+    received_frame_count_ = 0;
+    last_fps_log_ms_ = now_ms;
+  }
 }
 
 }  // namespace internal
