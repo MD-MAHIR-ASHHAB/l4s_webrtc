@@ -50,7 +50,7 @@ class AdaptiveCapacityEstimator {
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
 
-  TimeDelta GetMinRTT() const { return min_rtt_; }
+  TimeDelta GetCurrentRTT() const { return current_rtt_; }
   DataRate GetHistoricMin() const { return historic_min_; }
   DataRate GetHistoricMax() const { return historic_max_; }
   void SetHistoricMin(DataRate rate) { historic_min_ = rate; }
@@ -85,7 +85,7 @@ class AdaptiveCapacityEstimator {
   static constexpr TimeDelta kDecayInterval = TimeDelta::Seconds(30);
   
   Timestamp last_update_time_;
-  TimeDelta min_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta current_rtt_ = TimeDelta::PlusInfinity();
   
   // Absolute limits
   static constexpr DataRate kAbsoluteMaxLimit = DataRate::KilobitsPerSec(1000000); // 1 Gbps

@@ -57,7 +57,7 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
 
-  TimeDelta rtt = min_rtt_.IsFinite() ? min_rtt_ : TimeDelta::Millis(10);
+  TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(20);
   double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds < 0.002) {
     rtt_seconds = 0.002; // Avoid division by zero
@@ -100,9 +100,9 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     // Clamp to min_target_rate_
     if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
     if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
-                     << ", ce_ratio=" << ce_ratio
-                     << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+    // RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
+    //                  << ", ce_ratio=" << ce_ratio
+    //                  << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }  else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
     // Linear, RTT-aware additive increase: +1 MSS per RTT
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
@@ -120,8 +120,8 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
     // Clamp to max_target_rate_
     if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
     if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
-    RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-                     << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+    // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+    //                  << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
   }
   else{
     // No action needed if CE ratio is low and rate is stable
@@ -146,9 +146,9 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 
-  min_rtt_ = std::min(min_rtt_, rtt);
-  if (min_rtt_ < TimeDelta::Millis(20)) {
-    min_rtt_ = TimeDelta::Millis(20); // Ensure non-negative RTT
+  current_rtt_ = rtt.IsFinite() ? rtt : TimeDelta::Millis(20);
+  if (current_rtt_ < TimeDelta::Millis(20)) {
+    current_rtt_ = TimeDelta::Millis(20); // Ensure non-negative RTT
   }
 }
 
@@ -159,10 +159,10 @@ DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
   estimate = std::min(estimate, max_target_rate_);
   // Ensure we stay within absolute bounds
   DataRate periodic_max = std::max(min_target_rate_, std::min(estimate, max_target_rate_));
-  RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
-                   << periodic_max.bps() << " bps (congestion: " << congestion_based_estimate_.bps()
-                   << ", historic_min: " << historic_min_.bps()
-                   << ", historic_max: " << historic_max_.bps() << ")";
+  // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
+  //                  << periodic_max.bps() << " bps (congestion: " << congestion_based_estimate_.bps()
+  //                  << ", historic_min: " << historic_min_.bps()
+  //                  << ", historic_max: " << historic_max_.bps() << ")";
   return periodic_max;
 }
 
@@ -369,7 +369,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnProcessInterval(
     target_rate_ = ecn_based_limit;
     last_target_bitrate_ = ecn_based_limit;
 
-    RTC_LOG(LS_INFO) << "L4S: ECN-based target rate: " << ecn_based_limit.bps() << " bps";
+    // RTC_LOG(LS_INFO) << "L4S: ECN-based target rate: " << ecn_based_limit.bps() << " bps";
 
     MaybeTriggerOnNetworkChanged(&update, msg.at_time);
   } else if (fallback_to_gcc_) {
@@ -401,15 +401,19 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   // Update the adaptive capacity estimator with RTT information
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
   RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time << " ms";
-  // Update local RTT tracking for metrics
-  TimeDelta min_rtt = capacity_estimator_->GetMinRTT();
-  last_rtt_ = std::min(min_rtt, msg.round_trip_time);
-
+  
   // Log RTT metrics
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        last_rtt_, last_rtt_ / 2, jitter_);
+        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+  }
+  // Update local RTT tracking for metrics
+  TimeDelta last_rtt = capacity_estimator_->GetCurrentRTT();
+  if (last_rtt.IsFinite()) {
+    last_rtt_ = last_rtt;
+  } else {
+    last_rtt_ = TimeDelta::Millis(20); // Default to 20 ms if RTT is not set
   }
 
   // Forward to GCC if we're using it as fallback
@@ -560,6 +564,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
       TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
+      RTC_LOG(LS_INFO) << "L4S: Packet delay inside jitter calculation: " << delay.ms() << " ms";
       if (have_prev) {
         double diff = (delay - prev_delay).ms();
         rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
