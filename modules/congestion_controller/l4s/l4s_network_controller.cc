@@ -518,7 +518,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
     target_rate_ = ecn_based_limit;
     last_target_bitrate_ = ecn_based_limit;
 
-    RTC_LOG(LS_INFO) << "L4S: ECN-based target rate (feedback): " << ecn_based_limit.bps() << " bps";
+    // RTC_LOG(LS_INFO) << "L4S: ECN-based target rate (feedback): " << ecn_based_limit.bps() << " bps";
     MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
   } else if (fallback_to_gcc_) {
     update = gcc_controller_->OnTransportPacketsFeedback(feedback);
