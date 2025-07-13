@@ -559,22 +559,22 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   }
 
   // Per-packet delay and jitter logging (this is outside the above if/else)
-  TimeDelta prev_delay;
-  bool have_prev = false;
-  for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
-      TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
-      RTC_LOG(LS_INFO) << "L4S: Packet delay inside jitter calculation: " << delay.ms() << " ms";
-      if (have_prev) {
-        double diff = (delay - prev_delay).ms();
-        rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
-        jitter_ = TimeDelta::Millis(rfc3550_jitter_);
-        metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
-      }
-      prev_delay = delay;
-      have_prev = true;
-    }
-  }
+  // TimeDelta prev_delay;
+  // bool have_prev = false;
+  // for (const auto& packet : feedback.packet_feedbacks) {
+  //   if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+  //     TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
+  //     RTC_LOG(LS_INFO) << "L4S: Packet delay inside jitter calculation: " << delay.ms() << " ms";
+  //     if (have_prev) {
+  //       double diff = (delay - prev_delay).ms();
+  //       rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
+  //       jitter_ = TimeDelta::Millis(rfc3550_jitter_);
+  //       metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
+  //     }
+  //     prev_delay = delay;
+  //     have_prev = true;
+  //   }
+  // }
 
   return update;
 }
