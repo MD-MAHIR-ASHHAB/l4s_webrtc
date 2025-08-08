@@ -65,11 +65,12 @@ AsyncUDPSocket::AsyncUDPSocket(Socket* socket) : socket_(socket) {
     //LogEcnSocketOptions();
   }
 
-  // Force ECN marking (ECT(1)) for all outgoing packets
-  int send_ecn_result = socket_->SetOption(Socket::OPT_SEND_ECN, 1);
-  RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN marking for send, result=" << send_ecn_result;
+  // Initialize ECN sending capability (will be set per packet)
+  // Start with NOT-ECT as default, per-packet marking handled at transport layer
+  int send_ecn_result = socket_->SetOption(Socket::OPT_SEND_ECN, 0);
+  RTC_LOG(LS_INFO) << "SOCKET INIT: Attempted to enable ECN capability for send, result=" << send_ecn_result;
   if (send_ecn_result == 0) {
-    has_set_ect1_options_ = true;
+    has_set_ect1_options_ = false;  // Start with NOT-ECT
     //LogEcnSocketOptions();
   }
 
@@ -105,38 +106,36 @@ int AsyncUDPSocket::SendTo(const void* pv,
   // Enhanced ECN logging for socket-level debugging
   // RTC_LOG(LS_INFO) << "SOCKET SEND: Packet size=" << cb << " bytes"
   //                  << " to=" << addr.ToString()
-  //                  << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT")
-  //                  << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
+  //                  << " ECN requested=" << (options.ecn_1 ? "ECT(1)" : "NOT-ECT")
+  //                  << " Socket ECN option currently set=" << (has_set_ect1_options_ ? "ECT(1)" : "NOT-ECT");
 
-  //may be a problem?????
-
-
-  // if (has_set_ect1_options_ != options.ecn_1) {
-  //   // It is unclear what is most efficient, setting options on every sent
-  //   // packet or when changed. Potentially, can separate send sockets be used?
-  //   // This is the easier implementation.
-  //   int set_result = socket_->SetOption(Socket::Option::OPT_SEND_ECN,
-  //                                      options.ecn_1 ? 1 : 0);
-  //   if (set_result == 0) {
-  //     has_set_ect1_options_ = options.ecn_1;
-  //     // RTC_LOG(LS_INFO) << "SOCKET SEND: Successfully set ECN socket option to " 
-  //     //                  << (options.ecn_1 ? "ECT(1)" : "Not ECT");
-  //   } else {
-  //     RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
-  //                       << " Requested=" << (options.ecn_1 ? "ECT(1)" : "Not ECT");
-  //   }
-  // }
+  // Set ECN option per packet to avoid race conditions
+  // This ensures atomic ECN setting for each packet type (RTP vs RTCP)
+  if (has_set_ect1_options_ != options.ecn_1) {
+    // Set ECN option for this specific packet
+    int set_result = socket_->SetOption(Socket::Option::OPT_SEND_ECN,
+                                       options.ecn_1 ? 1 : 0);
+    if (set_result == 0) {
+      has_set_ect1_options_ = options.ecn_1;
+      RTC_LOG(LS_VERBOSE) << "SOCKET SEND: Successfully set ECN socket option to " 
+                         << (options.ecn_1 ? "ECT(1)" : "NOT-ECT");
+    } else {
+      RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED to set ECN socket option! Error=" << set_result
+                        << " Requested=" << (options.ecn_1 ? "ECT(1)" : "NOT-ECT");
+    }
+  }
   
   int ret = socket_->SendTo(pv, cb, addr);
   
   // Log the result of the send operation
-  // if (ret == static_cast<int>(cb)) {
-  //   RTC_LOG(LS_INFO) << "SOCKET SEND: SUCCESS - Sent " << ret << " bytes with ECN=" 
-  //                    << (has_set_ect1_options_ ? "ECT(1)" : "Not ECT");
-  // } else {
-  //   RTC_LOG(LS_ERROR) << "SOCKET SEND: FAILED - Attempted " << cb << " bytes, sent " << ret 
-  //                     << " bytes, error=" << socket_->GetError();
-  // }
+  if (ret != static_cast<int>(cb)) {
+    RTC_LOG(LS_WARNING) << "SOCKET SEND: Partial/Failed send - Attempted " << cb << " bytes, sent " << ret 
+                        << " bytes, error=" << socket_->GetError()
+                        << " ECN=" << (has_set_ect1_options_ ? "ECT(1)" : "NOT-ECT");
+  } else {
+    RTC_LOG(LS_VERBOSE) << "SOCKET SEND: SUCCESS - Sent " << ret << " bytes with ECN=" 
+                        << (has_set_ect1_options_ ? "ECT(1)" : "NOT-ECT");
+  }
   SignalSentPacket(this, sent_packet);
   return ret;
 }

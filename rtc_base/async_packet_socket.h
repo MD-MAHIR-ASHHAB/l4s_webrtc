@@ -56,10 +56,12 @@ struct RTC_EXPORT AsyncSocketPacketOptions {
 
   DiffServCodePoint dscp = DSCP_NO_CHANGE;
 
-  // Packet will be sent with ECN(1), RFC-3168, Section 5.
-  // Intended to be used with L4S
+  // Packet will be sent with ECN marking, RFC-3168, Section 5.
+  // Intended to be used with L4S. Value is set per packet type:
+  // - RTP packets: ECT(1) for L4S congestion control
+  // - RTCP packets: NOT-ECT (no ECN marking)
   // https://www.rfc-editor.org/rfc/rfc9331.html
-  bool ecn_1 = true; // hardcoded to true for L4S support
+  bool ecn_1 = false; // Default to NOT-ECT, will be set per packet type
 
   // When used with RTP packets (for example, webrtc::PacketOptions), the value
   // should be 16 bits. A value of -1 represents "not set".

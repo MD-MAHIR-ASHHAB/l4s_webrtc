@@ -158,11 +158,22 @@ bool RtpTransport::SendPacket(bool rtcp,
                               CopyOnWriteBuffer* packet,
                               const AsyncSocketPacketOptions& options,
                               int flags) {
+  // Create modified options for proper ECN marking based on packet type
+  // RFC 9331 (L4S): RTP packets should be ECT(1), RTCP packets should be NOT-ECT
+  AsyncSocketPacketOptions modified_options = options;
+  modified_options.ecn_1 = !rtcp;  // true for RTP (ECT-1), false for RTCP (NOT-ECT)
+  
+  // Debug logging for ECN marking behavior
+  RTC_LOG(LS_VERBOSE) << "RtpTransport::SendPacket: " 
+                      << (rtcp ? "RTCP" : "RTP") << " packet, size=" << packet->size()
+                      << ", ECN=" << (modified_options.ecn_1 ? "ECT(1)" : "NOT-ECT")
+                      << ", original_ecn=" << (options.ecn_1 ? "ECT(1)" : "NOT-ECT");
+  
   PacketTransportInternal* transport = rtcp && !rtcp_mux_enabled_
                                            ? rtcp_packet_transport_
                                            : rtp_packet_transport_;
   int ret = transport->SendPacket(packet->cdata<char>(), packet->size(),
-                                  options, flags);
+                                  modified_options, flags);
   if (ret != static_cast<int>(packet->size())) {
     if (set_ready_to_send_false_if_send_fail_) {
       // TODO: webrtc:361124449 - Remove SetReadyToSend if field trial
