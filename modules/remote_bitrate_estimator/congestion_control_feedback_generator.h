@@ -62,6 +62,9 @@ class CongestionControlFeedbackGenerator
 
   TimeDelta Process(Timestamp now) override;
 
+  // Force immediate feedback transmission (for L4S CE detection)
+  void SendImmediateFeedback() RTC_RUN_ON(sequence_checker_);
+
  private:
   Timestamp NextFeedbackTime() const RTC_RUN_ON(sequence_checker_);
 

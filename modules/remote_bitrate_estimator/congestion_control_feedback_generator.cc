@@ -86,6 +86,20 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
   return NextFeedbackTime() - now;
 }
 
+void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  Timestamp now = env_.clock().CurrentTime();
+  
+  // Only send if we have packets to report and respect minimum interval
+  if (!feedback_trackers_.empty() && 
+      now >= next_possible_feedback_send_time_) {
+    RTC_LOG(LS_INFO) << "L4S: Sending immediate RTCP feedback due to CE detection";
+    SendFeedback(now);
+  } else {
+    RTC_LOG(LS_INFO) << "L4S: Immediate feedback requested but rate limited or no packets";
+  }
+}
+
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   if (now < next_possible_feedback_send_time_) {
     // Adjust timestamp to prevent timing issues

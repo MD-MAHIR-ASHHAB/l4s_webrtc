@@ -26,6 +26,7 @@
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "p2p/base/packet_transport_internal.h"
+#include "pc/l4s_ecn_feedback_adapter.h"
 #include "pc/session_description.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_set.h"
@@ -211,6 +212,24 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
 
+  // Check for CE marking and trigger immediate RTCP feedback for L4S
+  if (ecn == EcnMarking::kCe && ecn_feedback_observer_) {
+    // First parse the packet to extract SSRC and sequence number
+    if (parsed_packet.Parse(packet)) {
+      uint32_t ssrc = parsed_packet.Ssrc();
+      uint16_t sequence_number = parsed_packet.SequenceNumber();
+      
+      RTC_LOG(LS_INFO) << "CE-marked RTP packet detected! SSRC=" << ssrc 
+                       << " seq=" << sequence_number 
+                       << " - triggering immediate RTCP feedback";
+      
+      // Notify observer to trigger immediate RTCP feedback
+      ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
+    } else {
+      RTC_LOG(LS_WARNING) << "Failed to parse CE-marked packet for immediate feedback";
+    }
+  }
+
   // if (ecn != EcnMarking::kNotEct) {
   //   RTC_LOG(LS_INFO) << "RTP packet with seq=" 
   //                    << parsed_packet.SequenceNumber()
@@ -342,6 +361,17 @@ void RtpTransport::MaybeSignalReadyToSend() {
     SendReadyToSend(ready_to_send);
     processing_ready_to_send_ = false;
   }
+}
+
+void RtpTransport::SetEcnFeedbackObserver(EcnFeedbackObserver* observer) {
+  ecn_feedback_observer_ = observer;
+  RTC_LOG(LS_INFO) << "ECN feedback observer " 
+                   << (observer ? "registered" : "removed") 
+                   << " for immediate RTCP feedback";
+}
+
+void RtpTransport::RemoveEcnFeedbackObserver() {
+  SetEcnFeedbackObserver(nullptr);
 }
 
 }  // namespace webrtc
