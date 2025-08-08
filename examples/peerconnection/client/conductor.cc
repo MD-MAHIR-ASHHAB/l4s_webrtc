@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
+#include "api/audio/create_audio_device_module.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio_options.h"
@@ -103,16 +104,22 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
       webrtc::VideoCaptureFactory::CreateDeviceInfo());
   if (!info) {
+    RTC_LOG(LS_WARNING) << "L4S: Failed to create video device info";
     return nullptr;
   }
   int num_devices = info->NumberOfDevices();
+  RTC_LOG(LS_INFO) << "L4S: Found " << num_devices << " video capture devices";
+  
   for (int i = 0; i < num_devices; ++i) {
     std::unique_ptr<TestVideoCapturer> capturer =
         webrtc::test::CreateVideoCapturer(kWidth, kHeight, kFps, i);
     if (capturer) {
+      RTC_LOG(LS_INFO) << "L4S: Using real video device " << i << " for authentic testing";
       return capturer;
     }
   }
+  
+  RTC_LOG(LS_WARNING) << "L4S: No real video devices available, using synthetic video";
   auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
       kWidth, kHeight, std::nullopt, std::nullopt);
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
@@ -228,6 +235,16 @@ bool Conductor::InitializePeerConnection() {
   
   deps.network_controller_factory = 
       std::make_unique<L4SNetworkControllerFactory>(l4s_config);
+  
+  // L4S Challenge 3: Use real audio device instead of fake
+  // Create real Windows Core Audio device for authentic L4S testing
+  auto real_audio_device = webrtc::CreateAudioDeviceModule(*deps.env);
+  if (real_audio_device) {
+    deps.adm = real_audio_device;
+    RTC_LOG(LS_INFO) << "L4S: Using real audio device for authentic testing";
+  } else {
+    RTC_LOG(LS_WARNING) << "L4S: Failed to create real audio device, using default";
+  }
   
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =
