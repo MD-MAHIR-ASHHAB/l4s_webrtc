@@ -59,8 +59,8 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
 
   TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(20);
   double rtt_seconds = rtt.seconds<double>();
-  if (rtt_seconds < 0.002) {
-    rtt_seconds = 0.002; // Avoid division by zero
+  if (rtt_seconds < 0.001) {
+    rtt_seconds = 0.001; // Minimum 1ms to avoid division by zero
   }
 
 
@@ -145,10 +145,10 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
 }
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
-
-  current_rtt_ = rtt.IsFinite() ? rtt : TimeDelta::Millis(20);
-  if (current_rtt_ < TimeDelta::Millis(20)) {
-    current_rtt_ = TimeDelta::Millis(20); // Ensure non-negative RTT
+  if (rtt.IsFinite() && rtt >= TimeDelta::Millis(1)) {
+    current_rtt_ = rtt;
+  } else {
+    current_rtt_ = TimeDelta::Millis(20); // Default for invalid RTT
   }
 }
 
@@ -400,20 +400,19 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
   
   // Update the adaptive capacity estimator with RTT information
   capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
-  RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time << " ms";
+  RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time.ms() << " ms";
   
-  // Log RTT metrics
+  // Log RTT metrics using the fresh RTT value
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+        msg.round_trip_time, TimeDelta::PlusInfinity(), jitter_);
   }
-  // Update local RTT tracking for metrics
-  TimeDelta last_rtt = capacity_estimator_->GetCurrentRTT();
-  if (last_rtt.IsFinite()) {
-    last_rtt_ = last_rtt;
+  // Update local RTT tracking for metrics - use fresh RTT
+  if (msg.round_trip_time.IsFinite() && msg.round_trip_time >= TimeDelta::Millis(1)) {
+    last_rtt_ = msg.round_trip_time;
   } else {
-    last_rtt_ = TimeDelta::Millis(20); // Default to 20 ms if RTT is not set
+    last_rtt_ = TimeDelta::Millis(20); // Default for invalid RTT
   }
 
   // Forward to GCC if we're using it as fallback
@@ -875,9 +874,9 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
   if (jitter.IsFinite()) {
-    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
-    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+    logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
 }
 

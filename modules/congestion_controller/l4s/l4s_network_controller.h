@@ -138,7 +138,7 @@ class L4SMetricsCollector {
   
   // Minimum intervals between logs
   static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(50);
   static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(500);
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
 };
