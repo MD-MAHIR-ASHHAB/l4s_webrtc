@@ -57,10 +57,10 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
 
-  TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(20);
+  TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(15);
   double rtt_seconds = rtt.seconds<double>();
-  if (rtt_seconds < 0.001) {
-    rtt_seconds = 0.001; // Minimum 1ms to avoid division by zero
+  if (rtt_seconds < 0.015) {
+    rtt_seconds = 0.015; // Minimum 15ms to avoid division by zero
   }
 
 
@@ -145,10 +145,10 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
 }
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
-  if (rtt.IsFinite() && rtt >= TimeDelta::Millis(1)) {
+  if (rtt.IsFinite() && rtt >= TimeDelta::Millis(15)) {
     current_rtt_ = rtt;
   } else {
-    current_rtt_ = TimeDelta::Millis(20); // Default for invalid RTT
+    current_rtt_ = TimeDelta::Millis(15); // Default for invalid RTT
   }
 }
 
@@ -409,10 +409,10 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
         msg.round_trip_time, TimeDelta::PlusInfinity(), jitter_);
   }
   // Update local RTT tracking for metrics - use fresh RTT
-  if (msg.round_trip_time.IsFinite() && msg.round_trip_time >= TimeDelta::Millis(1)) {
+  if (msg.round_trip_time.IsFinite() && msg.round_trip_time >= TimeDelta::Millis(15)) {
     last_rtt_ = msg.round_trip_time;
   } else {
-    last_rtt_ = TimeDelta::Millis(20); // Default for invalid RTT
+    last_rtt_ = TimeDelta::Millis(15); // Default for invalid RTT
   }
 
   // Forward to GCC if we're using it as fallback
@@ -874,9 +874,9 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
   if (jitter.IsFinite()) {
-    logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
-                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
+    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
 }
 
