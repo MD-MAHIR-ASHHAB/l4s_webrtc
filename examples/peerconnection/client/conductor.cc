@@ -64,6 +64,7 @@
 #include "test/frame_generator_capturer.h"
 #include "test/platform_video_capturer.h"
 #include "test/test_video_capturer.h"
+#include "test/testsupport/file_utils.h"
 
 // L4S Metrics Collection
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
@@ -112,7 +113,7 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
   
   for (int i = 0; i < num_devices; ++i) {
     std::unique_ptr<TestVideoCapturer> capturer =
-        webrtc::test::CreateVideoCapturer(kWidth, kHeight, kFps, i);
+        webrtc::test::cd (kWidth, kHeight, kFps, i);
     if (capturer) {
       RTC_LOG(LS_INFO) << "L4S: Using real video device " << i << " for authentic testing";
       return capturer;
