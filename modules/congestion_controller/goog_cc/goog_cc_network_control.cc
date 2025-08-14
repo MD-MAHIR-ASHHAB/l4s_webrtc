@@ -823,6 +823,7 @@ void GCCMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
 
 void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                                          TimeDelta jitter) {
+  RTC_LOG(LS_INFO) << "GCC: inside logger before logging Round trip time updated arrived: " << rtt.ms() << " ms";
   if (at_time - last_delay_log_ < kDelayLogInterval) {
     return;
   }
