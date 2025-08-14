@@ -829,7 +829,7 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
-  
+  RTC_LOG(LS_INFO) << "GCC inside the logger: Round trip time updated arrived: " << rtt.ms() << " ms";
   logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
                                 webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
