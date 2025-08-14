@@ -53,7 +53,6 @@
 #include "json/reader.h"
 #include "json/value.h"
 #include "json/writer.h"
-#include "media/base/media_config.h"
 #include "modules/video_capture/video_capture.h"
 #include "modules/video_capture/video_capture_factory.h"
 #include "pc/video_track_source.h"
@@ -94,9 +93,9 @@ class DummySetSessionDescriptionObserver
 
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 640;
-  const size_t kHeight = 480;
-  const size_t kFps = 30;
+  const size_t kWidth = 1920;
+  const size_t kHeight = 1080;
+  const size_t kFps = 300;
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
       webrtc::VideoCaptureFactory::CreateDeviceInfo());
   if (!info) {
@@ -542,23 +541,10 @@ void Conductor::AddTracks() {
         peer_connection_factory_->CreateVideoTrack(video_device, kVideoLabel));
     main_wnd_->StartLocalRenderer(video_track_.get());
 
-    // Configure video transceiver to MAINTAIN RESOLUTION
-    webrtc::RtpTransceiverInit init;
-    init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
-    
-    auto video_result_or_error = peer_connection_->AddTransceiver(video_track_, init);
-    if (video_result_or_error.ok()) {
-      auto transceiver = video_result_or_error.value();
-      auto sender = transceiver->sender();
-      if (sender) {
-        webrtc::RtpParameters parameters = sender->GetParameters();
-        // Force degradation preference to maintain resolution
-        parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
-        sender->SetParameters(parameters);
-      }
-    } else {
-      RTC_LOG(LS_ERROR) << "Failed to add video transceiver to PeerConnection: "
-                        << video_result_or_error.error().message();
+    result_or_error = peer_connection_->AddTrack(video_track_, {kStreamId});
+    if (!result_or_error.ok()) {
+      RTC_LOG(LS_ERROR) << "Failed to add video track to PeerConnection: "
+                        << result_or_error.error().message();
     }
   } else {
     RTC_LOG(LS_ERROR) << "OpenVideoCaptureDevice failed";
