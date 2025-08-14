@@ -63,6 +63,7 @@
 #include "test/frame_generator_capturer.h"
 #include "test/platform_video_capturer.h"
 #include "test/test_video_capturer.h"
+#include "test/testsupport/file_utils.h"
 
 // L4S Metrics Collection
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
