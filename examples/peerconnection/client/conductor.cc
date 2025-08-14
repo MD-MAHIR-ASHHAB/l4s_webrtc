@@ -546,19 +546,19 @@ void Conductor::AddTracks() {
     webrtc::RtpTransceiverInit init;
     init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
     
-    auto result_or_error = peer_connection_->AddTransceiver(video_track_, init);
-    if (result_or_error.ok()) {
-      auto transceiver = result_or_error.value();
+    auto video_result_or_error = peer_connection_->AddTransceiver(video_track_, init);
+    if (video_result_or_error.ok()) {
+      auto transceiver = video_result_or_error.value();
       auto sender = transceiver->sender();
       if (sender) {
         webrtc::RtpParameters parameters = sender->GetParameters();
         // Force degradation preference to maintain resolution
-        parameters.degradation_preference = webrtc::DegradationPreference::kMaintainResolution;
+        parameters.degradation_preference = webrtc::DegradationPreference::MAINTAIN_RESOLUTION;
         sender->SetParameters(parameters);
       }
     } else {
       RTC_LOG(LS_ERROR) << "Failed to add video transceiver to PeerConnection: "
-                        << result_or_error.error().message();
+                        << video_result_or_error.error().message();
     }
   } else {
     RTC_LOG(LS_ERROR) << "OpenVideoCaptureDevice failed";
