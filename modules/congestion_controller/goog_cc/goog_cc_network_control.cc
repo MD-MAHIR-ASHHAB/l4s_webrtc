@@ -278,6 +278,7 @@ NetworkControlUpdate GoogCcNetworkController::OnRemoteBitrateReport(
 
 NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
     RoundTripTimeUpdate msg) {
+  RTC_LOG(LS_INFO) << "GCC: Round trip time updated arrived: " << msg.round_trip_time.ms() << " ms";
   if (msg.smoothed) {
     return NetworkControlUpdate();
   }
