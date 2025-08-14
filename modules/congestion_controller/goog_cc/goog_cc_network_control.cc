@@ -288,6 +288,7 @@ NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
   
   // Log RTT metrics
   if (metrics_enabled_ && metrics_collector_) {
+    RTC_LOG(LS_INFO) << "GCC just before the log: Round trip time updated arrived: " << msg.round_trip_time.ms() << " ms";
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
         msg.round_trip_time, msg.round_trip_time / 2, jitter_);
