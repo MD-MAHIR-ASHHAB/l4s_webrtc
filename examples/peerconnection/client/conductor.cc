@@ -110,17 +110,17 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
     }
   }
 
- //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-    //   kWidth, kHeight, std::nullopt, std::nullopt);
+ // //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+ //    //   kWidth, kHeight, std::nullopt, std::nullopt);
 
- // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
-   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
+ // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+ //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
 
-  auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
-  auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, 480, 272, 1);
+ //  auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+ //  auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, 480, 272, 1);
 
-//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-  //    kWidth, kHeight, std::nullopt, std::nullopt);
+ auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+     kWidth, kHeight, std::nullopt, std::nullopt);
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
       task_queue_factory);
