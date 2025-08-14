@@ -53,6 +53,7 @@
 #include "json/reader.h"
 #include "json/value.h"
 #include "json/writer.h"
+#include "media/base/media_config.h"
 #include "modules/video_capture/video_capture.h"
 #include "modules/video_capture/video_capture_factory.h"
 #include "pc/video_track_source.h"
@@ -251,6 +252,15 @@ bool Conductor::CreatePeerConnection() {
 
   webrtc::PeerConnectionInterface::RTCConfiguration config;
   config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+  
+  // DISABLE ALL RESOLUTION ADAPTATIONS
+  // 1. Disable CPU-based adaptation
+  config.media_config.video.enable_cpu_adaptation = false;
+  // 2. Disable bandwidth-based suspension
+  config.media_config.video.suspend_below_min_bitrate = false;
+  // 3. Disable experimental CPU load estimator
+  config.media_config.video.experiment_cpu_load_estimator = false;
+  
   webrtc::PeerConnectionInterface::IceServer server;
   server.uri = GetPeerConnectionString();
   config.servers.push_back(server);
@@ -532,9 +542,22 @@ void Conductor::AddTracks() {
         peer_connection_factory_->CreateVideoTrack(video_device, kVideoLabel));
     main_wnd_->StartLocalRenderer(video_track_.get());
 
-    result_or_error = peer_connection_->AddTrack(video_track_, {kStreamId});
-    if (!result_or_error.ok()) {
-      RTC_LOG(LS_ERROR) << "Failed to add video track to PeerConnection: "
+    // Configure video transceiver to MAINTAIN RESOLUTION
+    webrtc::RtpTransceiverInit init;
+    init.direction = webrtc::RtpTransceiverDirection::kSendOnly;
+    
+    auto result_or_error = peer_connection_->AddTransceiver(video_track_, init);
+    if (result_or_error.ok()) {
+      auto transceiver = result_or_error.value();
+      auto sender = transceiver->sender();
+      if (sender) {
+        webrtc::RtpParameters parameters = sender->GetParameters();
+        // Force degradation preference to maintain resolution
+        parameters.degradation_preference = webrtc::DegradationPreference::kMaintainResolution;
+        sender->SetParameters(parameters);
+      }
+    } else {
+      RTC_LOG(LS_ERROR) << "Failed to add video transceiver to PeerConnection: "
                         << result_or_error.error().message();
     }
   } else {
