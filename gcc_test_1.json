@@ -1,0 +1,6338 @@
+[
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4652756127, "value": 0.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4652756133, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4652756136, "value": 0.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4652756142, "value": 0.000000}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4652756145, "value": 0.000000}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4652756152, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4652858224, "value": 0.300000}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4652858288, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4652858294, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4652982613, "value": 1.355272}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4652982702, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4652982708, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653106430, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653106501, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653106507, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653206214, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653206287, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653206310, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653306832, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653306901, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653306907, "value": 0.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4653306915, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4653306921, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653406990, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653407059, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653407065, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653507798, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653507867, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653507873, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653632000, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653632068, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653632075, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653732358, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653732479, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653732486, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653856141, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653856209, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653856215, "value": 0.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4653856224, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4653856230, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4653957772, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4653957839, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4653957845, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654082661, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654082748, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654082754, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654206378, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654206448, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654206455, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654307076, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654307465, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654307473, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654431171, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654431241, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654431247, "value": 0.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4654431254, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4654431259, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654532946, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654533018, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654533023, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654633014, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654633085, "value": 0.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654633091, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654756083, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654756159, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654756247, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654856631, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654856708, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654856714, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4654957631, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4654957699, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4654957705, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4654957714, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4654957720, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655058119, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655058217, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655058223, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655183635, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655183704, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655183710, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655307048, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655307126, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655307132, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655432866, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655432937, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655432943, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655557322, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655557393, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655557400, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4655557407, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4655557413, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655659068, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655659145, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655659151, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655781857, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655781929, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655781936, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4655883092, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4655883235, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4655883242, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656007621, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656007814, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656007822, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656106861, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656106935, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656106941, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4656106949, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4656106955, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656206755, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656206816, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656206822, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656307306, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656307375, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656307382, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656407948, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656408024, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656408030, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656532483, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656532555, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656532561, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656631615, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656631686, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656631692, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4656631699, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4656631705, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656731646, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656731716, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656731723, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656832597, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656832809, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656832815, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4656956352, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4656956427, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4656956434, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657056696, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657056771, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657056778, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657158054, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657158124, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657158130, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4657158140, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4657158146, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657257688, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657257769, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657257775, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657382529, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657382607, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657382614, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657484911, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657484981, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657484987, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657607463, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657607537, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657607543, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657732427, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657732493, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657732499, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4657732506, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4657732512, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657833617, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657833685, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657833691, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4657956327, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4657956400, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4657956406, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658056258, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658056332, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658056338, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658157803, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658157876, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658157882, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658257685, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658257762, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658257768, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4658257775, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4658257781, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658358953, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658359216, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658359222, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658459365, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658459440, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658459446, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658583452, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658583674, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658583684, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658683307, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658683519, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658683528, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658806280, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658806349, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658806354, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4658806361, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4658806367, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4658907785, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4658907855, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4658907874, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659031285, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659031356, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659031362, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659131397, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659131469, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659131476, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659231660, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659231731, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659231736, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659332697, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659332766, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659332772, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4659332779, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4659332785, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659433100, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659433173, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659433179, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659556264, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659556334, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659556340, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659656637, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659656708, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659656714, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659757162, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659757234, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659757240, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659881126, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659881207, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659881213, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4659881220, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4659881226, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4659983104, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4659983175, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4659983181, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660083349, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660083441, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660083448, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660182639, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660182719, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660182726, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660282987, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660283060, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660283067, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660382853, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660382926, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660382933, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4660382940, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4660382945, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660483018, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660483090, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660483096, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660606047, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660606119, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660606125, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660706127, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660706211, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660706217, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660807832, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660807904, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660807911, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4660907705, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4660908040, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4660908046, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4660908054, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4660908059, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661032047, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661032199, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661032208, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661132089, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661132161, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661132175, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661231831, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661231989, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661231997, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661331784, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661331854, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661331860, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661431922, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661431991, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661431997, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4661432009, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4661432015, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661556582, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661556655, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661556661, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661657466, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661657550, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661657556, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661757070, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661757143, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661757150, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661858849, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661858919, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661858925, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4661981268, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4661981340, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4661981346, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4661981353, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4661981359, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662082242, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662082312, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662082318, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662207672, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662207740, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662207746, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662307833, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662307904, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662307910, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662432711, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662432780, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662432786, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662556277, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662556344, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662556350, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4662556358, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4662556363, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662657316, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662657386, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662657392, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662757851, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662757943, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662757949, "value": 3.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4662757959, "value": 0.619378}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4662757968, "value": 0.135049}]
+  },
+  {
+    "name": "delay_avg_ms",
+    "samples": [{"timestamp": 4662757975, "value": 2.141304}]
+  },
+  {
+    "name": "delay_std_ms",
+    "samples": [{"timestamp": 4662757982, "value": 1.194021}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4662757989, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662881619, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662881695, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662881701, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4662982072, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4662982139, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4662982145, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663107039, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663107110, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663107116, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4663107123, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4663107129, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663207414, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663207485, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663207491, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663306580, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663306653, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663306692, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663406831, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663406899, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663406905, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663531668, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663531737, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663531743, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663632184, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663632253, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663632259, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4663632266, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4663632272, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663732952, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663733018, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663733024, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663859322, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663859396, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663859402, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4663981614, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4663981713, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4663981719, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664082216, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664082281, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664082287, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664182014, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664182077, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664182083, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4664182090, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4664182096, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664283010, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664283084, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664283089, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664406611, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664406693, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664406698, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664531392, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664531458, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664531464, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664632951, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664633035, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664633041, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664757297, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664757362, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664757368, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4664757376, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4664757382, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664857201, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664857272, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664857278, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4664958005, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4664958072, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4664958078, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665081856, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665081920, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665081926, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665181841, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665181903, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665181909, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665282896, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665282966, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665282972, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4665282979, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4665282985, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665383161, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665383225, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665383231, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665482768, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665482836, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665482842, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665607726, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665607793, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665607799, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665731585, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665731662, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665731668, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665857357, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665857425, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665857431, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4665857438, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4665857444, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4665957908, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4665957987, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4665957993, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666081967, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666082034, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666082040, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666183100, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666183164, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666183170, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666306720, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666306787, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666306793, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666407256, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666407324, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666407329, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4666407337, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4666407342, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666507291, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666507366, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666507372, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666606898, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666606965, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666606971, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666706993, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666707060, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666707066, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666807522, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666807622, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666807628, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4666931975, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4666932040, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4666932046, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4666932053, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4666932059, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667031541, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667031606, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667031612, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667159549, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667159622, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667159628, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667281276, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667281343, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667281358, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667382515, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667382706, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667382716, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667482710, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667482776, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667482782, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4667482789, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4667482795, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667606224, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667606291, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667606297, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667707216, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667707282, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667707288, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667831713, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667831780, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667831786, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4667957387, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4667959973, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4667959981, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668057438, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668057518, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668057524, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4668057539, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4668057544, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668156521, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668156613, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668156619, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668257217, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668257285, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668257291, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668359364, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668359450, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668359456, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668459584, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668459656, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668459662, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668581631, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668581695, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668581701, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4668581708, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4668581714, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668681890, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668681954, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668681960, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668806657, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668806750, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668806756, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4668907054, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4668907120, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4668907126, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669006924, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669006994, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669007000, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669131631, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669131698, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669131704, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4669131721, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4669131727, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669231678, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669231746, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669231752, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669356807, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669356883, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669356889, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669481825, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669481891, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669481897, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669582920, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669582990, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669582997, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669707267, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669707343, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669707349, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4669707356, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4669707362, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669807384, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669807457, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669807463, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4669906921, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4669906996, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4669907002, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670007646, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670007721, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670007728, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670107685, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670107781, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670107788, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670207904, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670207979, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670207986, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4670207999, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4670208005, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670308744, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670308811, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670308817, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670432568, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670432641, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670432647, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670532975, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670533045, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670533051, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670657270, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670657347, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670657354, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670757622, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670757723, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670757729, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4670757736, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4670757742, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4670881927, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4670882005, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4670882011, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671006916, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671006992, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671006998, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671107698, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671107770, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671107776, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671231390, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671231470, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671231476, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671332491, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671332564, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671332570, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4671332577, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4671332583, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671432280, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671432348, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671432355, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671559596, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671559676, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671559682, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671681983, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671682056, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671682062, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671782705, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671782772, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671782778, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4671882717, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4671882788, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4671882793, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4671882801, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4671882807, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672007068, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672007141, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672007148, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672107904, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672107975, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672107981, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672207831, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672207901, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672207907, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672331359, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672331431, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672331447, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672431533, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672431632, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672431638, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4672431645, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4672431651, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672532093, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672532164, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672532170, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672632621, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672632710, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672632716, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672756904, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672756986, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672756993, "value": 1.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4672764982, "value": 0.638406}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4672764993, "value": 0.099572}]
+  },
+  {
+    "name": "delay_avg_ms",
+    "samples": [{"timestamp": 4672765001, "value": 2.404372}]
+  },
+  {
+    "name": "delay_std_ms",
+    "samples": [{"timestamp": 4672765008, "value": 1.106554}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4672765015, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672856829, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672856931, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672856937, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4672982071, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4672982175, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4672982181, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4672982188, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4672982194, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673106823, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673106900, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673106906, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673206887, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673206959, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673206965, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673306779, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673306859, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673306865, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673431825, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673431920, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673431927, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673532119, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673532197, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673532203, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4673532210, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4673532216, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673632102, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673632174, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673632180, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673733369, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673733514, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673733520, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673832582, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673832674, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673832682, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4673959427, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4673959839, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4673959849, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674081681, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674081756, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674081762, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4674081769, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4674081775, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674207853, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674207928, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674207935, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674307895, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674307973, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674307979, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674433018, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674433087, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674433093, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674557855, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674557988, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674558003, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674682515, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674682589, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674682596, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4674682602, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4674682608, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674781576, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674781652, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674781658, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4674906776, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4674906843, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4674906850, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675007640, "value": 1.360589}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675007731, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675007739, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675108261, "value": 3.117714}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675108344, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675108350, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675207926, "value": 3.117714}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675208005, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675208011, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4675208018, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4675208026, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675307879, "value": 3.117714}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675307956, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675307962, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675407910, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675407991, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675407998, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675531942, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675532038, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675532044, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675632044, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675632121, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675632128, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675733295, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675733372, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675733378, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4675733385, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4675733391, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675856336, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675856410, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675856417, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4675958889, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4675958966, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4675958972, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676081092, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676081166, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676081173, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676181943, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676182018, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676182024, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676282078, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676282172, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676282178, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4676282186, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4676282191, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676382081, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676382170, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676382176, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676507072, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676507148, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676507154, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676606962, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676607035, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676607041, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676707096, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676707169, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676707175, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676807996, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676808074, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676808080, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4676808087, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4676808104, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4676907718, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4676907798, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4676907804, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677033093, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677033163, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677033169, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677132746, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677132825, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677132831, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677257412, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677257484, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677257490, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677357076, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677357161, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677357167, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4677357174, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4677357180, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677457712, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677457800, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677457806, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677581155, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677581254, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677581263, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677681331, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677681439, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677681448, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677781853, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677781927, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677781933, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4677882097, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4677882185, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4677882191, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4677882198, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4677882204, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678006664, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678006765, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678006771, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678106790, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678106877, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678106887, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678207010, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678207097, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678207103, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678306855, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678306928, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678306934, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678407809, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678407886, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678407904, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4678407911, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4678407917, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678532926, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678533009, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678533015, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678635704, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678635794, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678635800, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678756455, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678756540, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678756546, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678857691, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678857773, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678857779, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4678981818, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4678981906, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4678981914, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4678981923, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4678981931, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679106230, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679106316, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679106322, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679207695, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679207789, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679207795, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679307827, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679307905, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679307912, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679432037, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679432126, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679432133, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679531827, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679531900, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679531907, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4679531914, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4679531919, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679631633, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679631710, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679631716, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679732404, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679732478, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679732484, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679832850, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679832929, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679832935, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4679932704, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4679932791, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4679932797, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680056730, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680059103, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680059137, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4680059147, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4680059154, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680157643, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680157723, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680157729, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680283051, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680283258, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680283267, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680382940, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680383026, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680383035, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680506517, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680506603, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680506609, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680607120, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680607194, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680607199, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4680607207, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4680607212, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680707394, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680707470, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680707515, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680831490, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680831605, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680831611, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4680932010, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4680932094, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4680932100, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681032891, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681032974, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681032980, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681132531, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681132613, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681132619, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4681132626, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4681132632, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681258603, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681258705, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681258713, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681381955, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681382055, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681382063, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681482702, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681482785, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681482791, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681583096, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681583167, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681583173, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681706702, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681706776, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681706781, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4681706788, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4681706795, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681807734, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681807806, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681807812, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4681931844, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4681931915, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4681931922, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682032727, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682032798, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682032804, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682156248, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682156320, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682156326, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682256279, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682256350, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682256356, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4682256363, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4682256369, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682356677, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682356749, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682356756, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682457270, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682457340, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682457346, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682556863, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682556933, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682556940, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682658589, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682658666, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682658699, "value": 2.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4682768750, "value": 0.908562}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4682768761, "value": 0.491139}]
+  },
+  {
+    "name": "delay_avg_ms",
+    "samples": [{"timestamp": 4682768768, "value": 2.474453}]
+  },
+  {
+    "name": "delay_std_ms",
+    "samples": [{"timestamp": 4682768775, "value": 0.993264}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4682768782, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682782980, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682783055, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682783061, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4682783068, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4682783073, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4682907260, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4682907336, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4682907353, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683031682, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683031764, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683031770, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683132123, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683132196, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683132202, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683233107, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683233178, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683233184, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683357327, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683357402, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683357408, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4683357414, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4683357420, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683456779, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683456852, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683456858, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683581737, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683581806, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683581813, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683681809, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683681882, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683681888, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683782746, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683782827, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683782833, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4683906375, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4683906445, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4683906451, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4683906458, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4683906464, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684007742, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684007807, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684007813, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684131366, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684131437, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684131443, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684232104, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684232173, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684232179, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684331646, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684331714, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684331720, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684456315, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684456388, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684456394, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4684456400, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4684456406, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684556873, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684556944, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684556950, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684657552, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684657640, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684657646, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684781221, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684781292, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684781298, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684881872, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684881939, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684881946, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4684981761, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4684981834, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4684981840, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4684981847, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4684981853, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685107114, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685108093, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685108099, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685207313, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685207384, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685207389, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685307737, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685307811, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685307816, "value": 1.000000}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685423159, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685423169, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685432271, "value": 3.550285}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685532075, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685532266, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685532273, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4685532280, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4685532286, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685632289, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685632360, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685632366, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685732107, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685732182, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685732188, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685831550, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685831624, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685831630, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4685932852, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4685932928, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4685932935, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686057543, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686057614, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686057620, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4686057627, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4686057633, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686182722, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686182792, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686182808, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686283800, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686283871, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686283877, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686407379, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686407451, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686407457, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686507306, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686507378, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686507384, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686607682, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686607755, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686607761, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4686607768, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4686607774, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686731579, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686731688, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686731695, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686831579, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686831653, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686831659, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4686933077, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4686933142, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4686933148, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687033016, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687033100, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687033106, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687156435, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687156510, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687156516, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4687156524, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4687156529, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687256544, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687256614, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687256620, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687356896, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687356998, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687357005, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687481513, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687481581, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687481587, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687581440, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687581504, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687581510, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687682614, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687682733, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687682739, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4687682755, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4687682761, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687807584, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687807657, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687807663, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4687931478, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4687931559, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4687931565, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688031374, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688031440, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688031446, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688131605, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688131678, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688131684, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688232719, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688232790, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688232796, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4688232803, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4688232809, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688332836, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688332908, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688332914, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688456197, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688456269, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688456275, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688556188, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688556277, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688556283, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688658507, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688658578, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688658584, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688781959, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688782029, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688782035, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4688782042, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4688782047, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4688882184, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4688882260, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4688882266, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689006727, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689006801, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689006807, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689107802, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689107878, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689107884, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689232217, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689232290, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689232296, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689332183, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689332262, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689332268, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4689332288, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4689332294, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689456471, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689456553, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689456559, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689557201, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689557273, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689557280, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689681169, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689681245, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689681251, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689782176, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689782253, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689782259, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4689883011, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4689883086, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4689883092, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4689883099, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4689883109, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690008003, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690008096, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690008102, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690131756, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690131838, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690131857, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690256532, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690256607, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690256614, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690357918, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690357997, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690358004, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690481994, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690482072, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690482078, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4690482085, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4690482091, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690581983, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690582061, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690582067, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690706605, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690706715, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690706722, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690806882, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690806976, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690806983, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4690906536, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4690906627, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4690906633, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691032672, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691032791, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691032797, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4691032805, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4691032812, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691156924, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691157009, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691157015, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691257552, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691257629, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691257635, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691383056, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691383157, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691383163, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691482847, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691482930, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691482936, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691583064, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691583139, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691583145, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4691583152, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4691583158, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691707251, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691707327, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691707333, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691807236, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691807309, "value": 6.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691807315, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4691907395, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4691907469, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4691907475, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692008273, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692008349, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692008355, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692132021, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692132108, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692132114, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4692132121, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4692132127, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692232518, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692232606, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692232612, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692332347, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692332449, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692332456, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692456748, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692456818, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692456824, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692557057, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692557155, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692557162, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692660172, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692660253, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692660259, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4692660266, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4692660272, "value": 0.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4692771232, "value": 1.146393}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4692771245, "value": 0.594270}]
+  },
+  {
+    "name": "delay_avg_ms",
+    "samples": [{"timestamp": 4692771253, "value": 2.613699}]
+  },
+  {
+    "name": "delay_std_ms",
+    "samples": [{"timestamp": 4692771259, "value": 1.140213}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4692771266, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692781926, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692781991, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692781997, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4692906900, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4692906966, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4692906972, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693006895, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693006961, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693006967, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693107588, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693107660, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693107666, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693231932, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693232025, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693232031, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4693232038, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4693232044, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693333432, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693333532, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693333538, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693456139, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693456222, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693456228, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693557343, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693557426, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693557433, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693656537, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693656619, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693656626, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693759139, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693759249, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693759255, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4693759262, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4693759268, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693881681, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693881756, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693881763, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4693982107, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4693982204, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4693982210, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694082394, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694082466, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694082472, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694182303, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694182362, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694182368, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694282657, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694282755, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694282761, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4694282767, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4694282774, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694407574, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694407648, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694407654, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694531284, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694531354, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694531360, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694632337, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694632405, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694632410, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694732421, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694732505, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694732523, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694832397, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694832484, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694832490, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4694832497, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4694832503, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4694932695, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4694932783, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4694932789, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695057500, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695057581, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695057587, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695158749, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695158836, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695158842, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695281155, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695281224, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695281230, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695381409, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695381476, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695381482, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4695381490, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4695381495, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695482208, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695482303, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695482309, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695606371, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695606442, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695606449, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695707979, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695708049, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695708055, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695832128, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695832199, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695832205, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4695931782, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4695931853, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4695931859, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4695931866, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4695931872, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696034051, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696034147, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696034153, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696156946, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696157017, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696157022, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696257208, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696257285, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696257302, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696381958, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696382035, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696382041, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696481547, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696481621, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696481627, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4696481634, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4696481639, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696582398, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696582470, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696582476, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696683026, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696683092, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696683098, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696806385, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696806454, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696806460, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4696907383, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4696907455, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4696907461, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697007985, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697008053, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697008059, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4697008066, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4697008082, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697131460, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697131533, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697131539, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697231645, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697231732, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697231739, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697331600, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697331671, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697331677, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697433055, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697433131, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697433137, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697557552, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697557634, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697557640, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4697557646, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4697557652, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697681978, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697682051, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697682057, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697783036, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697783109, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697783115, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4697907033, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4697907105, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4697907111, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698007661, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698007756, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698007762, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698110081, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698110184, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698110191, "value": 1.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4698110198, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4698110204, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698233460, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698233533, "value": 2.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698233540, "value": 1.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698332773, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698332843, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698332849, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698459419, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698459496, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698459502, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698581116, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698581186, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698581192, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698681652, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698681733, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698681739, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4698681746, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4698681751, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698782063, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698782145, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698782151, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4698906176, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4698906248, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4698906254, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699006339, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699006410, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699006416, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699106995, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699107066, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699107072, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699207943, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699208016, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699208023, "value": 3.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4699208029, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4699208035, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699332586, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699332658, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699332665, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699456677, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699456765, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699456771, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699557079, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699557152, "value": 5.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699557158, "value": 3.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699656557, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699656630, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699656636, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699757687, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699757758, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699757764, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4699757771, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4699757777, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699857999, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699860037, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699860044, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4699981396, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4699981471, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4699981477, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700082542, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700082610, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700082616, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700206171, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700206244, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700206260, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700306817, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700306887, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700306893, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4700306900, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4700306906, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700406835, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700406908, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700406914, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700531727, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700531811, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700531817, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700631569, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700631641, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700631647, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700756779, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700756856, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700756862, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700881204, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700881277, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700881283, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4700881291, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4700881297, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4700981589, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4700981658, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4700981675, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701081894, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701081964, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701081970, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701182875, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701182954, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701182960, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701307896, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701307969, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701307975, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701407709, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701407805, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701407811, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4701407818, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4701407823, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701531807, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701531888, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701531894, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701631881, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701631964, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701631970, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701732647, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701732729, "value": 4.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701732735, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701856246, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701856322, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701856328, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4701956352, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4701956428, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4701956434, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4701956441, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4701956448, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702057349, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702057430, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702057436, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702158101, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702158188, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702158194, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702281453, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702281523, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702281529, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702383237, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702383336, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702383342, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702483301, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702483373, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702483379, "value": 2.000000}]
+  },
+  {
+    "name": "packet_loss_fraction",
+    "samples": [{"timestamp": 4702483387, "value": 0.000000}]
+  },
+  {
+    "name": "packets_lost_count",
+    "samples": [{"timestamp": 4702483405, "value": 0.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702606737, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702606804, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702606810, "value": 2.000000}]
+  },
+  {
+    "name": "bandwidth_target_mbps",
+    "samples": [{"timestamp": 4702707031, "value": 3.550285}]
+  },
+  {
+    "name": "rtt_ms",
+    "samples": [{"timestamp": 4702707101, "value": 3.000000}]
+  },
+  {
+    "name": "one_way_delay_ms",
+    "samples": [{"timestamp": 4702707108, "value": 2.000000}]
+  },
+  {
+    "name": "throughput_avg_mbps",
+    "samples": [{"timestamp": 4702781851, "value": 1.288526}]
+  },
+  {
+    "name": "throughput_std_mbps",
+    "samples": [{"timestamp": 4702781864, "value": 0.602687}]
+  },
+  {
+    "name": "delay_avg_ms",
+    "samples": [{"timestamp": 4702781871, "value": 2.739606}]
+  },
+  {
+    "name": "delay_std_ms",
+    "samples": [{"timestamp": 4702781878, "value": 1.134320}]
+  },
+  {
+    "name": "loss_avg_fraction",
+    "samples": [{"timestamp": 4702781885, "value": 0.000000}]
+  }
+]

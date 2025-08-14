@@ -64,6 +64,7 @@
 #include "test/frame_generator_capturer.h"
 #include "test/platform_video_capturer.h"
 #include "test/test_video_capturer.h"
+#include "test/testsupport/file_utils.h"
 
 namespace {
 using webrtc::test::TestVideoCapturer;
@@ -108,8 +109,18 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
       return capturer;
     }
   }
-  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-      kWidth, kHeight, std::nullopt, std::nullopt);
+
+ //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+    //   kWidth, kHeight, std::nullopt, std::nullopt);
+
+ // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
+
+  auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+  auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, 480, 272, 1);
+
+//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+  //    kWidth, kHeight, std::nullopt, std::nullopt);
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
       task_queue_factory);
