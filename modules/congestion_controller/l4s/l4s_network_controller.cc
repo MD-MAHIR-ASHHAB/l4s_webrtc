@@ -57,10 +57,10 @@ AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
 void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
 
-  TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(15);
+  TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(50);
   double rtt_seconds = rtt.seconds<double>();
-  if (rtt_seconds < 0.015) {
-    rtt_seconds = 0.015; // Minimum 15ms to avoid division by zero
+  if (rtt_seconds <= 0.0) {
+    rtt_seconds = 0.050; // Use fallback RTT to avoid division by zero
   }
 
 
@@ -145,11 +145,10 @@ void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate,
 }
 
 void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
-  if (rtt.IsFinite() && rtt >= TimeDelta::Millis(15)) {
+  if (rtt.IsFinite() && !rtt.IsZero()) {
     current_rtt_ = rtt;
-  } else {
-    current_rtt_ = TimeDelta::Millis(15); // Default for invalid RTT
   }
+  // Note: Don't set any default RTT - leave current_rtt_ as is if invalid
 }
 
 
@@ -408,12 +407,11 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdat
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
         msg.round_trip_time, TimeDelta::PlusInfinity(), jitter_);
   }
-  // Update local RTT tracking for metrics - use fresh RTT
-  if (msg.round_trip_time.IsFinite() && msg.round_trip_time >= TimeDelta::Millis(15)) {
+  // Update local RTT tracking for metrics - accept any valid, non-zero RTT
+  if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
     last_rtt_ = msg.round_trip_time;
-  } else {
-    last_rtt_ = TimeDelta::Millis(15); // Default for invalid RTT
   }
+  // Note: Don't set any default RTT - leave last_rtt_ as is if invalid
 
   // Forward to GCC if we're using it as fallback
   if (fallback_to_gcc_) {
