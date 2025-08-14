@@ -10,20 +10,21 @@
 
 #include "examples/peerconnection/client/conductor.h"
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/memory/memory.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio_options.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/enable_media.h"
-#include "api/environment/environment_factory.h"
+#include "api/environment/environment.h"
 #include "api/jsep.h"
 #include "api/make_ref_counted.h"
 #include "api/media_stream_interface.h"
@@ -63,12 +64,7 @@
 #include "test/frame_generator_capturer.h"
 #include "test/platform_video_capturer.h"
 #include "test/test_video_capturer.h"
-
-// L4S Metrics Collection
-#include "modules/congestion_controller/l4s/l4s_network_controller.h"
-
-
-
+#include "test/testsupport/file_utils.h"
 
 namespace {
 using webrtc::test::TestVideoCapturer;
@@ -88,8 +84,8 @@ class DummySetSessionDescriptionObserver
   static webrtc::scoped_refptr<DummySetSessionDescriptionObserver> Create() {
     return webrtc::make_ref_counted<DummySetSessionDescriptionObserver>();
   }
-  virtual void OnSuccess() { RTC_LOG(LS_INFO) << __FUNCTION__; }
-  virtual void OnFailure(webrtc::RTCError error) {
+  void OnSuccess() override { RTC_LOG(LS_INFO) << __FUNCTION__; }
+  void OnFailure(webrtc::RTCError error) override {
     RTC_LOG(LS_INFO) << __FUNCTION__ << " " << ToString(error.type()) << ": "
                      << error.message();
   }
@@ -97,9 +93,9 @@ class DummySetSessionDescriptionObserver
 
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 640;
-  const size_t kHeight = 480;
-  const size_t kFps = 30;
+  const size_t kWidth = 1920;
+  const size_t kHeight = 1080;
+  const size_t kFps = 300;
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
       webrtc::VideoCaptureFactory::CreateDeviceInfo());
   if (!info) {
@@ -113,8 +109,18 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
       return capturer;
     }
   }
-  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-      kWidth, kHeight, std::nullopt, std::nullopt);
+
+ // //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+ //    //   kWidth, kHeight, std::nullopt, std::nullopt);
+
+ // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+ //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
+
+  auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+  auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
+
+//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+//      kWidth, kHeight, std::nullopt, std::nullopt);
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
       task_queue_factory);
@@ -146,10 +152,12 @@ class CapturerTrackSource : public webrtc::VideoTrackSource {
 
 }  // namespace
 
-Conductor::Conductor(PeerConnectionClient* client, MainWindow* main_wnd)
+Conductor::Conductor(const webrtc::Environment& env,
+                     PeerConnectionClient* absl_nonnull client,
+                     MainWindow* absl_nonnull main_wnd)
     : peer_id_(-1),
       loopback_(false),
-      env_(webrtc::CreateEnvironment()),
+      env_(env),
       client_(client),
       main_wnd_(main_wnd) {
   client_->RegisterObserver(this);
@@ -167,9 +175,6 @@ bool Conductor::connection_active() const {
 void Conductor::Close() {
   client_->SignOut();
   DeletePeerConnection();
-  
-  // L4S metrics collection session ended
-  RTC_LOG(LS_INFO) << "L4S metrics collection session ended";
 }
 
 bool Conductor::InitializePeerConnection() {
@@ -198,37 +203,6 @@ bool Conductor::InitializePeerConnection() {
           webrtc::LibvpxVp9DecoderTemplateAdapter,
           webrtc::OpenH264DecoderTemplateAdapter,
           webrtc::Dav1dDecoderTemplateAdapter>>();
-  
-  // L4S Network Controller with Metrics Collection
-  webrtc::L4SControllerConfig l4s_config;
-  l4s_config.enable_metrics_collection = true;
-  l4s_config.test_case_name = "peerconnection_client_test";
-  l4s_config.fallback_to_gcc = true;
-  l4s_config.use_ect1_marking = true;
-  
-  // Create a proper network controller factory
-  class L4SNetworkControllerFactory : public webrtc::NetworkControllerFactoryInterface {
-   public:
-    L4SNetworkControllerFactory(webrtc::L4SControllerConfig config)
-        : l4s_config_(config) {}
-    
-    std::unique_ptr<webrtc::NetworkControllerInterface> Create(
-        webrtc::NetworkControllerConfig config) override {
-      return std::make_unique<webrtc::L4SNetworkController>(
-          config, l4s_config_, nullptr);
-    }
-    
-    webrtc::TimeDelta GetProcessInterval() const override {
-      return webrtc::TimeDelta::Millis(25);  // 25ms processing interval
-    }
-    
-   private:
-    webrtc::L4SControllerConfig l4s_config_;
-  };
-  
-  deps.network_controller_factory = 
-      std::make_unique<L4SNetworkControllerFactory>(l4s_config);
-  
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =
       webrtc::CreateModularPeerConnectionFactory(std::move(deps));
@@ -239,8 +213,6 @@ bool Conductor::InitializePeerConnection() {
     DeletePeerConnection();
     return false;
   }
-  
-  RTC_LOG(LS_INFO) << "L4S Network Controller with metrics collection enabled for test case: peerconnection_client_test";
 
   if (!CreatePeerConnection()) {
     main_wnd_->MessageBox("Error", "CreatePeerConnection failed", true);
@@ -279,6 +251,15 @@ bool Conductor::CreatePeerConnection() {
 
   webrtc::PeerConnectionInterface::RTCConfiguration config;
   config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+  
+  // DISABLE ALL RESOLUTION ADAPTATIONS
+  // 1. Disable CPU-based adaptation
+  config.media_config.video.enable_cpu_adaptation = false;
+  // 2. Disable bandwidth-based suspension
+  config.media_config.video.suspend_below_min_bitrate = false;
+  // 3. Disable experimental CPU load estimator
+  config.media_config.video.experiment_cpu_load_estimator = false;
+  
   webrtc::PeerConnectionInterface::IceServer server;
   server.uri = GetPeerConnectionString();
   config.servers.push_back(server);
@@ -329,7 +310,7 @@ void Conductor::OnRemoveTrack(
   main_wnd_->QueueUIThreadCallback(TRACK_REMOVED, receiver->track().release());
 }
 
-void Conductor::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
+void Conductor::OnIceCandidate(const webrtc::IceCandidate* candidate) {
   RTC_LOG(LS_INFO) << __FUNCTION__ << " " << candidate->sdp_mline_index();
   // For loopback test. To save some connecting delay.
   if (loopback_) {
@@ -342,12 +323,7 @@ void Conductor::OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
   Json::Value jmessage;
   jmessage[kCandidateSdpMidName] = candidate->sdp_mid();
   jmessage[kCandidateSdpMlineIndexName] = candidate->sdp_mline_index();
-  std::string sdp;
-  if (!candidate->ToString(&sdp)) {
-    RTC_LOG(LS_ERROR) << "Failed to serialize candidate";
-    return;
-  }
-  jmessage[kCandidateSdpName] = sdp;
+  jmessage[kCandidateSdpName] = candidate->ToString();
 
   Json::StreamWriterBuilder factory;
   SendMessage(Json::writeString(factory, jmessage));
@@ -481,7 +457,7 @@ void Conductor::OnMessageFromPeer(int peer_id, const std::string& message) {
       return;
     }
     webrtc::SdpParseError error;
-    std::unique_ptr<webrtc::IceCandidateInterface> candidate(
+    std::unique_ptr<webrtc::IceCandidate> candidate(
         webrtc::CreateIceCandidate(sdp_mid, sdp_mlineindex, sdp, &error));
     if (!candidate.get()) {
       RTC_LOG(LS_WARNING) << "Can't parse received candidate message. "
