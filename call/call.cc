@@ -84,6 +84,7 @@
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/cpu_info.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/network/ecn_marking.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/strings/string_builder.h"
 #include "rtc_base/system/no_unique_address.h"
@@ -1525,11 +1526,7 @@ void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
   RTC_DCHECK_RUN_ON(worker_thread_);
   
   // Check if ECN information is available
-  if (!packet.network_info().ecn_marking.has_value()) {
-    return;
-  }
-
-  EcnMarking ecn_marking = packet.network_info().ecn_marking.value();
+  EcnMarking ecn_marking = packet.ecn();
   
   // Process CE-marked packets for L4S immediate feedback
   if (ecn_marking == EcnMarking::kCe) {
