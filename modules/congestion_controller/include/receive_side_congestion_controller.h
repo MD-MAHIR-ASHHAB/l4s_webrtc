@@ -49,7 +49,7 @@ class ReceiveSideCongestionController : public CallStatsObserver {
   void OnReceivedPacket(const RtpPacketReceived& packet, MediaType media_type);
 
   // Force immediate RTCP feedback transmission (for L4S CE detection)
-  void SendImmediateCongestionFeedback() RTC_RUN_ON(sequence_checker_);
+  void SendImmediateCongestionFeedback() RTC_NO_THREAD_SAFETY_ANALYSIS;
 
   // Implements CallStatsObserver.
   void OnRttUpdate(int64_t avg_rtt_ms, int64_t max_rtt_ms) override;
