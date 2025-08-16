@@ -42,7 +42,7 @@ class CopyOnWriteBuffer;
 // Forward declaration for L4S ECN feedback adapter
 class L4sEcnFeedbackAdapter;
 
-// Interface for receiving notifications about CE-marked packet reception
+// Interface for receiving notifications about ECN-marked packet reception
 // Used to trigger immediate RTCP feedback for L4S congestion control
 class EcnFeedbackObserver {
  public:
@@ -55,6 +55,12 @@ class EcnFeedbackObserver {
   virtual void OnCongestionMarkingReceived(Timestamp timestamp,
                                           uint32_t ssrc,
                                           uint16_t sequence_number) = 0;
+  
+  // Called when a non-CE packet is received (optional for L4S state management)
+  // Default implementation does nothing for backward compatibility
+  virtual void OnNonCePacketReceived(Timestamp timestamp,
+                                     uint32_t ssrc,
+                                     uint16_t sequence_number) {}
 };
 
 class RtpTransport : public RtpTransportInternal {

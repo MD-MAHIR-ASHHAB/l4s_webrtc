@@ -233,11 +233,8 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
       // Notify L4S controller about CE packet
       ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
     } else {
-      // For non-CE packets, notify L4S controller to potentially switch back to batch mode
-      // Only do this if we have the extended interface (L4sEcnFeedbackAdapter)
-      if (auto* l4s_adapter = dynamic_cast<L4sEcnFeedbackAdapter*>(ecn_feedback_observer_)) {
-        l4s_adapter->OnNonCePacketReceived(arrival_time, ssrc, sequence_number);
-      }
+      // For non-CE packets, notify observer (L4S controller will handle mode switching)
+      ecn_feedback_observer_->OnNonCePacketReceived(arrival_time, ssrc, sequence_number);
     }
   }
 
@@ -246,7 +243,6 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
     RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
                         << RtpDemuxer::DescribePacket(parsed_packet);
     NotifyUnDemuxableRtpPacketReceived(parsed_packet);
-  }
   }
 }
 

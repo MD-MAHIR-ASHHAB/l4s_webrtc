@@ -46,10 +46,10 @@ class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
                                    uint32_t ssrc, 
                                    uint16_t sequence_number) override;
 
-  // Called for non-CE packets to potentially switch back to batch mode
+  // EcnFeedbackObserver implementation for non-CE packets
   void OnNonCePacketReceived(Timestamp timestamp,
                              uint32_t ssrc, 
-                             uint16_t sequence_number);
+                             uint16_t sequence_number) override;
 
   // Called when the L4S controller is being destroyed
   void Reset();

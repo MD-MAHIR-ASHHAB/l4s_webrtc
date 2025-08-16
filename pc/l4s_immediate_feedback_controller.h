@@ -16,6 +16,7 @@
 #include "api/sequence_checker.h"
 #include "api/units/timestamp.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -53,10 +54,16 @@ class L4sImmediateFeedbackController {
   void OnNonCePacketReceived(Timestamp timestamp, uint32_t ssrc, uint16_t sequence_number);
 
   // Get current feedback mode
-  FeedbackMode GetCurrentMode() const { return current_mode_; }
+  FeedbackMode GetCurrentMode() const RTC_LOCKS_EXCLUDED(sequence_checker_) { 
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+    return current_mode_; 
+  }
 
   // For testing: force mode change
-  void SetModeForTesting(FeedbackMode mode) { current_mode_ = mode; }
+  void SetModeForTesting(FeedbackMode mode) RTC_LOCKS_EXCLUDED(sequence_checker_) { 
+    RTC_DCHECK_RUN_ON(&sequence_checker_);
+    current_mode_ = mode; 
+  }
 
  private:
   // Flush current batch and switch to immediate mode
