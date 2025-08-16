@@ -67,10 +67,10 @@ class L4sImmediateFeedbackController {
 
  private:
   // Flush current batch and switch to immediate mode
-  void FlushBatchAndSwitchToImmediate();
+  void FlushBatchAndSwitchToImmediate() RTC_NO_THREAD_SAFETY_ANALYSIS;
 
   // Send immediate feedback for single packet
-  void SendImmediateFeedbackForPacket();
+  void SendImmediateFeedbackForPacket() RTC_NO_THREAD_SAFETY_ANALYSIS;
 
   // Switch back to batch mode
   void SwitchToBatchMode();
