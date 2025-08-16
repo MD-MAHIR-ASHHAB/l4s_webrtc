@@ -604,12 +604,14 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   PacketFeedback packet_feedback = it->second;
   
-  // Don't remove packets immediately from history to avoid lookup failures
-  // Let the time-based cleanup in AddPacket handle removal after proper aging
-  // This fixes the issue where immediate removal causes subsequent feedback
-  // to fail lookups for the same packets
+  // TODO: Test if immediate removal causes lookup failures in L4S scenarios
+  // If no issues observed, we can remove acknowledged packets immediately
+  // to prevent history from growing to 50k+ packets
   
-  // Only update the last_ack_seq_num_ to track acknowledged packets for cleanup
+  // Remove packet immediately upon acknowledgment (standard WebRTC behavior)
+  history_.erase(it);
+  
+  // Update last_ack_seq_num_ to track acknowledged packets for cleanup
   if (received && packet_feedback.sent.sequence_number > last_ack_seq_num_) {
     last_ack_seq_num_ = packet_feedback.sent.sequence_number;
   }
