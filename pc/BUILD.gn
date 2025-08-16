@@ -589,7 +589,7 @@ rtc_library("rtp_transport") {
     "../rtc_base:logging",
     "../rtc_base:network_route",
     "../rtc_base:socket",
-    "../rtc_base:synchronization",
+    "../rtc_base/synchronization:mutex",
     "../rtc_base/containers:flat_set",
     "../rtc_base/network:ecn_marking",
     "../rtc_base/network:received_packet",
