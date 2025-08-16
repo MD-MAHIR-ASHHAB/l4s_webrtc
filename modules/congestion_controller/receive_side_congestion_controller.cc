@@ -115,8 +115,7 @@ void ReceiveSideCongestionController::
   send_rfc8888_congestion_feedback_ = true;
 }
 
-void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
-    RTC_NO_THREAD_SAFETY_ANALYSIS {
+void ReceiveSideCongestionController::SendImmediateCongestionFeedback() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   
   if (send_rfc8888_congestion_feedback_) {

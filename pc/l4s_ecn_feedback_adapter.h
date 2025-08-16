@@ -14,6 +14,7 @@
 #include "pc/rtp_transport.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 #include "api/sequence_checker.h"
+#include "api/task_queue/task_queue_base.h"
 #include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
 
@@ -35,7 +36,8 @@ namespace webrtc {
 class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
  public:
   explicit L4sEcnFeedbackAdapter(
-      ReceiveSideCongestionController* congestion_controller);
+      ReceiveSideCongestionController* congestion_controller,
+      TaskQueueBase* task_queue);
   ~L4sEcnFeedbackAdapter() override;
 
   // EcnFeedbackObserver implementation
@@ -50,6 +52,7 @@ class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
   // Thread-safe pointer to congestion controller
   mutable Mutex mutex_;
   ReceiveSideCongestionController* congestion_controller_ RTC_GUARDED_BY(mutex_);
+  TaskQueueBase* task_queue_ RTC_GUARDED_BY(mutex_);
   
   // Statistics
   uint64_t ce_packets_detected_ RTC_GUARDED_BY(mutex_) = 0;

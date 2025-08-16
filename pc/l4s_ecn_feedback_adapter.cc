@@ -16,8 +16,9 @@
 namespace webrtc {
 
 L4sEcnFeedbackAdapter::L4sEcnFeedbackAdapter(
-    ReceiveSideCongestionController* congestion_controller)
-    : congestion_controller_(congestion_controller) {
+    ReceiveSideCongestionController* congestion_controller,
+    TaskQueueBase* task_queue)
+    : congestion_controller_(congestion_controller), task_queue_(task_queue) {
   RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created";
 }
 
@@ -38,17 +39,25 @@ void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(Timestamp timestamp,
                    << ", timestamp " << timestamp.us()
                    << " (total CE packets: " << ce_packets_detected_ << ")";
   
-  if (congestion_controller_) {
-    // Trigger immediate RTCP feedback for L4S
-    // Note: This call must be made on the correct sequence checker thread
-    // The ReceiveSideCongestionController will handle the thread safety
-    congestion_controller_->SendImmediateCongestionFeedback();
+  if (congestion_controller_ && task_queue_) {
+    // Post the immediate feedback call to the congestion controller's task queue
+    // This ensures the call happens on the correct thread (sequence checker)
     ++immediate_feedback_sent_;
     
-    RTC_LOG(LS_INFO) << "L4S: Immediate feedback triggered "
+    // Capture needed variables for the async call
+    ReceiveSideCongestionController* controller = congestion_controller_;
+    uint64_t feedback_count = immediate_feedback_sent_;
+    
+    task_queue_->PostTask([controller, feedback_count]() {
+      RTC_LOG(LS_INFO) << "L4S: Triggering immediate feedback "
+                       << "(feedback #" << feedback_count << ")";
+      controller->SendImmediateCongestionFeedback();
+    });
+    
+    RTC_LOG(LS_INFO) << "L4S: Immediate feedback posted to task queue "
                      << "(total immediate feedbacks: " << immediate_feedback_sent_ << ")";
   } else {
-    RTC_LOG(LS_WARNING) << "L4S: CE detected but congestion controller unavailable";
+    RTC_LOG(LS_WARNING) << "L4S: CE detected but congestion controller or task queue unavailable";
   }
 }
 
@@ -62,6 +71,7 @@ void L4sEcnFeedbackAdapter::Reset() {
   }
   
   congestion_controller_ = nullptr;
+  task_queue_ = nullptr;
 }
 
 }  // namespace webrtc
