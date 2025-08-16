@@ -12,6 +12,7 @@
 
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -48,7 +49,7 @@ void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(Timestamp timestamp,
     ReceiveSideCongestionController* controller = congestion_controller_;
     uint64_t feedback_count = immediate_feedback_sent_;
     
-    task_queue_->PostTask([controller, feedback_count]() {
+    task_queue_->PostTask([controller, feedback_count]() RTC_NO_THREAD_SAFETY_ANALYSIS {
       RTC_LOG(LS_INFO) << "L4S: Triggering immediate feedback "
                        << "(feedback #" << feedback_count << ")";
       controller->SendImmediateCongestionFeedback();
