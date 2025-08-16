@@ -127,6 +127,13 @@ void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
   }
 }
 
+CongestionControlFeedbackGenerator* 
+ReceiveSideCongestionController::GetCongestionControlFeedbackGenerator()
+    RTC_NO_THREAD_SAFETY_ANALYSIS {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return &congestion_control_feedback_generator_;
+}
+
 void ReceiveSideCongestionController::OnReceivedPacket(
     const RtpPacketReceived& packet,
     MediaType media_type) {

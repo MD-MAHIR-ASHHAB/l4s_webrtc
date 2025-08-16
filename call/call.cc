@@ -71,6 +71,7 @@
 #include "logging/rtc_event_log/rtc_stream_config.h"
 #include "media/base/codec.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
+#include "modules/remote_bitrate_estimator/congestion_control_feedback_generator.h"
 #include "modules/rtp_rtcp/include/flexfec_receiver.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
@@ -1193,19 +1194,26 @@ std::unique_ptr<EcnFeedbackObserver> Call::CreateL4sEcnFeedbackAdapter() {
   
   RTC_LOG(LS_INFO) << "L4S: Creating ECN feedback adapter for Call";
   
-  // Create L4S immediate feedback controller with congestion feedback generator
+  // Enable RFC 8888 feedback on receive side to include ECN information
+  receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
+  
+  // Get the feedback generator from receive side congestion controller
+  CongestionControlFeedbackGenerator* feedback_generator = 
+      receive_side_cc_.GetCongestionControlFeedbackGenerator();
+  
+  if (!feedback_generator) {
+    RTC_LOG(LS_ERROR) << "L4S: Failed to get congestion control feedback generator";
+    return nullptr;
+  }
+  
+  // Create L4S immediate feedback controller
   auto l4s_controller = std::make_unique<L4sImmediateFeedbackController>(
-      absl::bind_front(&ReceiveSideCongestionController::SendImmediateCongestionFeedback,
-                       &receive_side_cc_),
-      worker_thread_);
+      feedback_generator);
   
   // Create adapter that bridges RtpTransport ECN detection to L4S controller
   auto adapter = std::make_unique<L4sEcnFeedbackAdapter>(
       std::move(l4s_controller), // Transfer ownership to adapter
       worker_thread_);
-  
-  // Enable RFC 8888 feedback on receive side to include ECN information
-  receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
   
   RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created successfully";
   
