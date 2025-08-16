@@ -38,6 +38,7 @@
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/transport/ecn_marking.h"
 #include "api/transport/network_control.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
@@ -79,8 +80,6 @@
 #include "modules/rtp_rtcp/source/rtp_util.h"
 #include "modules/video_coding/fec_controller_default.h"
 #include "modules/video_coding/nack_requester.h"
-#include "pc/l4s_ecn_feedback_adapter.h"
-#include "pc/l4s_immediate_feedback_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/cpu_info.h"
@@ -285,8 +284,6 @@ class Call final : public webrtc::Call,
   int FeedbackAccordingToRfc8888Count() override;
   int FeedbackAccordingToTransportCcCount() override;
 
-  std::unique_ptr<EcnFeedbackObserver> CreateL4sEcnFeedbackAdapter() override;
-
   const FieldTrialsView& trials() const override;
 
   TaskQueueBase* network_thread() const override;
@@ -394,6 +391,10 @@ class Call final : public webrtc::Call,
                                  MediaType media_type)
       RTC_RUN_ON(worker_thread_);
 
+  // L4S ECN immediate feedback processing
+  void ProcessL4sEcnMarking(const RtpPacketReceived& packet)
+      RTC_RUN_ON(worker_thread_);
+
   bool RegisterReceiveStream(uint32_t ssrc, ReceiveStreamInterface* stream);
   bool UnregisterReceiveStream(uint32_t ssrc);
 
@@ -481,6 +482,14 @@ class Call final : public webrtc::Call,
   ReceiveSideCongestionController receive_side_cc_;
   RepeatingTaskHandle receive_side_cc_periodic_task_;
   RepeatingTaskHandle elastic_bandwidth_allocation_task_;
+
+  // L4S ECN immediate feedback state
+  enum class L4sFeedbackMode {
+    kBatchMode,     // Normal batching behavior  
+    kImmediateMode  // Immediate feedback for each CE packet
+  };
+  L4sFeedbackMode l4s_feedback_mode_ RTC_GUARDED_BY(worker_thread_) = L4sFeedbackMode::kBatchMode;
+  bool l4s_rfc8888_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
   const std::unique_ptr<ReceiveTimeCalculator> receive_time_calculator_;
 
@@ -1189,37 +1198,6 @@ int Call::FeedbackAccordingToTransportCcCount() {
   return transport_send_->ReceivedTransportCcFeedbackCount();
 }
 
-std::unique_ptr<EcnFeedbackObserver> Call::CreateL4sEcnFeedbackAdapter() {
-  RTC_DCHECK_RUN_ON(worker_thread_);
-  
-  RTC_LOG(LS_INFO) << "L4S: Creating ECN feedback adapter for Call";
-  
-  // Enable RFC 8888 feedback on receive side to include ECN information
-  receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
-  
-  // Get the feedback generator from receive side congestion controller
-  CongestionControlFeedbackGenerator* feedback_generator = 
-      receive_side_cc_.GetCongestionControlFeedbackGenerator();
-  
-  if (!feedback_generator) {
-    RTC_LOG(LS_ERROR) << "L4S: Failed to get congestion control feedback generator";
-    return nullptr;
-  }
-  
-  // Create L4S immediate feedback controller
-  auto l4s_controller = std::make_unique<L4sImmediateFeedbackController>(
-      feedback_generator);
-  
-  // Create adapter that bridges RtpTransport ECN detection to L4S controller
-  auto adapter = std::make_unique<L4sEcnFeedbackAdapter>(
-      std::move(l4s_controller), // Transfer ownership to adapter
-      worker_thread_);
-  
-  RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created successfully";
-  
-  return adapter;
-}
-
 const FieldTrialsView& Call::trials() const {
   return env_.field_trials();
 }
@@ -1537,7 +1515,53 @@ void Call::NotifyBweOfReceivedPacket(const RtpPacketReceived& packet,
   }
   transport_send_->OnReceivedPacket(packet_msg);
 
+  // L4S ECN immediate feedback processing
+  ProcessL4sEcnMarking(packet);
+
   receive_side_cc_.OnReceivedPacket(packet, media_type);
+}
+
+void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
+  RTC_DCHECK_RUN_ON(worker_thread_);
+  
+  // Check if ECN information is available
+  if (!packet.network_info().ecn_marking.has_value()) {
+    return;
+  }
+
+  EcnMarking ecn_marking = packet.network_info().ecn_marking.value();
+  
+  // Process CE-marked packets for L4S immediate feedback
+  if (ecn_marking == EcnMarking::kCe) {
+    RTC_LOG(LS_INFO) << "L4S: CE marking detected on RTP packet - SSRC=" 
+                     << packet.Ssrc() << ", seq=" << packet.SequenceNumber();
+    
+    // Trigger immediate feedback mode on first CE packet
+    if (l4s_feedback_mode_ == L4sFeedbackMode::kBatchMode) {
+      l4s_feedback_mode_ = L4sFeedbackMode::kImmediateMode;
+      
+      // Enable RFC 8888 feedback if not already enabled  
+      if (!l4s_rfc8888_enabled_) {
+        receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
+        l4s_rfc8888_enabled_ = true;
+        RTC_LOG(LS_INFO) << "L4S: Enabled RFC 8888 feedback for ECN information";
+      }
+      
+      // Flush any pending batch feedback immediately
+      receive_side_cc_.SendImmediateCongestionFeedback();
+      RTC_LOG(LS_INFO) << "L4S: Switched to immediate feedback mode and flushed batch";
+    } else {
+      // Already in immediate mode, send immediate feedback for this CE packet
+      receive_side_cc_.SendImmediateCongestionFeedback();
+      RTC_LOG(LS_INFO) << "L4S: Sent immediate feedback for CE packet";
+    }
+  } else {
+    // Non-CE packet received - switch back to batch mode if currently immediate
+    if (l4s_feedback_mode_ == L4sFeedbackMode::kImmediateMode) {
+      l4s_feedback_mode_ = L4sFeedbackMode::kBatchMode;
+      RTC_LOG(LS_INFO) << "L4S: Switched back to batch feedback mode on non-CE packet";
+    }
+  }
 }
 
 }  // namespace internal

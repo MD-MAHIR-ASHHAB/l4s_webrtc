@@ -434,10 +434,6 @@ class FakeCall final : public Call, public PacketReceiver {
   int FeedbackAccordingToRfc8888Count() { return 0; }
   int FeedbackAccordingToTransportCcCount() { return 0; }
 
-  std::unique_ptr<EcnFeedbackObserver> CreateL4sEcnFeedbackAdapter() override {
-    return nullptr;  // Fake implementation returns null
-  }
-
  private:
   AudioSendStream* CreateAudioSendStream(
       const AudioSendStream::Config& config) override;

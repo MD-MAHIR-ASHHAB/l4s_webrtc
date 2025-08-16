@@ -332,7 +332,6 @@ rtc_library("call") {
     "../modules/rtp_rtcp:rtp_rtcp_format",
     "../modules/video_coding",
     "../modules/video_coding:nack_requester",
-    "../pc:rtp_transport",
     "../rtc_base:checks",
     "../rtc_base:copy_on_write_buffer",
     "../rtc_base:cpu_info",
