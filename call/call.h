@@ -28,6 +28,7 @@
 #include "call/call_config.h"
 #include "call/flexfec_receive_stream.h"
 #include "call/packet_receiver.h"
+#include "pc/rtp_transport.h"
 #include "call/payload_type.h"
 #include "call/rtp_transport_controller_send_interface.h"
 #include "call/video_receive_stream.h"
@@ -156,6 +157,11 @@ class Call {
   virtual void EnableSendCongestionControlFeedbackAccordingToRfc8888() = 0;
   virtual int FeedbackAccordingToRfc8888Count() = 0;
   virtual int FeedbackAccordingToTransportCcCount() = 0;
+
+  // L4S ECN immediate feedback integration
+  // Creates and returns an L4S ECN feedback adapter that bridges RtpTransport
+  // ECN detection to the receive side congestion controller for immediate feedback
+  virtual std::unique_ptr<EcnFeedbackObserver> CreateL4sEcnFeedbackAdapter() = 0;
 
   virtual const FieldTrialsView& trials() const = 0;
 

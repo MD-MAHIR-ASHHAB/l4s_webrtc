@@ -78,6 +78,8 @@
 #include "modules/rtp_rtcp/source/rtp_util.h"
 #include "modules/video_coding/fec_controller_default.h"
 #include "modules/video_coding/nack_requester.h"
+#include "pc/l4s_ecn_feedback_adapter.h"
+#include "pc/l4s_immediate_feedback_controller.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/cpu_info.h"
@@ -281,6 +283,8 @@ class Call final : public webrtc::Call,
   void EnableSendCongestionControlFeedbackAccordingToRfc8888() override;
   int FeedbackAccordingToRfc8888Count() override;
   int FeedbackAccordingToTransportCcCount() override;
+
+  std::unique_ptr<EcnFeedbackObserver> CreateL4sEcnFeedbackAdapter() override;
 
   const FieldTrialsView& trials() const override;
 
@@ -1182,6 +1186,30 @@ int Call::FeedbackAccordingToRfc8888Count() {
 
 int Call::FeedbackAccordingToTransportCcCount() {
   return transport_send_->ReceivedTransportCcFeedbackCount();
+}
+
+std::unique_ptr<EcnFeedbackObserver> Call::CreateL4sEcnFeedbackAdapter() {
+  RTC_DCHECK_RUN_ON(worker_thread_);
+  
+  RTC_LOG(LS_INFO) << "L4S: Creating ECN feedback adapter for Call";
+  
+  // Create L4S immediate feedback controller with congestion feedback generator
+  auto l4s_controller = std::make_unique<L4sImmediateFeedbackController>(
+      absl::bind_front(&ReceiveSideCongestionController::SendImmediateCongestionFeedback,
+                       &receive_side_cc_),
+      worker_thread_);
+  
+  // Create adapter that bridges RtpTransport ECN detection to L4S controller
+  auto adapter = std::make_unique<L4sEcnFeedbackAdapter>(
+      std::move(l4s_controller), // Transfer ownership to adapter
+      worker_thread_);
+  
+  // Enable RFC 8888 feedback on receive side to include ECN information
+  receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
+  
+  RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created successfully";
+  
+  return adapter;
 }
 
 const FieldTrialsView& Call::trials() const {

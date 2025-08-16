@@ -18,9 +18,9 @@
 namespace webrtc {
 
 L4sEcnFeedbackAdapter::L4sEcnFeedbackAdapter(
-    L4sImmediateFeedbackController* l4s_controller,
+    std::unique_ptr<L4sImmediateFeedbackController> l4s_controller,
     TaskQueueBase* task_queue)
-    : l4s_controller_(l4s_controller), task_queue_(task_queue) {
+    : l4s_controller_(std::move(l4s_controller)), task_queue_(task_queue) {
   RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created with L4S controller";
 }
 
@@ -47,7 +47,7 @@ void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(Timestamp timestamp,
     ++l4s_callbacks_sent_;
     
     // Capture needed variables for the async call
-    L4sImmediateFeedbackController* controller = l4s_controller_;
+    L4sImmediateFeedbackController* controller = l4s_controller_.get();
     uint64_t callback_count = l4s_callbacks_sent_;
     
     task_queue_->PostTask([controller, timestamp, ssrc, sequence_number, callback_count]() {
@@ -75,7 +75,7 @@ void L4sEcnFeedbackAdapter::OnNonCePacketReceived(Timestamp timestamp,
     ++l4s_callbacks_sent_;
     
     // Capture needed variables for the async call
-    L4sImmediateFeedbackController* controller = l4s_controller_;
+    L4sImmediateFeedbackController* controller = l4s_controller_.get();
     
     task_queue_->PostTask([controller, timestamp, ssrc, sequence_number]() {
       controller->OnNonCePacketReceived(timestamp, ssrc, sequence_number);
@@ -93,7 +93,7 @@ void L4sEcnFeedbackAdapter::Reset() {
                      << ", L4S callbacks: " << l4s_callbacks_sent_;
   }
   
-  l4s_controller_ = nullptr;
+  l4s_controller_.reset();
   task_queue_ = nullptr;
 }
 

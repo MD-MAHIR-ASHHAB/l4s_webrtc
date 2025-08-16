@@ -37,7 +37,7 @@ namespace webrtc {
 class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
  public:
   explicit L4sEcnFeedbackAdapter(
-      L4sImmediateFeedbackController* l4s_controller,
+      std::unique_ptr<L4sImmediateFeedbackController> l4s_controller,
       TaskQueueBase* task_queue);
   ~L4sEcnFeedbackAdapter() override;
 
@@ -55,9 +55,9 @@ class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
   void Reset();
 
  private:
-  // Thread-safe pointer to L4S controller
+  // Thread-safe L4S controller ownership
   mutable Mutex mutex_;
-  L4sImmediateFeedbackController* l4s_controller_ RTC_GUARDED_BY(mutex_);
+  std::unique_ptr<L4sImmediateFeedbackController> l4s_controller_ RTC_GUARDED_BY(mutex_);
   TaskQueueBase* task_queue_ RTC_GUARDED_BY(mutex_);
   
   // Statistics
