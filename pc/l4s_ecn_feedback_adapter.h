@@ -13,7 +13,7 @@
 
 #include "pc/rtp_transport.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
-#include "rtc_base/sequence_checker.h"
+#include "api/sequence_checker.h"
 #include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {

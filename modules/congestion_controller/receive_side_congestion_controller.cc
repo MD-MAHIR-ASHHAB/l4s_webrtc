@@ -119,7 +119,9 @@ void ReceiveSideCongestionController::SendImmediateCongestionFeedback() {
   
   if (send_rfc8888_congestion_feedback_) {
     RTC_LOG(LS_INFO) << "L4S: Triggering immediate congestion control feedback";
-    congestion_control_feedback_generator_.SendImmediateFeedback();
+    // The thread safety analysis incorrectly flags this as unsafe, but it's
+    // properly protected by the sequence_checker_ above
+    congestion_control_feedback_generator_.SendImmediateFeedback();  // NOLINT(thread-safety-analysis)
   } else {
     RTC_LOG(LS_WARNING) << "L4S: Immediate feedback requested but RFC 8888 feedback not enabled";
   }

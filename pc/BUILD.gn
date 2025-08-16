@@ -573,6 +573,7 @@ rtc_library("rtp_transport") {
     ":session_description",
     "../api:array_view",
     "../api:field_trials_view",
+    "../api:sequence_checker",
     "../api/task_queue",
     "../api/task_queue:pending_task_safety_flag",
     "../api/units:timestamp",
