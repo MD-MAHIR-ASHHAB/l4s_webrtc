@@ -76,7 +76,6 @@ void L4sEcnFeedbackAdapter::OnNonCePacketReceived(Timestamp timestamp,
     
     // Capture needed variables for the async call
     L4sImmediateFeedbackController* controller = l4s_controller_;
-    uint64_t callback_count = l4s_callbacks_sent_;
     
     task_queue_->PostTask([controller, timestamp, ssrc, sequence_number]() {
       controller->OnNonCePacketReceived(timestamp, ssrc, sequence_number);
