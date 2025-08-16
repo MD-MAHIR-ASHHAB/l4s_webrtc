@@ -12,6 +12,7 @@
 #define PC_L4S_ECN_FEEDBACK_ADAPTER_H_
 
 #include "pc/rtp_transport.h"
+#include "pc/l4s_immediate_feedback_controller.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 #include "api/sequence_checker.h"
 #include "api/task_queue/task_queue_base.h"
@@ -23,20 +24,20 @@ namespace webrtc {
 // L4S ECN Feedback Adapter
 // 
 // This class acts as a bridge between RtpTransport's ECN detection 
-// and the congestion control feedback system. When CE-marked packets
-// are detected in the transport layer, this adapter triggers immediate
-// RTCP feedback according to L4S requirements.
+// and the L4S immediate feedback controller. When CE-marked packets
+// are detected in the transport layer, this adapter triggers the
+// L4S state machine for hybrid batch/immediate feedback control.
 //
 // Thread Safety:
 // - Callbacks from RtpTransport (OnCongestionMarkingReceived) occur on 
 //   the network thread
-// - ReceiveSideCongestionController methods must be called on the 
-//   sequence checker thread
+// - L4S controller and feedback generator methods must be called on the 
+//   correct sequence checker thread
 // - This adapter handles the thread transitions safely
 class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
  public:
   explicit L4sEcnFeedbackAdapter(
-      ReceiveSideCongestionController* congestion_controller,
+      L4sImmediateFeedbackController* l4s_controller,
       TaskQueueBase* task_queue);
   ~L4sEcnFeedbackAdapter() override;
 
@@ -45,18 +46,24 @@ class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
                                    uint32_t ssrc, 
                                    uint16_t sequence_number) override;
 
-  // Called when congestion controller is being destroyed
+  // Called for non-CE packets to potentially switch back to batch mode
+  void OnNonCePacketReceived(Timestamp timestamp,
+                             uint32_t ssrc, 
+                             uint16_t sequence_number);
+
+  // Called when the L4S controller is being destroyed
   void Reset();
 
  private:
-  // Thread-safe pointer to congestion controller
+  // Thread-safe pointer to L4S controller
   mutable Mutex mutex_;
-  ReceiveSideCongestionController* congestion_controller_ RTC_GUARDED_BY(mutex_);
+  L4sImmediateFeedbackController* l4s_controller_ RTC_GUARDED_BY(mutex_);
   TaskQueueBase* task_queue_ RTC_GUARDED_BY(mutex_);
   
   // Statistics
   uint64_t ce_packets_detected_ RTC_GUARDED_BY(mutex_) = 0;
-  uint64_t immediate_feedback_sent_ RTC_GUARDED_BY(mutex_) = 0;
+  uint64_t non_ce_packets_detected_ RTC_GUARDED_BY(mutex_) = 0;
+  uint64_t l4s_callbacks_sent_ RTC_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace webrtc

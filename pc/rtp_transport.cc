@@ -212,42 +212,41 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
 
-  // Check for CE marking and trigger immediate RTCP feedback for L4S
-  if (ecn == EcnMarking::kCe && ecn_feedback_observer_) {
-    // First parse the packet to extract SSRC and sequence number
-    if (parsed_packet.Parse(packet)) {
-      uint32_t ssrc = parsed_packet.Ssrc();
-      uint16_t sequence_number = parsed_packet.SequenceNumber();
-      
-      RTC_LOG(LS_INFO) << "CE-marked RTP packet detected! SSRC=" << ssrc 
-                       << " seq=" << sequence_number 
-                       << " - triggering immediate RTCP feedback";
-      
-      // Notify observer to trigger immediate RTCP feedback
-      ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
-    } else {
-      RTC_LOG(LS_WARNING) << "Failed to parse CE-marked packet for immediate feedback";
-    }
-  }
-
-  // if (ecn != EcnMarking::kNotEct) {
-  //   RTC_LOG(LS_INFO) << "RTP packet with seq=" 
-  //                    << parsed_packet.SequenceNumber()
-  //                    << " marked with ECN: " 
-  //                    << (ecn == EcnMarking::kEct0 ? "ECT(0)" :
-  //                        (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-  // }
-
-  if (!parsed_packet.Parse(std::move(packet))) {
+  // Parse packet first to get SSRC and sequence number for L4S processing
+  bool parse_successful = parsed_packet.Parse(packet);
+  if (!parse_successful) {
     RTC_LOG(LS_ERROR)
         << "Failed to parse the incoming RTP packet before demuxing. Drop it.";
     return;
   }
 
+  uint32_t ssrc = parsed_packet.Ssrc();
+  uint16_t sequence_number = parsed_packet.SequenceNumber();
+
+  // L4S ECN processing with hybrid batch/immediate feedback
+  if (ecn_feedback_observer_) {
+    if (ecn == EcnMarking::kCe) {
+      RTC_LOG(LS_INFO) << "L4S: CE-marked RTP packet detected! SSRC=" << ssrc 
+                       << " seq=" << sequence_number 
+                       << " - triggering L4S immediate feedback logic";
+      
+      // Notify L4S controller about CE packet
+      ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
+    } else {
+      // For non-CE packets, notify L4S controller to potentially switch back to batch mode
+      // Only do this if we have the extended interface (L4sEcnFeedbackAdapter)
+      if (auto* l4s_adapter = dynamic_cast<L4sEcnFeedbackAdapter*>(ecn_feedback_observer_)) {
+        l4s_adapter->OnNonCePacketReceived(arrival_time, ssrc, sequence_number);
+      }
+    }
+  }
+
+  // Continue with normal demuxing
   if (!rtp_demuxer_.OnRtpPacket(parsed_packet)) {
     RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
                         << RtpDemuxer::DescribePacket(parsed_packet);
     NotifyUnDemuxableRtpPacketReceived(parsed_packet);
+  }
   }
 }
 

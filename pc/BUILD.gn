@@ -565,6 +565,8 @@ rtc_library("rtp_transport") {
   sources = [
     "l4s_ecn_feedback_adapter.cc",
     "l4s_ecn_feedback_adapter.h",
+    "l4s_immediate_feedback_controller.cc",
+    "l4s_immediate_feedback_controller.h",
     "rtp_transport.cc",
     "rtp_transport.h",
   ]
@@ -581,6 +583,7 @@ rtc_library("rtp_transport") {
     "../call:video_receive_stream_api",
     "../media:rtp_utils",
     "../modules/congestion_controller:receive_side_congestion_controller",
+    "../modules/remote_bitrate_estimator:congestion_control_feedback_generator",
     "../modules/rtp_rtcp:rtp_rtcp_format",
     "../p2p:packet_transport_internal",
     "../rtc_base:async_packet_socket",

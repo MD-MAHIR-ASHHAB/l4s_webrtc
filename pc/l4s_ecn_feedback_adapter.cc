@@ -10,6 +10,7 @@
 
 #include "pc/l4s_ecn_feedback_adapter.h"
 
+#include "pc/l4s_immediate_feedback_controller.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/thread_annotations.h"
@@ -17,10 +18,10 @@
 namespace webrtc {
 
 L4sEcnFeedbackAdapter::L4sEcnFeedbackAdapter(
-    ReceiveSideCongestionController* congestion_controller,
+    L4sImmediateFeedbackController* l4s_controller,
     TaskQueueBase* task_queue)
-    : congestion_controller_(congestion_controller), task_queue_(task_queue) {
-  RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created";
+    : l4s_controller_(l4s_controller), task_queue_(task_queue) {
+  RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter created with L4S controller";
 }
 
 L4sEcnFeedbackAdapter::~L4sEcnFeedbackAdapter() {
@@ -40,38 +41,60 @@ void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(Timestamp timestamp,
                    << ", timestamp " << timestamp.us()
                    << " (total CE packets: " << ce_packets_detected_ << ")";
   
-  if (congestion_controller_ && task_queue_) {
-    // Post the immediate feedback call to the congestion controller's task queue
-    // This ensures the call happens on the correct thread (sequence checker)
-    ++immediate_feedback_sent_;
+  if (l4s_controller_ && task_queue_) {
+    // Post the L4S CE callback to the correct task queue
+    // This ensures the call happens on the L4S controller's sequence checker thread
+    ++l4s_callbacks_sent_;
     
     // Capture needed variables for the async call
-    ReceiveSideCongestionController* controller = congestion_controller_;
-    uint64_t feedback_count = immediate_feedback_sent_;
+    L4sImmediateFeedbackController* controller = l4s_controller_;
+    uint64_t callback_count = l4s_callbacks_sent_;
     
-    task_queue_->PostTask([controller, feedback_count]() {
-      RTC_LOG(LS_INFO) << "L4S: Triggering immediate feedback "
-                       << "(feedback #" << feedback_count << ")";
-      controller->SendImmediateCongestionFeedback();
+    task_queue_->PostTask([controller, timestamp, ssrc, sequence_number, callback_count]() {
+      RTC_LOG(LS_INFO) << "L4S: Processing CE packet in L4S controller "
+                       << "(callback #" << callback_count << ")";
+      controller->OnCePacketReceived(timestamp, ssrc, sequence_number);
     });
     
-    RTC_LOG(LS_INFO) << "L4S: Immediate feedback posted to task queue "
-                     << "(total immediate feedbacks: " << immediate_feedback_sent_ << ")";
+    RTC_LOG(LS_INFO) << "L4S: CE callback posted to task queue "
+                     << "(total L4S callbacks: " << l4s_callbacks_sent_ << ")";
   } else {
-    RTC_LOG(LS_WARNING) << "L4S: CE detected but congestion controller or task queue unavailable";
+    RTC_LOG(LS_WARNING) << "L4S: CE detected but L4S controller or task queue unavailable";
+  }
+}
+
+void L4sEcnFeedbackAdapter::OnNonCePacketReceived(Timestamp timestamp,
+                                                  uint32_t ssrc, 
+                                                  uint16_t sequence_number) {
+  MutexLock lock(&mutex_);
+  
+  ++non_ce_packets_detected_;
+  
+  if (l4s_controller_ && task_queue_) {
+    // Post the L4S non-CE callback to the correct task queue
+    ++l4s_callbacks_sent_;
+    
+    // Capture needed variables for the async call
+    L4sImmediateFeedbackController* controller = l4s_controller_;
+    uint64_t callback_count = l4s_callbacks_sent_;
+    
+    task_queue_->PostTask([controller, timestamp, ssrc, sequence_number, callback_count]() {
+      controller->OnNonCePacketReceived(timestamp, ssrc, sequence_number);
+    });
   }
 }
 
 void L4sEcnFeedbackAdapter::Reset() {
   MutexLock lock(&mutex_);
   
-  if (congestion_controller_) {
+  if (l4s_controller_) {
     RTC_LOG(LS_INFO) << "L4S: Resetting ECN feedback adapter - "
                      << "CE packets: " << ce_packets_detected_ 
-                     << ", immediate feedbacks: " << immediate_feedback_sent_;
+                     << ", non-CE packets: " << non_ce_packets_detected_
+                     << ", L4S callbacks: " << l4s_callbacks_sent_;
   }
   
-  congestion_controller_ = nullptr;
+  l4s_controller_ = nullptr;
   task_queue_ = nullptr;
 }
 
