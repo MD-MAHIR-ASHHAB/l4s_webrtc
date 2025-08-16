@@ -14,6 +14,7 @@
 #include "pc/rtp_transport.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
 #include "api/sequence_checker.h"
+#include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
@@ -31,14 +32,15 @@ namespace webrtc {
 // - ReceiveSideCongestionController methods must be called on the 
 //   sequence checker thread
 // - This adapter handles the thread transitions safely
-class L4sEcnFeedbackAdapter : public RtpTransport::EcnFeedbackObserver {
+class L4sEcnFeedbackAdapter : public EcnFeedbackObserver {
  public:
   explicit L4sEcnFeedbackAdapter(
       ReceiveSideCongestionController* congestion_controller);
   ~L4sEcnFeedbackAdapter() override;
 
-  // RtpTransport::EcnFeedbackObserver implementation
-  void OnCongestionMarkingReceived(uint32_t ssrc, 
+  // EcnFeedbackObserver implementation
+  void OnCongestionMarkingReceived(Timestamp timestamp,
+                                   uint32_t ssrc, 
                                    uint16_t sequence_number) override;
 
   // Called when congestion controller is being destroyed

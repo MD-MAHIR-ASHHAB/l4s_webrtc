@@ -26,7 +26,8 @@ L4sEcnFeedbackAdapter::~L4sEcnFeedbackAdapter() {
   RTC_LOG(LS_INFO) << "L4S: ECN feedback adapter destroyed";
 }
 
-void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(uint32_t ssrc, 
+void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(Timestamp timestamp,
+                                                        uint32_t ssrc, 
                                                         uint16_t sequence_number) {
   MutexLock lock(&mutex_);
   
@@ -34,6 +35,7 @@ void L4sEcnFeedbackAdapter::OnCongestionMarkingReceived(uint32_t ssrc,
   
   RTC_LOG(LS_INFO) << "L4S: CE marking detected on SSRC " << ssrc 
                    << ", sequence " << sequence_number 
+                   << ", timestamp " << timestamp.us()
                    << " (total CE packets: " << ce_packets_detected_ << ")";
   
   if (congestion_controller_) {
