@@ -64,6 +64,53 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
   }
 
 
+//---------------------------------------------------PRAGUE------------------------------------------
+
+// Pure Prague DCTCP-style rate adaptation (RFC 9330)
+if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
+  // DCTCP-style alpha update with standard EWMA gain
+  constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
+  alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+  
+  // Proportional decrease (much gentler than 50% reduction)
+  double reduction_factor = 1.0 - alpha_ / 2.0;
+  DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+  congestion_based_estimate_ = reduced;
+  
+  if (congestion_based_estimate_ < historic_min_) {
+    historic_min_ = congestion_based_estimate_;
+  }
+  // Clamp to min_target_rate_
+  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
+  
+  RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
+                   << ", ce_ratio=" << ce_ratio 
+                   << ", reduction_factor=" << reduction_factor
+                   << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+                   
+} else if (current_rate >= congestion_based_estimate_ * 0.9) {
+  // More aggressive additive increase since decreases are gentler
+  int64_t bits_per_rtt = kDefaultMssBytes * 8;
+  double ai_factor = 1.5;  // 1.5 MSS per RTT (was 0.1)
+  int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
+  DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+  
+  congestion_based_estimate_ = increased;
+  if (congestion_based_estimate_ > historic_max_) {
+    historic_max_ = congestion_based_estimate_;
+  }
+  // Clamp to max_target_rate_
+  if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
+  if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
+  
+  RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.5 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+                   << "new rate=" << congestion_based_estimate_.bps() << " bps";
+}
+
+//---------------------------------------------------PRAGUE------------------------------------------
+
+
 
 
   // // typical prague
@@ -89,44 +136,48 @@ void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate
 
   //according to rfc 6679 section 7.3.3
 
-  if (ce_ratio > 0.1) {
-    // Proportional decrease on CE marks
-    double reduction_factor = 0.5;
-    DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-    congestion_based_estimate_ = reduced;
-    if (congestion_based_estimate_ < historic_min_) {
-      historic_min_ = congestion_based_estimate_;
-    }
-    // Clamp to min_target_rate_
-    if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-    if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-    // RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
-    //                  << ", ce_ratio=" << ce_ratio
-    //                  << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  }  else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
-    // Linear, RTT-aware additive increase: +1 MSS per RTT
-    int64_t bits_per_rtt = kDefaultMssBytes * 8;
-    double ai_factor = 0.1; // 0.5 MSS per RTT
-    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
-    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+  // if (ce_ratio > 0.1) {
+  //   // Proportional decrease on CE marks
+  //   double reduction_factor = 0.5;
+  //   DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+  //   congestion_based_estimate_ = reduced;
+  //   if (congestion_based_estimate_ < historic_min_) {
+  //     historic_min_ = congestion_based_estimate_;
+  //   }
+  //   // Clamp to min_target_rate_
+  //   if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
+  //   if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
+  //   // RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
+  //   //                  << ", ce_ratio=" << ce_ratio
+  //   //                  << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  // }  else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
+  //   // Linear, RTT-aware additive increase: +1 MSS per RTT
+  //   int64_t bits_per_rtt = kDefaultMssBytes * 8;
+  //   double ai_factor = 0.1; // 0.5 MSS per RTT
+  //   int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
+  //   DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
         
-    // int64_t bits_per_rtt = kDefaultMssBytes * 8;
-    // int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
-    // DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
-    congestion_based_estimate_ = increased;
-    if (congestion_based_estimate_ > historic_max_) {
-      historic_max_ = congestion_based_estimate_;
-    }
-    // Clamp to max_target_rate_
-    if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
-    if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
-    // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-    //                  << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  }
-  else{
-    // No action needed if CE ratio is low and rate is stable
+  //   // int64_t bits_per_rtt = kDefaultMssBytes * 8;
+  //   // int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
+  //   // DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+  //   congestion_based_estimate_ = increased;
+  //   if (congestion_based_estimate_ > historic_max_) {
+  //     historic_max_ = congestion_based_estimate_;
+  //   }
+  //   // Clamp to max_target_rate_
+  //   if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
+  //   if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
+  //   // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+  //   //                  << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
+  // }
+  // else{
+  //   // No action needed if CE ratio is low and rate is stable
 
-  }
+  // }
+
+  //according to rfc 6679 section 7.3.3
+  
+  
   last_update_time_ = current_time;
 }
 
