@@ -219,9 +219,9 @@ bool Conductor::InitializePeerConnection() {
 
 
   // Add these to prevent memory bloat:
-  l4s_config.max_transport_feedback_history = 2000;      // Limit history size
-  l4s_config.transport_feedback_cleanup_interval_ms = 1000;  // Cleanup every 1s instead of default
-  l4s_config.max_packet_age_seconds = 30;               // Drop packets older than 30s
+  // l4s_config.max_transport_feedback_history = 2000;      // Limit history size
+  // l4s_config.transport_feedback_cleanup_interval_ms = 1000;  // Cleanup every 1s instead of default
+  // l4s_config.max_packet_age_seconds = 30;               // Drop packets older than 30s
 
   
   // Create a proper network controller factory
