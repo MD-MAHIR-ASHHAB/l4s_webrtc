@@ -535,6 +535,10 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
 
   // Update loss metrics for logging
   int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
+  RTC_LOG(LS_INFO) << "L4S: Transport loss report received: "
+                   << "Packets lost delta: " << msg.packets_lost_delta
+                   << ", Packets received delta: " << msg.packets_received_delta
+                   << ", Total packets: " << total_packets;
   if (total_packets > 0) {
     last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
   } else {
