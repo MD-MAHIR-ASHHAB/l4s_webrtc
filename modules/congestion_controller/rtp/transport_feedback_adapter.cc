@@ -37,7 +37,7 @@
 
 namespace webrtc {
 
-constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
+//constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
 
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
@@ -198,48 +198,6 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Set ECN marking that will be applied to this packet
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
-
-  // BACKUP: Previous complex cleanup logic (commented out for reference)
-  /*
-  // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
-  // Only remove packets that are extremely old AND definitely won't get feedback
-  while (!history_.empty()) {
-    const PacketFeedback& oldest_packet = history_.begin()->second;
-    auto age = creation_time - oldest_packet.creation_time;
-    
-    // Only remove if packet is MUCH older than the window AND meets additional criteria
-    bool should_remove = false;
-    
-    if (age > kSendTimeHistoryWindow * 2) {  // Double the window before considering removal
-      if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
-        // Packet has been acknowledged AND is very old, safe to remove
-        should_remove = true;
-      } else if (oldest_packet.sent.send_time.IsInfinite() && age > TimeDelta::Seconds(30)) {
-        // Packet never got send time update AND is extremely old
-        should_remove = true;
-        RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
-                            << " that never got send time update after " << age.seconds() << "s";
-      }
-    }
-    
-    if (should_remove) {
-      if (oldest_packet.sent.sequence_number > last_ack_seq_num_)
-        in_flight_.RemoveInFlightPacketBytes(oldest_packet);
-
-      rtp_to_transport_sequence_number_.erase(
-          {.ssrc = oldest_packet.ssrc,
-           .rtp_sequence_number = oldest_packet.rtp_sequence_number});
-      history_.erase(history_.begin());
-    } else {
-      // Keep this packet, but warn if history is getting very large
-      if (history_.size() > 50000) {  // Much higher threshold
-        RTC_LOG(LS_WARNING) << "Send time history very large: " << history_.size() 
-                            << " packets. Oldest packet age: " << age.seconds() << "s";
-      }
-      break;  // Don't remove more packets if we kept this one
-    }
-  }
-  */
 
   // NEW: Simple bulk cleanup strategy for L4S immediate feedback
   // When history reaches 50k packets, remove the oldest 15k packets in one go
