@@ -528,7 +528,7 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
   webrtc::NetworkControlUpdate update;
 
   // Only apply loss fallback if L4S is active
-  if (IsL4SActive()) {
+  if (!IsL4SActive()) {
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
     capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
   }
