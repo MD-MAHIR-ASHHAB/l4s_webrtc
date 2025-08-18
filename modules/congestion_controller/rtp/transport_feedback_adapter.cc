@@ -97,6 +97,83 @@ bool InFlightBytesTracker::NetworkRouteComparator::operator()(
 
 TransportFeedbackAdapter::TransportFeedbackAdapter() = default;
 
+// void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
+//                                          const PacedPacketInfo& pacing_info,
+//                                          size_t overhead_bytes,
+//                                          Timestamp creation_time) {
+//   RTC_DCHECK(packet_to_send.transport_sequence_number());
+//   PacketFeedback feedback;
+
+//   feedback.creation_time = creation_time;
+//   // Note, if transport sequence number header extension is used, transport
+//   // sequence numbers are wrapped to 16 bit. See
+//   // RtpSenderEgress::CompleteSendPacket.
+//   feedback.sent.sequence_number = seq_num_unwrapper_.Unwrap(
+//       packet_to_send.transport_sequence_number().value_or(0));
+//   feedback.sent.size = DataSize::Bytes(packet_to_send.size() + overhead_bytes);
+//   feedback.sent.audio =
+//       packet_to_send.packet_type() == RtpPacketMediaType::kAudio;
+//   feedback.network_route = network_route_;
+//   feedback.sent.pacing_info = pacing_info;
+//   feedback.ssrc = packet_to_send.Ssrc();
+//   feedback.rtp_sequence_number = packet_to_send.SequenceNumber();
+  
+//   // Set ECN marking that will be applied to this packet
+//   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
+//   feedback.sent_ecn_marking = current_ecn_marking_;
+
+//   // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
+//   // Only remove packets that are extremely old AND definitely won't get feedback
+//   while (!history_.empty()) {
+//     const PacketFeedback& oldest_packet = history_.begin()->second;
+//     auto age = creation_time - oldest_packet.creation_time;
+    
+//     // Only remove if packet is MUCH older than the window AND meets additional criteria
+//     bool should_remove = false;
+    
+//     if (age > kSendTimeHistoryWindow * 2) {  // Double the window before considering removal
+//       if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
+//         // Packet has been acknowledged AND is very old, safe to remove
+//         should_remove = true;
+//       } else if (oldest_packet.sent.send_time.IsInfinite() && age > TimeDelta::Seconds(30)) {
+//         // Packet never got send time update AND is extremely old
+//         should_remove = true;
+//         RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
+//                             << " that never got send time update after " << age.seconds() << "s";
+//       }
+//     }
+    
+//     if (should_remove) {
+//       if (oldest_packet.sent.sequence_number > last_ack_seq_num_)
+//         in_flight_.RemoveInFlightPacketBytes(oldest_packet);
+
+//       rtp_to_transport_sequence_number_.erase(
+//           {.ssrc = oldest_packet.ssrc,
+//            .rtp_sequence_number = oldest_packet.rtp_sequence_number});
+//       history_.erase(history_.begin());
+//     } else {
+//       // Keep this packet, but warn if history is getting very large
+//       if (history_.size() > 50000) {  // Much higher threshold
+//         RTC_LOG(LS_WARNING) << "Send time history very large: " << history_.size() 
+//                             << " packets. Oldest packet age: " << age.seconds() << "s";
+//       }
+//       break;  // Don't remove more packets if we kept this one
+//     }
+//   }
+//   // Note that it can happen that the same SSRC and sequence number is sent
+//   // again. e.g, audio retransmission.
+//   rtp_to_transport_sequence_number_.emplace(
+//       SsrcAndRtpSequencenumber(
+//           {.ssrc = feedback.ssrc,
+//            .rtp_sequence_number = feedback.rtp_sequence_number}),
+//       feedback.sent.sequence_number);
+//   history_.emplace(feedback.sent.sequence_number, feedback);
+
+//   // RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
+//   //                  << " ECN marking=" << static_cast<int>(current_ecn_marking_);
+// }
+
+
 void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
                                          const PacedPacketInfo& pacing_info,
                                          size_t overhead_bytes,
@@ -122,6 +199,8 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
 
+  // BACKUP: Previous complex cleanup logic (commented out for reference)
+  /*
   // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
   // Only remove packets that are extremely old AND definitely won't get feedback
   while (!history_.empty()) {
@@ -160,6 +239,42 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
       break;  // Don't remove more packets if we kept this one
     }
   }
+  */
+
+  // NEW: Simple bulk cleanup strategy for L4S immediate feedback
+  // When history reaches 50k packets, remove the oldest 15k packets in one go
+  constexpr size_t kMaxHistorySize = 50000;        // Trigger cleanup at 50k packets
+  constexpr size_t kBulkCleanupCount = 15000;      // Remove 15k oldest packets
+  
+  if (history_.size() >= kMaxHistorySize) {
+    RTC_LOG(LS_INFO) << "History size reached " << history_.size() 
+                     << " packets, removing oldest " << kBulkCleanupCount << " packets";
+    
+    size_t removed_count = 0;
+    auto it = history_.begin();
+    
+    while (it != history_.end() && removed_count < kBulkCleanupCount) {
+      const PacketFeedback& packet = it->second;
+      
+      // Remove from in-flight tracking if still pending
+      if (packet.sent.sequence_number > last_ack_seq_num_) {
+        in_flight_.RemoveInFlightPacketBytes(packet);
+      }
+      
+      // Remove from RTP sequence lookup
+      rtp_to_transport_sequence_number_.erase(
+          {.ssrc = packet.ssrc,
+           .rtp_sequence_number = packet.rtp_sequence_number});
+      
+      // Remove from history and advance iterator
+      it = history_.erase(it);
+      removed_count++;
+    }
+    
+    RTC_LOG(LS_INFO) << "Bulk cleanup completed: removed " << removed_count 
+                     << " packets, history size now: " << history_.size();
+  }
+
   // Note that it can happen that the same SSRC and sequence number is sent
   // again. e.g, audio retransmission.
   rtp_to_transport_sequence_number_.emplace(
@@ -172,6 +287,9 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
   //                  << " ECN marking=" << static_cast<int>(current_ecn_marking_);
 }
+
+
+
 
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     const SentPacketInfo& sent_packet) {

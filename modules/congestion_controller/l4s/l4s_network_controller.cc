@@ -92,7 +92,7 @@ if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
 } else if (current_rate >= congestion_based_estimate_ * 0.9) {
   // More aggressive additive increase since decreases are gentler
   int64_t bits_per_rtt = kDefaultMssBytes * 8;
-  double ai_factor = 1.5;  // 1.5 MSS per RTT (was 0.1)
+  double ai_factor = 1.0;  // 1.0 MSS per RTT (was 0.1)
   int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
   DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
   
