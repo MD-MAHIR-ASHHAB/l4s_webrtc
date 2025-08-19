@@ -105,14 +105,31 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Only perform additive increase if we're in increasing mode (flag = 1)
     if (direction_flag_ == 1 && current_rate >= congestion_based_estimate_ * 0.9) {
     
-    // Note: Prague does NOT do its own additive increase anymore
-    // The additive increase should be driven by the bandwidth fusion engine
-    // using inputs from delay-based BWE, probe results, and acked bitrate
-    // Prague only provides the upper bound constraint based on congestion state
+    // Prague DCTCP additive increase: +1 MSS per RTT period
+    // This is the fundamental L4S congestion control behavior
+    int64_t bits_per_rtt = kDefaultMssBytes * 8;  // 1440 * 8 = 11520 bits
     
-    RTC_LOG(LS_VERBOSE) << "Prague: In additive mode, allowing rate increase from bandwidth fusion"
-                        << " (current: " << current_rate.bps() << " bps, "
-                        << "non_ce_count=" << non_ce_packet_count_ << ")";
+    // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
+    int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
+    
+    // Apply conservative limits to prevent explosive growth
+    int64_t ai_step_bps = std::min(
+        theoretical_ai_bps,  // DCTCP standard AI rate
+        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.05)  // Limit to 5% increase per step
+    );
+    
+    DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
+    
+    // Don't exceed maximum rate
+    if (max_target_rate_ > DataRate::Zero()) {
+        increased = std::min(increased, max_target_rate_);
+    }
+    
+    congestion_based_estimate_ = increased;
+    
+    RTC_LOG(LS_INFO) << "Prague: DCTCP additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
+                     << "step=" << ai_step_bps << " bps), new rate=" 
+                     << congestion_based_estimate_.bps() << " bps, non_ce_count=" << non_ce_packet_count_;
     } else if (direction_flag_ == -1) {
       RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, in reduction mode (need " 
                           << (kNonCeThreshold - non_ce_packet_count_) 
@@ -185,63 +202,77 @@ L4SBandwidthFusion::L4SBandwidthFusion(const L4SControllerConfig& config) : conf
 L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 
 void L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
+  RTC_LOG(LS_INFO) << "L4S: Updating ECN estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.ecn_estimate = estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
 }
 
 void L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
+  RTC_LOG(LS_INFO) << "L4S: Updating delay estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.delay_estimate = estimate;
   sources_.delay_confidence = confidence;
   sources_.last_delay_update = now;
 }
 
 void L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
+  RTC_LOG(LS_INFO) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.probe_estimate = estimate;
   sources_.probe_confidence = confidence;
   sources_.last_probe_update = now;
 }
 
 void L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
+  RTC_LOG(LS_INFO) << "L4S: Updating acked estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.acked_estimate = estimate;
   sources_.acked_confidence = confidence;
   sources_.last_acked_update = now;
 }
 
 DataRate L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
-  // Priority-based fusion with confidence weighting
+  // L4S Fusion: Prague ECN provides congestion control authority,
+  // other estimators provide capacity discovery insights
   
-  // 1. If ECN feedback is fresh and confident, prioritize it
+  // 1. Prague ECN estimate has highest priority for congestion control
+  // When Prague detects congestion, it overrides other estimates
   if (sources_.ecn_confidence > config_.ecn_confidence_threshold && 
       IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Using Prague ECN estimate: " << sources_.ecn_estimate.bps() << " bps";
     return sources_.ecn_estimate;
   }
   
-  // 2. If we have fresh probe results, they're usually most accurate
+  // 2. When no recent congestion, use probe results as capacity upper bound
   if (sources_.probe_confidence > config_.probe_confidence_threshold && 
       IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    // Cross-validate with other estimates
-    return ValidateWithOtherSources(sources_.probe_estimate, sources_);
+    DataRate capacity_estimate = ValidateWithOtherSources(sources_.probe_estimate, sources_);
+    
+    // But don't exceed Prague's current estimate if it's lower (recent congestion)
+    if (sources_.ecn_confidence > 0.3) {
+      capacity_estimate = std::min(capacity_estimate, sources_.ecn_estimate * 1.1);
+    }
+    
+    RTC_LOG(LS_VERBOSE) << "L4S: Using probe-based capacity: " << capacity_estimate.bps() << " bps";
+    return capacity_estimate;
   }
   
-  // 3. Weighted combination of delay and acked estimates
+  // 3. Fallback to conservative combination of delay and acked estimates
   double total_weight = sources_.delay_confidence + sources_.acked_confidence;
   if (total_weight > 0.1) {
     DataRate weighted_estimate = 
         (sources_.delay_estimate * sources_.delay_confidence + 
          sources_.acked_estimate * sources_.acked_confidence) / total_weight;
     
-    // Apply ECN constraints if available - respect Prague's congestion state
+    // Always respect Prague's congestion authority
     if (sources_.ecn_confidence > 0.3) {
-      // If ECN estimate is much lower, it means Prague detected congestion
-      // Don't increase above the ECN estimate in this case
       weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate);
     }
     
+    RTC_LOG(LS_VERBOSE) << "L4S: Using weighted delay+acked estimate: " << weighted_estimate.bps() << " bps";
     return weighted_estimate;
   }
   
-  // 4. Fallback to most confident single estimate
+  // 4. Final fallback to most confident single estimate
+  RTC_LOG(LS_VERBOSE) << "L4S: Using fallback estimate";
   return GetMostConfidentEstimate(now);
 }
 
