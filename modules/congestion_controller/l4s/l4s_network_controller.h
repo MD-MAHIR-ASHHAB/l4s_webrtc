@@ -1,8 +1,9 @@
-#ifndef MODULES_CONGESTION_CONTROLLER_L4S_L4S_PRAGUE_CONTROLLER_H_
-#define MODULES_CONGESTION_CONTROLLER_L4S_L4S_PRAGUE_CONTROLLER_H_
+#ifndef MODULES_CONGESTION_CONTROLLER_L4S_L4S_NETWORK_CONTROLLER_H_
+#define MODULES_CONGESTION_CONTROLLER_L4S_L4S_NETWORK_CONTROLLER_H_
 
 #include <deque>
-#include <memory>
+#i  L4SNetworkController(NetworkControllerConfig config,
+                        L4SConfig l4s_config,lude <memory>
 #include <optional>
 #include <string>
 
@@ -29,10 +30,10 @@ namespace webrtc {
 // Forward declarations
 class RtcEventLog;
 
-// Configuration for L4S Prague controller
-struct L4SPragueConfig {
+// Configuration for L4S network controller
+struct L4SConfig {
   bool enable_metrics_collection = true;
-  std::string test_case_name = "l4s_prague_test";
+  std::string test_case_name = "l4s_network_test";
   bool enable_probing = true;
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
@@ -92,7 +93,7 @@ public:
     Timestamp last_acked_update = Timestamp::MinusInfinity();
   };
 
-  explicit L4SBandwidthFusion(const L4SPragueConfig& config);
+  explicit L4SBandwidthFusion(const L4SConfig& config);
   ~L4SBandwidthFusion();
 
   void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
@@ -109,21 +110,21 @@ private:
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
 
   BandwidthSources sources_;
-  L4SPragueConfig config_;
+  L4SConfig config_;
 };
 
 // L4S Metrics Collector
-class L4SPragueMetricsCollector {
+class L4SMetricsCollector {
 public:
   static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(500);
   static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
   static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1000);
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
 
-  L4SPragueMetricsCollector(test::MetricsLogger* logger, 
+  L4SMetricsCollector(test::MetricsLogger* logger, 
                            const std::string& test_case_name,
                            Clock* clock);
-  ~L4SPragueMetricsCollector();
+  ~L4SMetricsCollector();
 
   void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, DataRate actual_bitrate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
@@ -156,12 +157,12 @@ private:
 };
 
 // Main L4S Prague Network Controller
-class L4SPragueNetworkController : public NetworkControllerInterface {
+class L4SNetworkController : public NetworkControllerInterface {
 public:
-  L4SPragueNetworkController(NetworkControllerConfig config,
-                            L4SPragueConfig l4s_config,
-                            test::MetricsLogger* metrics_logger = nullptr);
-  ~L4SPragueNetworkController() override;
+  L4SNetworkController(NetworkControllerConfig config,
+                      L4SConfig l4s_config,
+                      test::MetricsLogger* metrics_logger = nullptr);
+  ~L4SNetworkController() override;
 
   // NetworkControllerInterface implementation
   NetworkControlUpdate OnNetworkAvailability(NetworkAvailability msg) override;
@@ -219,7 +220,7 @@ private:
 
   // Environment and configuration
   const Environment env_;
-  L4SPragueConfig config_;
+  L4SConfig config_;
 
   // Bandwidth estimation components
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
@@ -259,11 +260,11 @@ private:
 
   // Metrics
   bool metrics_enabled_ = true;
-  std::unique_ptr<L4SPragueMetricsCollector> metrics_collector_;
+  std::unique_ptr<L4SMetricsCollector> metrics_collector_;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(500);
 };
 
 }  // namespace webrtc
 
-#endif  // MODULES_CONGESTION_CONTROLLER_L4S_L4S_PRAGUE_CONTROLLER_H_
+#endif  // MODULES_CONGESTION_CONTROLLER_L4S_L4S_NETWORK_CONTROLLER_H_
