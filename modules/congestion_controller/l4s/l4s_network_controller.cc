@@ -465,11 +465,11 @@ L4SNetworkController::~L4SNetworkController() {
 
 void L4SNetworkController::InitializeBandwidthEstimators() {
   if (config_.enable_delay_estimation) {
-    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr);
+    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr, nullptr);
   }
   
   if (config_.enable_probing) {
-    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
+    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials());
   }
   
   if (config_.enable_acked_estimation) {
