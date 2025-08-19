@@ -105,30 +105,14 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Only perform additive increase if we're in increasing mode (flag = 1)
     if (direction_flag_ == 1 && current_rate >= congestion_based_estimate_ * 0.9) {
     
-    // Additive increase: +1 MSS per RTT period
-    // This should be a small increment spread over the RTT period
-    int64_t bits_per_rtt = kDefaultMssBytes * 8;  // 1500 * 8 = 12000 bits
+    // Note: Prague does NOT do its own additive increase anymore
+    // The additive increase should be driven by the bandwidth fusion engine
+    // using inputs from delay-based BWE, probe results, and acked bitrate
+    // Prague only provides the upper bound constraint based on congestion state
     
-    // Calculate the increase rate: 1 MSS worth of extra bits per RTT period
-    // For proper AI, we need: current_rate + (1_MSS_bits / RTT_duration)
-    // But we want gradual increase, so we limit the step size
-    int64_t ai_step_bps = std::min(
-        static_cast<int64_t>(bits_per_rtt / rtt_seconds),  // Theoretical AI rate
-        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.1)  // Limit to 10% increase per step
-    );
-    
-    DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
-    
-    // Don't exceed maximum rate
-    if (max_target_rate_ > DataRate::Zero()) {
-        increased = std::min(increased, max_target_rate_);
-    }
-    
-    congestion_based_estimate_ = increased;
-    
-    RTC_LOG(LS_INFO) << "Prague: Additive increase in increasing mode (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
-                     << "step=" << ai_step_bps << " bps), new rate=" 
-                     << congestion_based_estimate_.bps() << " bps, non_ce_count=" << non_ce_packet_count_;
+    RTC_LOG(LS_VERBOSE) << "Prague: In additive mode, allowing rate increase from bandwidth fusion"
+                        << " (current: " << current_rate.bps() << " bps, "
+                        << "non_ce_count=" << non_ce_packet_count_ << ")";
     } else if (direction_flag_ == -1) {
       RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, in reduction mode (need " 
                           << (kNonCeThreshold - non_ce_packet_count_) 
@@ -247,9 +231,11 @@ DataRate L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
         (sources_.delay_estimate * sources_.delay_confidence + 
          sources_.acked_estimate * sources_.acked_confidence) / total_weight;
     
-    // Apply ECN constraints if available
+    // Apply ECN constraints if available - respect Prague's congestion state
     if (sources_.ecn_confidence > 0.3) {
-      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate * 1.2);
+      // If ECN estimate is much lower, it means Prague detected congestion
+      // Don't increase above the ECN estimate in this case
+      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate);
     }
     
     return weighted_estimate;
@@ -754,6 +740,13 @@ void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& fe
     
     // Update fusion engine with ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
+    
+    // Boost ECN confidence when Prague is in reduction mode to prevent other estimators from overriding
+    if (prague_estimator_->GetDirectionFlag() == -1) {
+      ecn_confidence = std::max(ecn_confidence, 0.95);  // Very high confidence during reduction
+      RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
+    }
+    
     bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
     
     // Log congestion metrics
