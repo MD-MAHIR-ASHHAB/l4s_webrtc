@@ -465,7 +465,7 @@ L4SPragueNetworkController::~L4SPragueNetworkController() {
 
 void L4SPragueNetworkController::InitializeBandwidthEstimators() {
   if (config_.enable_delay_estimation) {
-    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.clock(), &env_.field_trials(), nullptr);
+    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr, nullptr);
   }
   
   if (config_.enable_probing) {

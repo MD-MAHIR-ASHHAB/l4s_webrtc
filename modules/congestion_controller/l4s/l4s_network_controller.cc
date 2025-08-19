@@ -469,7 +469,7 @@ void L4SNetworkController::InitializeBandwidthEstimators() {
   }
   
   if (config_.enable_probing) {
-    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials());
+    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
   }
   
   if (config_.enable_acked_estimation) {
