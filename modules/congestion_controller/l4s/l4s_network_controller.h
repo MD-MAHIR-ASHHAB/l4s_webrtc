@@ -201,10 +201,13 @@ private:
 
   // Core processing methods
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
-  void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
+  void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
   void UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessProbeResults(const TransportPacketsFeedback& feedback);
+  
+  // Bandwidth fusion methods
+  DataRate GetBaseFusedEstimate(Timestamp now);
 
   // Probing logic
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
