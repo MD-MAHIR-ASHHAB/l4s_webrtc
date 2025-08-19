@@ -299,11 +299,11 @@ bool Conductor::CreatePeerConnection() {
   config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
     // DISABLE ALL RESOLUTION ADAPTATIONS
   // 1. Disable CPU-based adaptation
-  config.media_config.video.enable_cpu_adaptation = false;
-  // 2. Disable bandwidth-based suspension
-  config.media_config.video.suspend_below_min_bitrate = false;
-  // 3. Disable experimental CPU load estimator
-  config.media_config.video.experiment_cpu_load_estimator = false;
+  // config.media_config.video.enable_cpu_adaptation = false;
+  // // 2. Disable bandwidth-based suspension
+  // config.media_config.video.suspend_below_min_bitrate = false;
+  // // 3. Disable experimental CPU load estimator
+  // config.media_config.video.experiment_cpu_load_estimator = false;
 
 
   webrtc::PeerConnectionInterface::IceServer server;

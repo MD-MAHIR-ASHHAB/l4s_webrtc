@@ -16,6 +16,7 @@
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/alr_detector.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/probe_controller.h"
 #include "api/numerics/samples_stats_counter.h"
@@ -30,7 +31,7 @@ namespace webrtc {
 class RtcEventLog;
 
 // Configuration for L4S network controller
-struct L4SConfig {
+struct L4SControllerConfig {
   // ECN Configuration
   bool use_ect1_marking = true;
   bool fallback_to_gcc = true;
@@ -43,6 +44,7 @@ struct L4SConfig {
   bool enable_probing = true;
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
+  bool enable_alr_detection = true;
   TimeDelta probe_interval = TimeDelta::Seconds(5);
   
   // Confidence Thresholds
@@ -101,7 +103,7 @@ public:
     Timestamp last_acked_update = Timestamp::MinusInfinity();
   };
 
-  explicit L4SBandwidthFusion(const L4SConfig& config);
+  explicit L4SBandwidthFusion(const L4SControllerConfig& config);
   ~L4SBandwidthFusion();
 
   void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
@@ -118,7 +120,7 @@ private:
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
 
   BandwidthSources sources_;
-  L4SConfig config_;
+  L4SControllerConfig config_;
 };
 
 // L4S Metrics Collector
@@ -168,7 +170,7 @@ private:
 class L4SNetworkController : public NetworkControllerInterface {
 public:
   L4SNetworkController(NetworkControllerConfig config,
-                      L4SConfig l4s_config,
+                      L4SControllerConfig l4s_config,
                       test::MetricsLogger* metrics_logger = nullptr);
   ~L4SNetworkController() override;
 
@@ -202,6 +204,10 @@ private:
   bool ShouldProbeNow(Timestamp now) const;
   void InitiateProbing(Timestamp now, NetworkControlUpdate* update);
 
+  // ALR detection
+  bool IsApplicationLimited() const;
+  void UpdateAlrDetector(const TransportPacketsFeedback& feedback);
+
   // Confidence calculation
   double CalculateEcnConfidence(Timestamp now) const;
   double CalculateDelayConfidence(Timestamp now) const;
@@ -228,13 +234,14 @@ private:
 
   // Environment and configuration
   const Environment env_;
-  L4SConfig config_;
+  L4SControllerConfig config_;
 
   // Bandwidth estimation components
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_estimator_;
   std::unique_ptr<ProbeController> probe_controller_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
+  std::unique_ptr<AlrDetector> alr_detector_;
   std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
 
   // State tracking

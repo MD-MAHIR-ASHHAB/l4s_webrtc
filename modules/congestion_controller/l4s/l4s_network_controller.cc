@@ -146,7 +146,7 @@ double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
 // L4SBandwidthFusion Implementation
 // =============================================================================
 
-L4SBandwidthFusion::L4SBandwidthFusion(const L4SConfig& config) : config_(config) {}
+L4SBandwidthFusion::L4SBandwidthFusion(const L4SControllerConfig& config) : config_(config) {}
 
 L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 
@@ -418,7 +418,7 @@ void L4SMetricsCollector::UpdateLossStats(double loss_fraction) {
 // =============================================================================
 
 L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
-                                          L4SConfig l4s_config,
+                                          L4SControllerConfig l4s_config,
                                           test::MetricsLogger* metrics_logger)
     : env_(config.env), config_(l4s_config) {
   
@@ -476,10 +476,15 @@ void L4SNetworkController::InitializeBandwidthEstimators() {
     acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials(), nullptr);
   }
   
+  if (config_.enable_alr_detection) {
+    alr_detector_ = std::make_unique<AlrDetector>(&env_.field_trials());
+  }
+  
   RTC_LOG(LS_INFO) << "L4S: Initialized bandwidth estimators - "
                    << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
                    << ", Probe: " << (probe_controller_ ? "enabled" : "disabled")
-                   << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled");
+                   << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled")
+                   << ", ALR: " << (alr_detector_ ? "enabled" : "disabled");
 }
 
 NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
@@ -638,8 +643,15 @@ NetworkControlUpdate L4SNetworkController::OnNetworkStateEstimate(NetworkStateEs
 }
 
 void L4SNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback) {
-  // 1. Update Prague ECN controller
-  ProcessEcnFeedback(feedback);
+  // Update ALR detector first
+  UpdateAlrDetector(feedback);
+  
+  // 1. Update Prague ECN controller (skip if application limited)
+  if (!IsApplicationLimited()) {
+    ProcessEcnFeedback(feedback);
+  } else {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
+  }
   
   // 2. Update DelayBasedBwe
   if (delay_estimator_) {
@@ -651,7 +663,7 @@ void L4SNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFe
     UpdateAckedBitrateEstimator(feedback);
   }
   
-  // 4. Process probe results
+  // 4. Process probe results (more aggressive during ALR)
   if (probe_controller_) {
     ProcessProbeResults(feedback);
   }
@@ -781,8 +793,15 @@ void L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* 
   // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
-  // Request probe at 1.5x current estimate
-  DataRate probe_rate = current_estimate * 1.5;
+  // Be more aggressive during ALR periods
+  double probe_multiplier = 1.5;  // Default
+  if (IsApplicationLimited()) {
+    probe_multiplier = 2.0;  // More aggressive when application limited
+    RTC_LOG(LS_VERBOSE) << "L4S: Using aggressive probing during ALR period";
+  }
+  
+  // Request probe at multiplier x current estimate
+  DataRate probe_rate = current_estimate * probe_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
@@ -790,7 +809,8 @@ void L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* 
   // Store probe estimate for later processing
   last_probe_estimate_ = probe_rate;
   
-  RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe at " << probe_rate.bps() << " bps";
+  RTC_LOG(LS_INFO) << "L4S: Initiating probe at " << probe_rate.bps() 
+                   << " bps (multiplier: " << probe_multiplier << ")";
   
   // Note: Actual probe cluster creation would be done here with probe_controller_
   // This is a simplified implementation
@@ -989,6 +1009,28 @@ void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   
   // Log periodic summary
   metrics_collector_->LogPeriodicSummary(at_time);
+}
+
+bool L4SNetworkController::IsApplicationLimited() const {
+  if (!alr_detector_) {
+    return false;
+  }
+  return alr_detector_->GetApplicationLimitedRegionStartTime().has_value();
+}
+
+void L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& feedback) {
+  if (!alr_detector_) {
+    return;
+  }
+  
+  // Calculate approximate bytes sent from feedback
+  size_t bytes_sent = 0;
+  for (const auto& packet : feedback.PacketsWithFeedback()) {
+    // Use a reasonable estimate if packet size isn't available
+    bytes_sent += 1200;  // Typical packet size
+  }
+  
+  alr_detector_->OnBytesSent(bytes_sent, feedback.feedback_time);
 }
 
 }  // namespace webrtc
