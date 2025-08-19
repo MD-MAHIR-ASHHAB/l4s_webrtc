@@ -465,7 +465,7 @@ L4SNetworkController::~L4SNetworkController() {
 
 void L4SNetworkController::InitializeBandwidthEstimators() {
   if (config_.enable_delay_estimation) {
-    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.clock(), &env_.field_trials(), nullptr);
+    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr);
   }
   
   if (config_.enable_probing) {
@@ -1026,11 +1026,12 @@ void L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& fee
   // Calculate approximate bytes sent from feedback
   size_t bytes_sent = 0;
   for (const auto& packet : feedback.PacketsWithFeedback()) {
+    (void)packet;  // Mark as used to avoid warning
     // Use a reasonable estimate if packet size isn't available
     bytes_sent += 1200;  // Typical packet size
   }
   
-  alr_detector_->OnBytesSent(bytes_sent, feedback.feedback_time);
+  alr_detector_->OnBytesSent(bytes_sent, feedback.feedback_time.ms());
 }
 
 }  // namespace webrtc
