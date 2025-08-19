@@ -78,6 +78,14 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
                      << "), new rate=" << congestion_based_estimate_.bps() << " bps";
                      
   } else if (current_rate >= congestion_based_estimate_ * 0.9) {
+    // Check if we recently had congestion - avoid AI immediately after MD
+    TimeDelta since_congestion = current_time - last_congestion_signal_;
+    if (since_congestion < TimeDelta::Seconds(1)) {
+      RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, recent congestion " 
+                          << since_congestion.ms() << " ms ago";
+      return;
+    }
+    
     // Additive increase: +1 MSS per RTT period
     // This should be a small increment spread over the RTT period
     int64_t bits_per_rtt = kDefaultMssBytes * 8;  // 1500 * 8 = 12000 bits
