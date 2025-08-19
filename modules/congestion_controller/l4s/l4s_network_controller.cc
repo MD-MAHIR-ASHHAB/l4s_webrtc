@@ -36,7 +36,9 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
       max_target_rate_(max_rate),
       current_rtt_(TimeDelta::Millis(50)),
       last_update_time_(Timestamp::MinusInfinity()),
-      last_congestion_signal_(Timestamp::MinusInfinity()) {
+      last_congestion_signal_(Timestamp::MinusInfinity()),
+      direction_flag_(1),
+      non_ce_packet_count_(0) {
   
   // Clamp initial estimate to bounds
   if (congestion_based_estimate_ < min_target_rate_) {
@@ -58,33 +60,50 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
   }
 
-  // Pure Prague DCTCP-style rate adaptation (RFC 9330)
-  if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
-    // DCTCP-style alpha update with standard EWMA gain
-    constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
-    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+  // Prague DCTCP-style rate adaptation with state machine (RFC 9330)
+  if (ce_ratio > 0.0) {  // CE-marked packets detected
+    // Reset non-CE packet count when we see CE marks
+    non_ce_packet_count_ = 0;
     
-    // Proportional decrease (much gentler than 50% reduction)
-    double reduction_factor = 1.0 - alpha_ / 2.0;
-    DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-    congestion_based_estimate_ = reduced;
-    
-    // Update congestion signal timestamp
-    last_congestion_signal_ = current_time;
-    
-    RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
-                     << ", ce_ratio=" << ce_ratio 
-                     << ", reduction_factor=" << reduction_factor
-                     << "), new rate=" << congestion_based_estimate_.bps() << " bps";
-                     
-  } else if (current_rate >= congestion_based_estimate_ * 0.9) {
-    // Check if we recently had congestion - avoid AI immediately after MD
-    TimeDelta since_congestion = current_time - last_congestion_signal_;
-    if (since_congestion < TimeDelta::Seconds(1)) {
-      RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, recent congestion " 
-                          << since_congestion.ms() << " ms ago";
-      return;
+    // Only perform reduction if we're in increasing mode (flag = 1)
+    if (direction_flag_ == 1) {
+      // DCTCP-style alpha update with standard EWMA gain
+      constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
+      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+      
+      // Proportional decrease (much gentler than 50% reduction)
+      double reduction_factor = 1.0 - alpha_ / 2.0;
+      DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+      congestion_based_estimate_ = reduced;
+      
+      // Switch to reduction mode
+      direction_flag_ = -1;
+      
+      // Update congestion signal timestamp
+      last_congestion_signal_ = current_time;
+      
+      RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
+                       << ", ce_ratio=" << ce_ratio 
+                       << ", reduction_factor=" << reduction_factor
+                       << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+    } else {
+      RTC_LOG(LS_VERBOSE) << "Prague: CE marks detected but already in reduction mode, ignoring";
     }
+                     
+  } else {  // No CE marks in this batch
+    // Increment non-CE packet count
+    non_ce_packet_count_++;
+    
+    // Check if we should switch from reduction mode to additive mode
+    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+      direction_flag_ = 1;
+      non_ce_packet_count_ = 0;  // Reset counter
+      RTC_LOG(LS_INFO) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+                       << " consecutive non-CE packets";
+    }
+    
+    // Only perform additive increase if we're in increasing mode (flag = 1)
+    if (direction_flag_ == 1 && current_rate >= congestion_based_estimate_ * 0.9) {
     
     // Additive increase: +1 MSS per RTT period
     // This should be a small increment spread over the RTT period
@@ -107,9 +126,14 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     
     congestion_based_estimate_ = increased;
     
-    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
+    RTC_LOG(LS_INFO) << "Prague: Additive increase in increasing mode (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
                      << "step=" << ai_step_bps << " bps), new rate=" 
-                     << congestion_based_estimate_.bps() << " bps";
+                     << congestion_based_estimate_.bps() << " bps, non_ce_count=" << non_ce_packet_count_;
+    } else if (direction_flag_ == -1) {
+      RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, in reduction mode (need " 
+                          << (kNonCeThreshold - non_ce_packet_count_) 
+                          << " more non-CE packets to switch)";
+    }
   }
   
   last_update_time_ = current_time;
@@ -126,8 +150,12 @@ void PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp curr
   DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
   congestion_based_estimate_ = reduced;
   
+  // Switch to reduction mode and reset non-CE counter
+  direction_flag_ = -1;
+  non_ce_packet_count_ = 0;
+  
   RTC_LOG(LS_WARNING) << "Prague: Packet loss detected, halving estimate to "
-                      << congestion_based_estimate_.bps() << " bps";
+                      << congestion_based_estimate_.bps() << " bps, switched to reduction mode";
   
   last_update_time_ = current_time;
 }

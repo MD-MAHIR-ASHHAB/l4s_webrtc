@@ -71,6 +71,8 @@ public:
 
   DataRate GetCurrentEstimate() const;
   double GetAlpha() const { return alpha_; }
+  int GetDirectionFlag() const { return direction_flag_; }
+  int GetNonCePacketCount() const { return non_ce_packet_count_; }
   double GetConfidence(Timestamp now) const;
 
 private:
@@ -81,6 +83,11 @@ private:
   double alpha_ = 0.0;  // DCTCP alpha parameter
   Timestamp last_update_time_;
   Timestamp last_congestion_signal_;
+  
+  // State machine for direction control
+  int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
+  int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
+  static constexpr int kNonCeThreshold = 10;  // Threshold to switch to additive mode
 };
 
 // Bandwidth source fusion engine
