@@ -65,6 +65,7 @@ public:
 
   // Prague DCTCP algorithm implementation
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
+  void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
   void OnTimeUpdate(Timestamp current_time);
@@ -83,6 +84,7 @@ private:
   double alpha_ = 0.0;  // DCTCP alpha parameter
   Timestamp last_update_time_;
   Timestamp last_congestion_signal_;
+  Timestamp last_ecn_feedback_;  // Track any ECN activity (ECT or CE)
   
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
@@ -206,6 +208,7 @@ private:
   // Core processing methods
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
+  DataRate DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now);
   void UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessProbeResults(const TransportPacketsFeedback& feedback);

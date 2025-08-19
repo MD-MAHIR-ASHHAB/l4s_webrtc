@@ -37,6 +37,7 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
       current_rtt_(TimeDelta::Millis(50)),
       last_update_time_(Timestamp::MinusInfinity()),
       last_congestion_signal_(Timestamp::MinusInfinity()),
+      last_ecn_feedback_(Timestamp::MinusInfinity()),
       direction_flag_(1),
       non_ce_packet_count_(0) {
   
@@ -140,6 +141,11 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
   last_update_time_ = current_time;
 }
 
+void PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) {
+  // Track any ECN activity (ECT or CE packets) to maintain confidence
+  last_ecn_feedback_ = current_time;
+}
+
 void PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   if (rtt.IsFinite() && !rtt.IsZero()) {
     current_rtt_ = rtt;
@@ -180,14 +186,15 @@ DataRate PragueCapacityEstimator::GetCurrentEstimate() const {
 }
 
 double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
-  if (last_congestion_signal_.IsInfinite()) {
+  // Check for any ECN activity (ECT or CE packets)
+  if (last_ecn_feedback_.IsInfinite()) {
     return 0.3;  // Low confidence without any ECN feedback
   }
   
-  TimeDelta since_signal = now - last_congestion_signal_;
-  if (since_signal < TimeDelta::Seconds(2)) {
-    return 0.9;  // Very confident with recent ECN feedback
-  } else if (since_signal < TimeDelta::Seconds(5)) {
+  TimeDelta since_ecn_activity = now - last_ecn_feedback_;
+  if (since_ecn_activity < TimeDelta::Seconds(2)) {
+    return 0.9;  // Very confident with recent ECN activity
+  } else if (since_ecn_activity < TimeDelta::Seconds(5)) {
     return 0.7;  // Moderately confident
   }
   return 0.4;  // Lower confidence with stale ECN feedback
@@ -769,16 +776,22 @@ void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& fe
   if (new_ect_count > 0 || new_ce_count > 0) {
     ecn_supported_ = true;
     ecn_capable_network_ = true;
+    
+    // Track ECN activity for confidence calculation
+    prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
   
-  // Update Prague estimator with CE ratio using the CURRENT FUSED RATE (not Prague's own estimate)
+  // Update Prague estimator with CE ratio using intelligent bottleneck detection
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
-    RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to current fused rate: " << current_fused_rate.bps() 
-                     << " bps (ce_ratio=" << ce_ratio << ")";
+    // Determine appropriate target rate based on bottleneck analysis
+    DataRate prague_target_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
     
-    prague_estimator_->UpdateFromCongestionSignal(current_fused_rate, ce_ratio, feedback.feedback_time);
+    RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_target_rate.bps() 
+                     << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
+    
+    prague_estimator_->UpdateFromCongestionSignal(prague_target_rate, ce_ratio, feedback.feedback_time);
     
     // Update fusion engine with ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
@@ -800,6 +813,45 @@ void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& fe
   // Update counters
   ect_count_ = new_ect_count;
   ce_count_ = new_ce_count;
+}
+
+DataRate L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
+  // Intelligent bottleneck detection for Prague rate targeting
+  auto sources = bandwidth_fusion_->GetCurrentSources();
+  
+  DataRate probe_capacity = sources.probe_estimate;
+  DataRate acked_throughput = sources.acked_estimate;
+  DataRate delay_safe_rate = sources.delay_estimate;
+  
+  // Detect bottleneck type based on rate relationships
+  double probe_vs_acked_ratio = 1.0;
+  if (acked_throughput > DataRate::Zero() && probe_capacity > DataRate::Zero()) {
+    probe_vs_acked_ratio = probe_capacity.bps() / static_cast<double>(acked_throughput.bps());
+  }
+  
+  // Scenario 1: Large gap between probe and acked (receiver/app bottleneck)
+  if (probe_vs_acked_ratio > 2.0) {
+    if (IsApplicationLimited()) {
+      // Application bottleneck - respect application demand
+      RTC_LOG(LS_INFO) << "L4S: Application bottleneck detected, targeting acked rate: " 
+                       << acked_throughput.bps() << " bps";
+      return acked_throughput;
+    } else {
+      // Receiver processing bottleneck - probe gently upward
+      DataRate gentle_target = acked_throughput * 1.25;  // 25% increase
+      gentle_target = std::min(gentle_target, fused_rate);  // Don't exceed fused rate
+      RTC_LOG(LS_INFO) << "L4S: Receiver bottleneck detected, gentle increase to: " 
+                       << gentle_target.bps() << " bps (probe: " << probe_capacity.bps() 
+                       << ", acked: " << acked_throughput.bps() << ")";
+      return gentle_target;
+    }
+  }
+  
+  // Scenario 2: Network is the bottleneck - follow network-centric approach
+  // Use fused rate which includes probe discoveries and safety constraints
+  RTC_LOG(LS_INFO) << "L4S: Network bottleneck detected, targeting fused rate: " 
+                   << fused_rate.bps() << " bps (ratio: " << probe_vs_acked_ratio << ")";
+  return fused_rate;
 }
 
 void L4SNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
