@@ -537,7 +537,6 @@ webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossRepor
       RTC_LOG(LS_INFO) << "L4S: Transport loss report received: "
                    << "Packets lost delta: " << msg.packets_lost_delta
                    << ", Packets received delta: " << msg.packets_received_delta
-                   << ", Total packets: " << total_packets;
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
     capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
   }
