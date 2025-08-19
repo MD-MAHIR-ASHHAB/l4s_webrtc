@@ -821,7 +821,6 @@ DataRate L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rat
   
   DataRate probe_capacity = sources.probe_estimate;
   DataRate acked_throughput = sources.acked_estimate;
-  DataRate delay_safe_rate = sources.delay_estimate;
   
   // Detect bottleneck type based on rate relationships
   double probe_vs_acked_ratio = 1.0;
