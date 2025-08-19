@@ -9,20 +9,12 @@
 #include "api/field_trials_view.h"
 #include "api/rtc_event_log/rtc_event_log.h"
 #include "api/transport/bandwidth_usage.h"
-#include "api/transport/goog_cc_factory.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
 #include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
-#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
-#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
-#include "modules/congestion_controller/goog_cc/goog_cc_network_control.h"
-#include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
-#include "modules/congestion_controller/goog_cc/probe_controller.h"
-#include "api/numerics/samples_stats_counter.h"
-#include "system_wrappers/include/clock.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
@@ -34,193 +26,96 @@
 
 namespace webrtc {
 
-// AdaptiveCapacityEstimator implementation
-AdaptiveCapacityEstimator::AdaptiveCapacityEstimator(DataRate starting_rate, DataRate min_target_rate, DataRate max_target_rate)
-    : historic_min_(starting_rate),
-      historic_max_(starting_rate),
-      congestion_based_estimate_(starting_rate),
-      min_target_rate_(min_target_rate),
-      max_target_rate_(max_target_rate),
-      last_update_time_(Timestamp::MinusInfinity()) {
-  // Clamp all to min/max target rates
-  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-  if (historic_max_ < min_target_rate_) historic_max_ = min_target_rate_;
-  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-  if (historic_min_ > max_target_rate_) historic_min_ = max_target_rate_;
-  if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
-  if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
+// =============================================================================
+// PragueCapacityEstimator Implementation
+// =============================================================================
+
+PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate)
+    : congestion_based_estimate_(starting_rate),
+      min_target_rate_(min_rate),
+      max_target_rate_(max_rate),
+      current_rtt_(TimeDelta::Millis(50)),
+      last_update_time_(Timestamp::MinusInfinity()),
+      last_congestion_signal_(Timestamp::MinusInfinity()) {
+  
+  // Clamp initial estimate to bounds
+  if (congestion_based_estimate_ < min_target_rate_) {
+    congestion_based_estimate_ = min_target_rate_;
+  }
+  if (congestion_based_estimate_ > max_target_rate_) {
+    congestion_based_estimate_ = max_target_rate_;
+  }
 }
 
-AdaptiveCapacityEstimator::~AdaptiveCapacityEstimator() = default;
+PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 
-
-void AdaptiveCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-  constexpr int kDefaultMssBytes = 1440; // Typical Ethernet MSS
-
+void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+  constexpr int kDefaultMssBytes = 1440;  // Typical Ethernet MSS
+  
   TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(50);
   double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds <= 0.0) {
-    rtt_seconds = 0.050; // Use fallback RTT to avoid division by zero
+    rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
   }
 
-
-//---------------------------------------------------PRAGUE------------------------------------------
-
-// Pure Prague DCTCP-style rate adaptation (RFC 9330)
-if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
-  // DCTCP-style alpha update with standard EWMA gain
-  constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
-  alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-  
-  // Proportional decrease (much gentler than 50% reduction)
-  double reduction_factor = 1.0 - alpha_ / 2.0;
-  DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-  congestion_based_estimate_ = reduced;
-  
-  if (congestion_based_estimate_ < historic_min_) {
-    historic_min_ = congestion_based_estimate_;
+  // Pure Prague DCTCP-style rate adaptation (RFC 9330)
+  if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
+    // DCTCP-style alpha update with standard EWMA gain
+    constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
+    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+    
+    // Proportional decrease (much gentler than 50% reduction)
+    double reduction_factor = 1.0 - alpha_ / 2.0;
+    DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+    congestion_based_estimate_ = reduced;
+    
+    // Update congestion signal timestamp
+    last_congestion_signal_ = current_time;
+    
+    RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
+                     << ", ce_ratio=" << ce_ratio 
+                     << ", reduction_factor=" << reduction_factor
+                     << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+                     
+  } else if (current_rate >= congestion_based_estimate_ * 0.9) {
+    // More aggressive additive increase since decreases are gentler
+    int64_t bits_per_rtt = kDefaultMssBytes * 8;
+    double ai_factor = 1.0;  // 1.0 MSS per RTT
+    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
+    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+    
+    congestion_based_estimate_ = increased;
+    
+    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+                     << "new rate=" << congestion_based_estimate_.bps() << " bps";
   }
-  // Clamp to min_target_rate_
-  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-  
-  RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
-                   << ", ce_ratio=" << ce_ratio 
-                   << ", reduction_factor=" << reduction_factor
-                   << "), new rate=" << congestion_based_estimate_.bps() << " bps";
-                   
-} else if (current_rate >= congestion_based_estimate_ * 0.9) {
-  // More aggressive additive increase since decreases are gentler
-  int64_t bits_per_rtt = kDefaultMssBytes * 8;
-  double ai_factor = 1.0;  // 1.0 MSS per RTT (was 0.1)
-  int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
-  DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
-  
-  congestion_based_estimate_ = increased;
-  if (congestion_based_estimate_ > historic_max_) {
-    historic_max_ = congestion_based_estimate_;
-  }
-  // Clamp to max_target_rate_
-  if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
-  if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
-  
-  RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-                   << "new rate=" << congestion_based_estimate_.bps() << " bps";
-}
-
-//---------------------------------------------------PRAGUE------------------------------------------
-
-
-
-
-  // // typical prague
-
-  // if (ce_ratio > 0.05) {
-    // DCTCP-style alpha update (EWMA of CE ratio)
-    //  constexpr double g = 1.0 / 16.0;       // DCTCP recommended EWMA gain
-    // alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-  //   // Proportional decrease on CE marks
-  //   double reduction_factor = 1.0 - alpha_ / 2.0;
-  //   DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-  //   congestion_based_estimate_ = reduced;
-  //   if (congestion_based_estimate_ < historic_min_) {
-  //     historic_min_ = congestion_based_estimate_;
-  //   }
-  //   // Clamp to min_target_rate_
-  //   if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-  //   if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-  //   RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
-  //                    << ", ce_ratio=" << ce_ratio
-  //                    << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  // } 
-
-  //according to rfc 6679 section 7.3.3
-
-  // if (ce_ratio > 0.1) {
-  //   // Proportional decrease on CE marks
-  //   double reduction_factor = 0.5;
-  //   DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-  //   congestion_based_estimate_ = reduced;
-  //   if (congestion_based_estimate_ < historic_min_) {
-  //     historic_min_ = congestion_based_estimate_;
-  //   }
-  //   // Clamp to min_target_rate_
-  //   if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-  //   if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-  //   // RTC_LOG(LS_INFO) << "AdaptiveCapacity: DCTCP-style decrease (alpha=" << alpha_
-  //   //                  << ", ce_ratio=" << ce_ratio
-  //   //                  << "), reducing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  // }  else if (ce_ratio < 0.01 && current_rate >= congestion_based_estimate_ * 0.9) {
-  //   // Linear, RTT-aware additive increase: +1 MSS per RTT
-  //   int64_t bits_per_rtt = kDefaultMssBytes * 8;
-  //   double ai_factor = 0.1; // 0.5 MSS per RTT
-  //   int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
-  //   DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
-        
-  //   // int64_t bits_per_rtt = kDefaultMssBytes * 8;
-  //   // int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>(bits_per_rtt / rtt_seconds) : 0;
-  //   // DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
-  //   congestion_based_estimate_ = increased;
-  //   if (congestion_based_estimate_ > historic_max_) {
-  //     historic_max_ = congestion_based_estimate_;
-  //   }
-  //   // Clamp to max_target_rate_
-  //   if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
-  //   if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
-  //   // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Linear AI (+1 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-  //   //                  << "increasing congestion_based_estimate to " << congestion_based_estimate_.bps() << " bps";
-  // }
-  // else{
-  //   // No action needed if CE ratio is low and rate is stable
-
-  // }
-
-  //according to rfc 6679 section 7.3.3
-  
   
   last_update_time_ = current_time;
 }
 
-void AdaptiveCapacityEstimator::UpdateFromSustainedRate(DataRate sustained_rate, Timestamp current_time) {
-  // Add to history
-  sustained_rates_history_.push_back(sustained_rate);
-  if (sustained_rates_history_.size() > kHistoryWindowSize) {
-    sustained_rates_history_.pop_front();
-  }
-  // Update historical estimate based on maximum sustained rate
-  DataRate historical_max = *std::max_element(sustained_rates_history_.begin(), 
-                                             sustained_rates_history_.end());
-  historic_max_ = historical_max;
-
-  last_update_time_ = current_time;
-}
-
-void AdaptiveCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
+void PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   if (rtt.IsFinite() && !rtt.IsZero()) {
     current_rtt_ = rtt;
   }
-  // Note: Don't set any default RTT - leave current_rtt_ as is if invalid
 }
 
-
-DataRate AdaptiveCapacityEstimator::GetMaxRealisticBandwidth() const {
-  // Use the higher of congestion-based and historic min, but never above max_target_rate_
-  DataRate estimate = std::max(congestion_based_estimate_, historic_min_);
-  estimate = std::min(estimate, max_target_rate_);
-  // Ensure we stay within absolute bounds
-  DataRate periodic_max = std::max(min_target_rate_, std::min(estimate, max_target_rate_));
-  // RTC_LOG(LS_INFO) << "AdaptiveCapacity: Current max realistic bandwidth estimate is " 
-  //                  << periodic_max.bps() << " bps (congestion: " << congestion_based_estimate_.bps()
-  //                  << ", historic_min: " << historic_min_.bps()
-  //                  << ", historic_max: " << historic_max_.bps() << ")";
-  return periodic_max;
+void PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
+  // Multiplicative decrease for packet loss (fallback mechanism)
+  DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
+  congestion_based_estimate_ = reduced;
+  
+  RTC_LOG(LS_WARNING) << "Prague: Packet loss detected, halving estimate to "
+                      << congestion_based_estimate_.bps() << " bps";
+  
+  last_update_time_ = current_time;
 }
 
-void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
+void PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   if (last_update_time_.IsInfinite()) {
     last_update_time_ = current_time;
     return;
   }
+  
   TimeDelta elapsed = current_time - last_update_time_;
   if (elapsed >= kDecayInterval) {
     // Gradually decay estimates if not reinforced
@@ -229,693 +124,177 @@ void AdaptiveCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   }
 }
 
-void AdaptiveCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
-  // Multiplicative decrease, fallback for loss (e.g., halve the rate)
-  DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
-  congestion_based_estimate_ = reduced;
-  if (congestion_based_estimate_ < historic_min_) {
-    historic_min_ = congestion_based_estimate_;
-  }
-  // Clamp to min_target_rate_
-  if (historic_min_ < min_target_rate_) historic_min_ = min_target_rate_;
-  if (congestion_based_estimate_ < min_target_rate_) congestion_based_estimate_ = min_target_rate_;
-  RTC_LOG(LS_WARNING) << "AdaptiveCapacity: Packet loss detected, halving congestion_based_estimate to "
-                      << congestion_based_estimate_.bps() << " bps";
-
-  last_update_time_ = current_time;
+DataRate PragueCapacityEstimator::GetCurrentEstimate() const {
+  return congestion_based_estimate_;
 }
 
-
-
-L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
-                                           L4SControllerConfig l4s_config,
-                                           test::MetricsLogger* metrics_logger)
-    : env_(config.env),
-      fallback_to_gcc_(l4s_config.fallback_to_gcc),
-      use_ect1_marking_(l4s_config.use_ect1_marking),
-      // Initialize adaptive capacity estimator first (based on header order)
-      capacity_estimator_(
-          std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(100000))),
-      // Initialize metrics collection
-      metrics_enabled_(true),
-      current_active_controller_("l4s_initializing") {
-  
-  // Always initialize metrics collector with a valid logger
-  using webrtc::test::GetGlobalMetricsLogger;
-  test::MetricsLogger* logger_to_use = metrics_logger;
-  if (!logger_to_use) {
-    logger_to_use = GetGlobalMetricsLogger();
-  }
-  metrics_collector_ = std::make_unique<L4SMetricsCollector>(
-      logger_to_use, l4s_config.test_case_name, &env_.clock());
-  RTC_LOG(LS_INFO) << "L4S: Metrics collection enabled for test case: " 
-                   << l4s_config.test_case_name;
-  // Create GCC controller for fallback if needed
-  if (fallback_to_gcc_) {
-    GoogCcFactoryConfig factory_config;
-    auto factory = std::make_unique<GoogCcNetworkControllerFactory>(
-        std::move(factory_config));
-    gcc_controller_ = factory->Create(config);
-  }
-
-  if (config.constraints.starting_rate) {
-    starting_rate_ = config.constraints.starting_rate;
-    // Validate starting rate
-    if (!starting_rate_->IsFinite() || starting_rate_->bps() <= 0) {
-      RTC_LOG(LS_WARNING) << "L4S: Invalid starting rate " << starting_rate_->bps() 
-                          << " bps, using 300 kbps";
-      starting_rate_ = DataRate::KilobitsPerSec(300); // Default to 300 kbps
-    }
-  }
-
-  min_target_rate_ = config.constraints.min_data_rate;
-  max_target_rate_ = config.constraints.max_data_rate;
-  
-  // Validate rate constraints
-  if (min_target_rate_ && (!min_target_rate_->IsFinite() || min_target_rate_->bps() <= 0)) {
-    RTC_LOG(LS_WARNING) << "L4S: Invalid min target rate, clearing";
-    min_target_rate_.reset();
-    min_target_rate_ = DataRate::KilobitsPerSec(30);  // Default to 30 kbps
-  }
-  if (max_target_rate_ && (!max_target_rate_->IsFinite() || max_target_rate_->bps() <= 0)) {
-    RTC_LOG(LS_WARNING) << "L4S: Invalid max target rate, clearing"; 
-    max_target_rate_.reset();
-    max_target_rate_ = DataRate::KilobitsPerSec(100000);  // Default to 100 Mbps
+double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
+  if (last_congestion_signal_.IsInfinite()) {
+    return 0.3;  // Low confidence without any ECN feedback
   }
   
-  // Export L4S metrics to JSON if enabled (at construction, set up export path)
-  if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->ExportToJsonFile("l4s_test_1.json");
-    RTC_LOG(LS_INFO) << "L4S: Metrics will be exported to l4s_test_1.json";
+  TimeDelta since_signal = now - last_congestion_signal_;
+  if (since_signal < TimeDelta::Seconds(2)) {
+    return 0.9;  // Very confident with recent ECN feedback
+  } else if (since_signal < TimeDelta::Seconds(5)) {
+    return 0.7;  // Moderately confident
   }
+  return 0.4;  // Lower confidence with stale ECN feedback
+}
 
-  RTC_LOG(LS_WARNING) << "L4S network controller created"
-                      << " fallback_to_gcc: " << fallback_to_gcc_
-                      << " use_ect1_marking: " << use_ect1_marking_
-                      << " starting_rate: "
-                      << (starting_rate_ ? starting_rate_->bps() : 0) << " bps"
-                      << " min_target: "
-                      << (min_target_rate_ ? min_target_rate_->bps() : 0)
-                      << " bps"
-                      << " max_target: "
-                      << (max_target_rate_ ? max_target_rate_->bps() : 0)
-                      << " bps"
-                      << " max_realistic_bandwidth: " << capacity_estimator_->GetMaxRealisticBandwidth().bps() << " bps";
-                      
-  // Initialize the adaptive capacity estimator with reasonable starting values
-  if (config.constraints.starting_rate) {
-    capacity_estimator_->UpdateFromSustainedRate(*config.constraints.starting_rate, env_.clock().CurrentTime());
+// =============================================================================
+// L4SBandwidthFusion Implementation
+// =============================================================================
+
+L4SBandwidthFusion::L4SBandwidthFusion(const L4SPragueConfig& config) : config_(config) {}
+
+L4SBandwidthFusion::~L4SBandwidthFusion() = default;
+
+void L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.ecn_estimate = estimate;
+  sources_.ecn_confidence = confidence;
+  sources_.last_ecn_update = now;
+}
+
+void L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.delay_estimate = estimate;
+  sources_.delay_confidence = confidence;
+  sources_.last_delay_update = now;
+}
+
+void L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.probe_estimate = estimate;
+  sources_.probe_confidence = confidence;
+  sources_.last_probe_update = now;
+}
+
+void L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.acked_estimate = estimate;
+  sources_.acked_confidence = confidence;
+  sources_.last_acked_update = now;
+}
+
+DataRate L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
+  // Priority-based fusion with confidence weighting
+  
+  // 1. If ECN feedback is fresh and confident, prioritize it
+  if (sources_.ecn_confidence > config_.ecn_confidence_threshold && 
+      IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    return sources_.ecn_estimate;
   }
   
-  // Keep max_realistic_bandwidth_ as backup, but primary logic will use capacity_estimator_
-  max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000);  // 100 Mbps upper limit
+  // 2. If we have fresh probe results, they're usually most accurate
+  if (sources_.probe_confidence > config_.probe_confidence_threshold && 
+      IsRecentlyUpdated(sources_.last_probe_update, now)) {
+    // Cross-validate with other estimates
+    return ValidateWithOtherSources(sources_.probe_estimate, sources_);
+  }
   
-  // Validate critical member variables after initialization
-  if (!max_realistic_bandwidth_.IsFinite()) {
-    RTC_LOG(LS_ERROR) << "L4S: CRITICAL - max_realistic_bandwidth_ is not finite!";
-    max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // Fallback to 100 Mbps
-  }
-}
-
-L4SNetworkController::~L4SNetworkController() {
-  // Export metrics if enabled and collector exists
-  if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->ExportToJsonFile("l4s_test_1.json");
-    RTC_LOG(LS_INFO) << "L4S: Exported metrics to l4s_test_1.json in destructor.";
-  }
-}
-
-webrtc::NetworkControlUpdate L4SNetworkController::OnNetworkAvailability(
-    webrtc::NetworkAvailability msg) {
-  webrtc::NetworkControlUpdate update;
-
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_ && !IsL4SActive()) {
-    auto gcc_update = gcc_controller_->OnNetworkAvailability(msg);
+  // 3. Weighted combination of delay and acked estimates
+  double total_weight = sources_.delay_confidence + sources_.acked_confidence;
+  if (total_weight > 0.1) {
+    DataRate weighted_estimate = 
+        (sources_.delay_estimate * sources_.delay_confidence + 
+         sources_.acked_estimate * sources_.acked_confidence) / total_weight;
+    
+    // Apply ECN constraints if available
+    if (sources_.ecn_confidence > 0.3) {
+      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate * 1.2);
     }
-  return update;
-}
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnNetworkRouteChange(
-    webrtc::NetworkRouteChange msg) {
-  webrtc::NetworkControlUpdate update;
-
-  RTC_LOG(LS_WARNING) << "L4S: OnNetworkRouteChange called";
-
-  // Validate input constraints to prevent crashes
-  if (msg.constraints.starting_rate && 
-      (!msg.constraints.starting_rate->IsFinite() || msg.constraints.starting_rate->bps() <= 0)) {
-    RTC_LOG(LS_WARNING) << "L4S: Invalid starting rate in constraints: " 
-                        << msg.constraints.starting_rate->bps() << " bps";
-    msg.constraints.starting_rate.reset();
+    
+    return weighted_estimate;
   }
-
-  // Reset ECN support detection on network change
-  ecn_supported_ = false;
-  ecn_capable_network_ = false;
-  ect_count_ = 0;
-  ce_count_ = 0;
-
-  // Set initial rates
-  if (msg.constraints.starting_rate) {
-    starting_rate_ = msg.constraints.starting_rate;
-  }
-
-  min_target_rate_ = msg.constraints.min_data_rate;
-  max_target_rate_ = msg.constraints.max_data_rate;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_) {
-    auto gcc_update = gcc_controller_->OnNetworkRouteChange(msg);
-    // Copy other relevant updates from GCC
-    update.target_rate = gcc_update.target_rate;
-    update.pacer_config = gcc_update.pacer_config;
-  }
-
-  return update;
-}
-
-
-
-
-//new update onProcessInterval method
-// This method is called periodically to update the network controller state
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnProcessInterval(
-    webrtc::ProcessInterval msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Log periodic metrics
-  LogPeriodicMetrics(msg.at_time);
-
-
-  if (IsL4SActive()) {
-    // Use only ECN-based estimator for rate selection
-    DataRate ecn_based_limit = capacity_estimator_->GetMaxRealisticBandwidth();
-
-    // Set target rate to estimator output
-    target_rate_ = ecn_based_limit;
-    last_target_bitrate_ = ecn_based_limit;
-
-    // RTC_LOG(LS_INFO) << "L4S: ECN-based target rate: " << ecn_based_limit.bps() << " bps";
-
-    MaybeTriggerOnNetworkChanged(&update, msg.at_time);
-  } else if (fallback_to_gcc_) {
-    update = gcc_controller_->OnProcessInterval(msg);
-  }
-
-  return update;
-}
-
-
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRemoteBitrateReport(
-    webrtc::RemoteBitrateReport msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_ && !IsL4SActive()) {
-    update = gcc_controller_->OnRemoteBitrateReport(msg);
-  }
-
-  return update;
-}
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnRoundTripTimeUpdate(
-    webrtc::RoundTripTimeUpdate msg) {
-  webrtc::NetworkControlUpdate update;
-
   
-  // Update the adaptive capacity estimator with RTT information
-  capacity_estimator_->UpdateFromRtt(msg.round_trip_time);
-  RTC_LOG(LS_INFO) << "L4S: Round trip time updated arrived: " << msg.round_trip_time.ms() << " ms";
+  // 4. Fallback to most confident single estimate
+  return GetMostConfidentEstimate(now);
+}
+
+DataRate L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp now) const {
+  DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
+  double best_confidence = 0.0;
   
-  // Log RTT metrics using the fresh RTT value
-  if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->LogDelayMetrics(
-        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, TimeDelta::PlusInfinity(), jitter_);
+  if (sources_.ecn_confidence > best_confidence && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    best_estimate = sources_.ecn_estimate;
+    best_confidence = sources_.ecn_confidence;
   }
-  // Update local RTT tracking for metrics - accept any valid, non-zero RTT
-  if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
-    last_rtt_ = msg.round_trip_time;
+  
+  if (sources_.delay_confidence > best_confidence && IsRecentlyUpdated(sources_.last_delay_update, now)) {
+    best_estimate = sources_.delay_estimate;
+    best_confidence = sources_.delay_confidence;
   }
-  // Note: Don't set any default RTT - leave last_rtt_ as is if invalid
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_) {
-    update = gcc_controller_->OnRoundTripTimeUpdate(msg);
+  
+  if (sources_.probe_confidence > best_confidence && IsRecentlyUpdated(sources_.last_probe_update, now)) {
+    best_estimate = sources_.probe_estimate;
+    best_confidence = sources_.probe_confidence;
   }
-
-  return update;
+  
+  if (sources_.acked_confidence > best_confidence && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+    best_estimate = sources_.acked_estimate;
+    best_confidence = sources_.acked_confidence;
+  }
+  
+  return best_estimate;
 }
 
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnSentPacket(webrtc::SentPacket msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_) {
-    update = gcc_controller_->OnSentPacket(msg);
+DataRate L4SBandwidthFusion::ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const {
+  // Don't allow probe results that are dramatically higher than other estimates
+  DataRate max_alternative = DataRate::Zero();
+  
+  if (sources.ecn_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.ecn_estimate);
   }
-
-  return update;
+  if (sources.delay_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.delay_estimate);
+  }
+  if (sources.acked_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.acked_estimate);
+  }
+  
+  if (max_alternative > DataRate::Zero() && primary_estimate > max_alternative * 2.0) {
+    // Probe result seems too optimistic, cap it
+    return max_alternative * 1.5;
+  }
+  
+  return primary_estimate;
 }
 
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnReceivedPacket(
-    webrtc::ReceivedPacket msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_ && !IsL4SActive()) {
-    update = gcc_controller_->OnReceivedPacket(msg);
-  }
-
-  return update;
+bool L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
+  return !last_update.IsInfinite() && (now - last_update) < TimeDelta::Seconds(10);
 }
 
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnStreamsConfig(webrtc::StreamsConfig msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_) {
-    update = gcc_controller_->OnStreamsConfig(msg);
-  }
-
-  return update;
-}
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTargetRateConstraints(
-    webrtc::TargetRateConstraints msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Update constraints
-  min_target_rate_ = msg.min_data_rate;
-  max_target_rate_ = msg.max_data_rate;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_) {
-    update = gcc_controller_->OnTargetRateConstraints(msg);
-  }
-
-  return update;
-}
-
-
-webrtc::NetworkControlUpdate  webrtc::L4SNetworkController::OnTransportLossReport(
-    webrtc::TransportLossReport msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Only apply loss fallback if L4S is active
-  if (!IsL4SActive()) {
-    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
-  }
-
-  else if (IsL4SActive() && msg.packets_lost_delta > 0) {
-      RTC_LOG(LS_INFO) << "L4S: Transport loss report received: "
-                   << "Packets lost delta: " << msg.packets_lost_delta
-                   << ", Packets received delta: " << msg.packets_received_delta;
-    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->OnPacketLoss(current_rate, msg.receive_time);
-  }
-
-  // Update loss metrics for logging
-  int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
-
-  if (total_packets > 0) {
-    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
-  } else {
-    last_loss_fraction_ = 0.0;
-  }
-  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_ && !IsL4SActive()) {
-    update = gcc_controller_->OnTransportLossReport(msg);
-  }
-
-  return update;
-}
-
-// new OnTransportPacketsFeedback method:
-// This method processes transport feedback packets and updates the network controller state
-
-webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(
-    webrtc::TransportPacketsFeedback feedback) {
-  webrtc::NetworkControlUpdate update;
-
-  // Process ECN feedback to update estimator
-  ProcessEcnFeedback(feedback);
-
-  // Use only ECN-based estimator for rate selection
-  if (IsL4SActive()) {
-    DataRate ecn_based_limit = capacity_estimator_->GetMaxRealisticBandwidth();
-    target_rate_ = ecn_based_limit;
-    last_target_bitrate_ = ecn_based_limit;
-
-    // RTC_LOG(LS_INFO) << "L4S: ECN-based target rate (feedback): " << ecn_based_limit.bps() << " bps";
-    MaybeTriggerOnNetworkChanged(&update, feedback.feedback_time);
-  } else if (fallback_to_gcc_) {
-    update = gcc_controller_->OnTransportPacketsFeedback(feedback);
-  }
-
-
-
-  // --- Throughput calculation using a sliding window for stability ---
-  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
-  Timestamp now = feedback.feedback_time;
-
-  // Add new packets to the window
-  for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
-      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
-    }
-  }
-  // Remove old packets outside the window
-  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
-    throughput_window_.pop_front();
-  }
-  // Calculate throughput over the window
-  int64_t window_bytes = 0;
-  Timestamp window_start = now;
-  Timestamp window_end = now;
-  if (!throughput_window_.empty()) {
-    window_start = throughput_window_.front().first;
-    window_end = throughput_window_.back().first;
-    for (const auto& entry : throughput_window_) {
-      window_bytes += entry.second;
-    }
-  }
-  TimeDelta window_interval = window_end - window_start;
-  if (window_interval > TimeDelta::Millis(1)) {
-    last_actual_bitrate_ = DataRate::BitsPerSec(static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
-  } else {
-    last_actual_bitrate_ = DataRate::Zero();
-  }
-
-  // Per-packet delay and jitter logging (this is outside the above if/else)
-  // TimeDelta prev_delay;
-  // bool have_prev = false;
-  // for (const auto& packet : feedback.packet_feedbacks) {
-  //   if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
-  //     RTC_LOG(LS_INFO) << "L4S: Received packet with size: " << packet.sent_packet.size.bytes()
-  //                     << " bytes, sent at: " << packet.sent_packet.send_time.ms()
-  //                     << " ms, received at: " << packet.receive_time.ms() << " ms";
-
-  //     TimeDelta delay = packet.receive_time - packet.sent_packet.send_time;
-  //     RTC_LOG(LS_INFO) << "L4S: Packet delay inside jitter calculation: " << delay.ms() << " ms";
-  //     if (have_prev) {
-  //       double diff = (delay - prev_delay).ms();
-  //       rfc3550_jitter_ += (std::abs(diff) - rfc3550_jitter_) / 16.0;
-  //       jitter_ = TimeDelta::Millis(rfc3550_jitter_);
-  //       metrics_collector_->LogDelayMetrics(packet.receive_time, delay, delay / 2, jitter_);
-  //     }
-  //     prev_delay = delay;
-  //     have_prev = true;
-  //   }
-  // }
-
-  return update;
-}
-
-
-webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimate(
-    webrtc::NetworkStateEstimate msg) {
-  webrtc::NetworkControlUpdate update;
-
-  // Forward to GCC if we're using it as fallback
-  if (fallback_to_gcc_ && !IsL4SActive()) {
-    update = gcc_controller_->OnNetworkStateEstimate(msg);
-  }
-
-  return update;
-}
-
-// In CreateRateUpdate method:
-webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(
-    webrtc::Timestamp at_time) const {
-  webrtc::NetworkControlUpdate update;
-
-  // Log input timestamp value before IsFinite check
-  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: input at_time.us()=" <<
-  // at_time.us()
-  //                  << " at_time.ms()=" << at_time.ms()
-  //                  << " IsFinite()=" << at_time.IsFinite();
-
-  // Add timestamp validation here (similar to what GoogCC does)
-  if (!at_time.IsFinite()) {
-    RTC_LOG(LS_WARNING)
-        << "Invalid timestamp in L4S controller, using current time";
-    int64_t current_time_ms = env_.clock().TimeInMilliseconds();
-    // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: current_time_ms=" <<
-    // current_time_ms;
-    at_time = Timestamp::Millis(current_time_ms);
-    // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: new at_time.us()=" <<
-    // at_time.us();
-  }
-
-  // Apply rate constraints
-  DataRate current_rate_for_transport_ = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-
-  // CRITICAL: Add validation to prevent IsFinite() crashes
-  if (!current_rate_for_transport_.IsFinite() || current_rate_for_transport_.bps() <= 0) {
-    RTC_LOG(LS_WARNING) << "L4S: Invalid target rate " << current_rate_for_transport_.bps() 
-                        << " bps, using fallback";
-    current_rate_for_transport_ = DataRate::KilobitsPerSec(300);
-  }
-
-  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate: target_rate_stored="
-  //                  << (target_rate_ ? target_rate_->bps() : -1) << " bps"
-  //                  << ", current_rate=" << current_rate_for_transport_.bps() << " bps";
-
-  if (min_target_rate_ && current_rate_for_transport_ < *min_target_rate_) {
-    RTC_LOG(LS_INFO) << "L4S applying min_target_rate: " <<
-    min_target_rate_->bps() << " bps";
-    current_rate_for_transport_ = *min_target_rate_;
-  }
-  if (max_target_rate_ && current_rate_for_transport_ > *max_target_rate_) {
-    RTC_LOG(LS_INFO) << "L4S applying max_target_rate: " <<
-    max_target_rate_->bps() << " bps";
-    current_rate_for_transport_ = *max_target_rate_;
-  }
-
-  // Log final rate before creating update objects
-  // RTC_LOG(LS_INFO) << "L4S final current_rate_bps=" << current_rate.bps();
-
-  // Set target rate and bandwidth estimate
-  update.target_rate = TargetTransferRate();
-  update.target_rate->at_time = at_time;
-  update.target_rate->network_estimate.at_time = at_time;
-  update.target_rate->network_estimate.bandwidth = current_rate_for_transport_;
-  update.target_rate->network_estimate.loss_rate_ratio = 0.0f;  // L4S should have minimal loss
-  update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_.IsFinite() ?
-                                                        last_estimated_round_trip_time_ :
-                                                        TimeDelta::Millis(50);
-  update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
-
-  update.target_rate->target_rate = current_rate_for_transport_ ;
-
-  // Set pacer config
-  // RTC_LOG(LS_INFO) << "L4S before creating PacerConfig";
-  update.pacer_config = PacerConfig();
-  update.pacer_config->at_time = at_time;
-
-  // Log before setting pacer config values
-  // RTC_LOG(LS_INFO) << "L4S before setting pacer config with current_rate: "
-  // << current_rate.bps() << " bps";
-
-  // Set time window (e.g., 10ms)
-  TimeDelta time_window = TimeDelta::Millis(10);
-  // RTC_LOG(LS_INFO) << "L4S setting time_window: " << time_window.ms() << "
-  // ms";
-  update.pacer_config->time_window = time_window;
-
-  // Calculate data window based on current rate
-  // CRITICAL: Add validation before multiplication to prevent IsFinite() crash
-  if (!current_rate_for_transport_.IsFinite() || !time_window.IsFinite() || 
-      current_rate_for_transport_.bps() <= 0 || time_window.us() <= 0) {
-    RTC_LOG(LS_WARNING) << "L4S: Invalid values for data window calculation - rate: " 
-                        << current_rate_for_transport_.bps() << " bps, time: " 
-                        << time_window.us() << " us";
-    // Use safe fallback values
-    current_rate_for_transport_ = DataRate::KilobitsPerSec(300);
-    time_window = TimeDelta::Millis(10);
-  }
-
-  DataSize data_window = current_rate_for_transport_ * time_window;
-
-  // RTC_LOG(LS_INFO) << "L4S POST-DATA-WINDOW-MULTIPLY: data_window.bytes()="
-  // << data_window.bytes()
-  //                  << ", data_window.IsFinite()=" << (data_window.IsFinite()
-  //                  ? "true" : "false");
-  update.pacer_config->data_window = data_window;
-
-  // Set pad window to zero
-  // RTC_LOG(LS_INFO) << "L4S setting pad_window to zero";
-  update.pacer_config->pad_window = DataSize::Zero();
-
-  return update;
-}
-
-// In MaybeTriggerOnNetworkChanged method:
-void L4SNetworkController::MaybeTriggerOnNetworkChanged(
-    NetworkControlUpdate* update,
-    Timestamp at_time) {
-  // Add timestamp validation
-  if (!at_time.IsFinite() || at_time.us() < 0) {
-    RTC_LOG(LS_WARNING)
-        << "Invalid timestamp in network change, using current time";
-    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
-  }
-
-  // Log timestamp values before calling CreateRateUpdate
-  // RTC_LOG(LS_INFO) << "L4S MaybeTriggerOnNetworkChanged: at_time_us=" <<
-  // at_time.us()
-  //                  << ", IsFinite=" << (at_time.IsFinite() ? "true" :
-  //                  "false");
-
-  // Create rate update (without the conditional, since your code didn't define
-  // the variables) RTC_LOG(LS_INFO) << "L4S calling CreateRateUpdate";
-  NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
-
-  // Log after CreateRateUpdate completes
-  // RTC_LOG(LS_INFO) << "L4S CreateRateUpdate completed successfully";
-
-  // Copy values from rate_update to update
-  if (rate_update.pacer_config) {
-    update->pacer_config = rate_update.pacer_config;
-  }
-  if (rate_update.target_rate) {
-    update->target_rate = rate_update.target_rate;
-  }
-}
-
-bool L4SNetworkController::IsL4SActive() const {
-  // L4S is active if:
-  // 1. Prague controller is active (received enough ECN feedback)
-  // 2. ECN is supported by the connection
-  // 3. The network appears to be ECN capable
-  return ecn_supported_ && ecn_capable_network_;
-}
-
-void L4SNetworkController::ProcessEcnFeedback(
-    const TransportPacketsFeedback& feedback) {
-  if (feedback.packet_feedbacks.empty()) {
-    RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: Empty feedback, packet_feedbacks.size()=0";
-    return;
-  }
-
-  int new_ect_count = 0;
-  int new_ce_count = 0;
-  ce_count_ = 0;
-  ect_count_ = 0;
-
-  for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.ecn == EcnMarking::kEct0 ||
-        packet.ecn == EcnMarking::kEct1 ||
-        packet.ecn == EcnMarking::kCe) {
-      new_ect_count++;
-    }
-    if (packet.ecn == EcnMarking::kCe) {
-      new_ce_count++;
-      last_congestion_signal_ = feedback.feedback_time;
-      RTC_LOG(LS_WARNING) << "ProcessEcnFeedback: CE MARK DETECTED! Count=" << new_ce_count
-                         << ", ECT count=" << new_ect_count;
-
-      if (metrics_enabled_ && metrics_collector_) {
-        double congestion_ratio = (new_ce_count + new_ect_count) > 0 ?
-                                  static_cast<double>(new_ce_count) / (new_ce_count + new_ect_count) : 0.0;
-        metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, congestion_ratio);
-      }
-    }
-  }
-
-  // If we received any ECT or CE packets, consider ECN supported
-  if (new_ect_count > 0 || new_ce_count > 0) {
-    ecn_supported_ = true;
-  }
-
-  // Use only the current interval for CE ratio:
-  if (new_ect_count + new_ce_count > 0) {
-    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
-    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    capacity_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
-    ecn_capable_network_ = true;
-  }
-  ce_count_ += new_ce_count;
-  ect_count_ += new_ect_count;
-
-}
-
-void L4SNetworkController::UpdateNetworkCapacityEstimate(
-    const TransportPacketsFeedback& feedback) {
-  // Simple heuristic: if we consistently get high RTTs or CE marks at certain
-  // rates, update our estimate of realistic network capacity
-
-  DataRate current_sending_rate =
-      target_rate_.value_or(DataRate::KilobitsPerSec(300));
-
-  // If we see CE marking or high RTT increases, the network might be at
-  // capacity
-
-  size_t ce_packets = 0;
-   for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.ecn == EcnMarking::kCe) {
-      ce_packets++;
-    }
-  }
-
-  if (ce_packets > 0 && current_sending_rate < max_realistic_bandwidth_) {
-    // We're getting congestion signals below our assumed capacity limit
-    // This might indicate the actual network capacity is lower
-    DataRate new_estimate =
-        current_sending_rate * 0.9;  // 10% below where we see congestion
-    if (new_estimate > max_realistic_bandwidth_) {
-      max_realistic_bandwidth_ = new_estimate;
-      RTC_LOG(LS_INFO) << "L4S: Reducing network capacity estimate to "
-                       << max_realistic_bandwidth_.bps()
-                       << " bps based on congestion at "
-                       << current_sending_rate.bps() << " bps";
-    }
-  }
-}
-
-
-
-
-// L4SMetricsCollector implementation
-L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger, 
-                                        const std::string& test_case_name,
-                                        Clock* clock)
-    : logger_(logger), 
-      test_case_name_(test_case_name), 
-      clock_(clock) {
+// =============================================================================
+// L4SPragueMetricsCollector Implementation
+// =============================================================================
+
+L4SPragueMetricsCollector::L4SPragueMetricsCollector(test::MetricsLogger* logger, 
+                                                    const std::string& test_case_name,
+                                                    Clock* clock)
+    : logger_(logger), test_case_name_(test_case_name), clock_(clock) {
   RTC_CHECK(logger_);
   RTC_CHECK(clock_);
-  RTC_LOG(LS_INFO) << "L4SMetricsCollector initialized for test case: " << test_case_name_;
+  RTC_LOG(LS_INFO) << "L4SPragueMetricsCollector initialized for test case: " << test_case_name_;
 }
 
+L4SPragueMetricsCollector::~L4SPragueMetricsCollector() = default;
 
-void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
-                                             DataRate actual_bitrate) {
+void L4SPragueMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, DataRate actual_bitrate) {
   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
-    return; // Don't spam logs
+    return;
   }
   
   last_bandwidth_log_ = at_time;
   UpdateThroughputStats(actual_bitrate);
   
-  // Log time-series data for bandwidth
   logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
+  logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
-                                         TimeDelta jitter) {
+void L4SPragueMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter) {
   if (at_time - last_delay_log_ < kDelayLogInterval) {
     return;
   }
@@ -926,19 +305,15 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
                                 webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
   if (one_way_delay.IsFinite()) {
     logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
-  if (jitter.IsFinite()) {
-    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
-    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
-  }
 }
 
-void L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
+void L4SPragueMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
   if (at_time - last_loss_log_ < kLossLogInterval) {
     return;
   }
@@ -946,163 +321,67 @@ void L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
   
-  // logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
-  //                               webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
   logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
-                                              double congestion_ratio) {
+void L4SPragueMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio) {
   logger_->LogSingleValueMetric("congestion_ce_count", test_case_name_, ce_count, 
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
-  // logger_->LogSingleValueMetric("congestion_ect_count", test_case_name_, ect_count, 
-  //                               webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-  //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
   logger_->LogSingleValueMetric("congestion_ratio", test_case_name_, congestion_ratio, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
+void L4SPragueMetricsCollector::LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate) {
+  logger_->LogSingleValueMetric("fusion_ecn_estimate_mbps", test_case_name_, sources.ecn_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_delay_estimate_mbps", test_case_name_, sources.delay_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_probe_estimate_mbps", test_case_name_, sources.probe_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_fused_rate_mbps", test_case_name_, fused_rate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
 
-
-void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
+void L4SPragueMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   if (at_time - last_summary_log_ < kSummaryLogInterval) {
     return;
   }
   
   last_summary_log_ = at_time;
   
-  // Log summary statistics
   if (throughput_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
                                   webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                   {{"stat_type", "average"}, {"metric", "throughput"}});
-    logger_->LogSingleValueMetric("throughput_std_mbps", test_case_name_, throughput_stats_.GetStandardDeviation() / 1e6, 
-                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "throughput"}});
   }
   
   if (delay_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "average"}, {"metric", "delay"}});
-    logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(), 
-                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
   }
   
-  if (loss_stats_.NumSamples() > 0) {
-    logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
-                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "loss"}});
-  }
-  // Periodically export all metrics to JSON
-  ExportToJsonFile("l4s_test_1.json");
+  ExportToJsonFile("l4s_prague_metrics.json");
 }
 
-void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
-  throughput_stats_.AddSample(actual_bitrate.bps());
-}
-
-void L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
-  if (rtt.IsFinite()) {
-    delay_stats_.AddSample(rtt.ms());
-  }
-}
-
-void L4SMetricsCollector::UpdateLossStats(double loss_fraction) {
-  loss_stats_.AddSample(loss_fraction);
-}
-
-// L4SNetworkController metrics helper methods implementation
-void L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
-  if (!metrics_enabled_ || !metrics_collector_) {
-    return;
-  }
-  
-  // Check if it's time to log metrics
-  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
-    return;
-  }
-  
-  metrics_last_logged_ = at_time;
-  
-  // Log bandwidth metrics
-  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
-  DataRate actual_rate = last_actual_bitrate_;
-  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, actual_rate);
-  
-  // Log delay metrics
-  if (last_rtt_.IsFinite()) {
-    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); // Estimate one-way delay
-  }
-  
-  // Log loss metrics
-  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
-  
-  // Log congestion metrics (L4S-specific)
-  double congestion_ratio = (ce_count_ + ect_count_) > 0 ? 
-                           (double)ce_count_ / (ce_count_ + ect_count_) : 0.0;
-  metrics_collector_->LogCongestionMetrics(at_time, ce_count_, ect_count_, congestion_ratio);
-  
-  // Log periodic summary
-  metrics_collector_->LogPeriodicSummary(at_time);
-}
-
-
-// void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
-//   if (!logger_) return;
-//   auto metrics = logger_->GetCollectedMetrics();
-//   FILE* f = fopen(filename.c_str(), "w");
-//   if (!f) return;
-//   fprintf(f, "[\n");
-//   for (size_t i = 0; i < metrics.size(); ++i) {
-//     const auto& m = metrics[i];
-//     fprintf(f, "  {\n");
-//     fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
-//     fprintf(f, "    \"test_case\": \"%s\",\n", m.test_case.c_str());
-//     fprintf(f, "    \"unit\": %d,\n", (int)m.unit);
-//     fprintf(f, "    \"improvement_direction\": %d,\n", (int)m.improvement_direction);
-//     fprintf(f, "    \"stats\": {\n");
-//     fprintf(f, "      \"mean\": %s,\n", m.stats.mean ? std::to_string(*m.stats.mean).c_str() : "null");
-//     fprintf(f, "      \"stddev\": %s,\n", m.stats.stddev ? std::to_string(*m.stats.stddev).c_str() : "null");
-//     fprintf(f, "      \"min\": %s,\n", m.stats.min ? std::to_string(*m.stats.min).c_str() : "null");
-//     fprintf(f, "      \"max\": %s\n", m.stats.max ? std::to_string(*m.stats.max).c_str() : "null");
-//     fprintf(f, "    },\n");
-//     // Export metric-level metadata
-//     fprintf(f, "    \"metadata\": {");
-//     size_t meta_count = 0;
-//     for (const auto& kv : m.metric_metadata) {
-//       if (meta_count > 0) fprintf(f, ", ");
-//       fprintf(f, "\"%s\": \"%s\"", kv.first.c_str(), kv.second.c_str());
-//       ++meta_count;
-//     }
-//     fprintf(f, "},\n");
-//     fprintf(f, "    \"samples\": [");
-//     for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
-//       const auto& s = m.time_series.samples[j];
-//       fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
-//         (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
-//     }
-//     fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
-//   }
-//   fprintf(f, "]\n");
-//   fclose(f);
-// }
-
-
-
-
-
-void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
+void L4SPragueMetricsCollector::ExportToJsonFile(const std::string& filename) {
   if (!logger_) return;
   auto metrics = logger_->GetCollectedMetrics();
   FILE* f = fopen(filename.c_str(), "w");
   if (!f) return;
+  
   fprintf(f, "[\n");
   for (size_t i = 0; i < metrics.size(); ++i) {
     const auto& m = metrics[i];
@@ -1120,5 +399,596 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fclose(f);
 }
 
+void L4SPragueMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
+  throughput_stats_.AddSample(actual_bitrate.bps());
+}
+
+void L4SPragueMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
+  if (rtt.IsFinite()) {
+    delay_stats_.AddSample(rtt.ms());
+  }
+}
+
+void L4SPragueMetricsCollector::UpdateLossStats(double loss_fraction) {
+  loss_stats_.AddSample(loss_fraction);
+}
+
+// =============================================================================
+// L4SPragueNetworkController Implementation
+// =============================================================================
+
+L4SPragueNetworkController::L4SPragueNetworkController(NetworkControllerConfig config,
+                                                      L4SPragueConfig l4s_config,
+                                                      test::MetricsLogger* metrics_logger)
+    : env_(config.env), config_(l4s_config) {
+  
+  // Initialize Prague capacity estimator
+  DataRate starting_rate = config.constraints.starting_rate.value_or(DataRate::KilobitsPerSec(300));
+  DataRate min_rate = config.constraints.min_data_rate.value_or(DataRate::KilobitsPerSec(30));
+  DataRate max_rate = config.constraints.max_data_rate.value_or(DataRate::KilobitsPerSec(100000));
+  
+  prague_estimator_ = std::make_unique<PragueCapacityEstimator>(starting_rate, min_rate, max_rate);
+  
+  // Initialize bandwidth fusion engine
+  bandwidth_fusion_ = std::make_unique<L4SBandwidthFusion>(config_);
+  
+  // Initialize bandwidth estimation components
+  InitializeBandwidthEstimators();
+  
+  // Initialize metrics collector
+  if (config_.enable_metrics_collection) {
+    using webrtc::test::GetGlobalMetricsLogger;
+    test::MetricsLogger* logger_to_use = metrics_logger;
+    if (!logger_to_use) {
+      logger_to_use = GetGlobalMetricsLogger();
+    }
+    metrics_collector_ = std::make_unique<L4SPragueMetricsCollector>(
+        logger_to_use, config_.test_case_name, &env_.clock());
+  }
+  
+  // Set initial rate constraints
+  starting_rate_ = config.constraints.starting_rate;
+  min_target_rate_ = config.constraints.min_data_rate;
+  max_target_rate_ = config.constraints.max_data_rate;
+  target_rate_ = starting_rate;
+  
+  RTC_LOG(LS_INFO) << "L4SPragueNetworkController created with starting rate: " 
+                   << starting_rate.bps() << " bps";
+}
+
+L4SPragueNetworkController::~L4SPragueNetworkController() {
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->ExportToJsonFile("l4s_prague_metrics.json");
+    RTC_LOG(LS_INFO) << "L4S Prague: Exported metrics to l4s_prague_metrics.json";
+  }
+}
+
+void L4SPragueNetworkController::InitializeBandwidthEstimators() {
+  if (config_.enable_delay_estimation) {
+    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.clock(), &env_.field_trials(), nullptr);
+  }
+  
+  if (config_.enable_probing) {
+    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
+  }
+  
+  if (config_.enable_acked_estimation) {
+    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials(), nullptr);
+  }
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: Initialized bandwidth estimators - "
+                   << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
+                   << ", Probe: " << (probe_controller_ ? "enabled" : "disabled")
+                   << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled");
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkRouteChange(NetworkRouteChange msg) {
+  NetworkControlUpdate update;
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: OnNetworkRouteChange called";
+  
+  // Reset ECN support detection on network change
+  ecn_supported_ = false;
+  ecn_capable_network_ = false;
+  ect_count_ = 0;
+  ce_count_ = 0;
+  last_congestion_signal_ = Timestamp::MinusInfinity();
+  
+  // Update rate constraints
+  if (msg.constraints.starting_rate) {
+    starting_rate_ = msg.constraints.starting_rate;
+    target_rate_ = starting_rate_;
+  }
+  min_target_rate_ = msg.constraints.min_data_rate;
+  max_target_rate_ = msg.constraints.max_data_rate;
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnProcessInterval(ProcessInterval msg) {
+  NetworkControlUpdate update;
+  
+  // Log periodic metrics
+  LogPeriodicMetrics(msg.at_time);
+  
+  // Handle periodic probing
+  HandlePeriodicProbing(msg.at_time, &update);
+  
+  // Update time-based decay in Prague estimator
+  prague_estimator_->OnTimeUpdate(msg.at_time);
+  
+  // Fuse all bandwidth estimates and update target rate
+  DataRate fused_rate = FuseBandwidthEstimates(msg.at_time);
+  target_rate_ = fused_rate;
+  
+  // Create rate update
+  MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnRemoteBitrateReport(RemoteBitrateReport msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
+  NetworkControlUpdate update;
+  
+  // Update Prague estimator with RTT
+  prague_estimator_->UpdateFromRtt(msg.round_trip_time);
+  
+  // Update local RTT tracking
+  if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
+    last_rtt_ = msg.round_trip_time;
+    last_estimated_round_trip_time_ = msg.round_trip_time;
+  }
+  
+  // Log RTT metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+  }
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: RTT updated to " << msg.round_trip_time.ms() << " ms";
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnSentPacket(SentPacket msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnReceivedPacket(ReceivedPacket msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnStreamsConfig(StreamsConfig msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnTargetRateConstraints(TargetRateConstraints msg) {
+  NetworkControlUpdate update;
+  
+  // Update constraints
+  min_target_rate_ = msg.min_data_rate;
+  max_target_rate_ = msg.max_data_rate;
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnTransportLossReport(TransportLossReport msg) {
+  NetworkControlUpdate update;
+  
+  if (msg.packets_lost_delta > 0) {
+    RTC_LOG(LS_INFO) << "L4S Prague: Transport loss report - "
+                     << "Lost: " << msg.packets_lost_delta
+                     << ", Received: " << msg.packets_received_delta;
+    
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    prague_estimator_->OnPacketLoss(current_rate, msg.receive_time);
+  }
+  
+  // Update loss metrics
+  int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
+  if (total_packets > 0) {
+    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
+  } else {
+    last_loss_fraction_ = 0.0;
+  }
+  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
+  NetworkControlUpdate update;
+  
+  // Update all bandwidth estimators
+  UpdateAllBandwidthEstimators(msg);
+  
+  // Handle periodic probing
+  HandlePeriodicProbing(msg.feedback_time, &update);
+  
+  // Fuse bandwidth estimates and update target rate
+  DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
+  target_rate_ = fused_rate;
+  
+  // Update throughput calculation
+  UpdateThroughputWindow(msg);
+  
+  // Create rate update
+  MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkStateEstimate(NetworkStateEstimate msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+void L4SPragueNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback) {
+  // 1. Update Prague ECN controller
+  ProcessEcnFeedback(feedback);
+  
+  // 2. Update DelayBasedBwe
+  if (delay_estimator_) {
+    UpdateDelayBasedEstimator(feedback);
+  }
+  
+  // 3. Update AcknowledgedBitrateEstimator
+  if (acked_estimator_) {
+    UpdateAckedBitrateEstimator(feedback);
+  }
+  
+  // 4. Process probe results
+  if (probe_controller_) {
+    ProcessProbeResults(feedback);
+  }
+}
+
+void L4SPragueNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback) {
+  if (feedback.packet_feedbacks.empty()) {
+    return;
+  }
+  
+  int new_ect_count = 0;
+  int new_ce_count = 0;
+  
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
+      new_ect_count++;
+    }
+    if (packet.ecn == EcnMarking::kCe) {
+      new_ce_count++;
+      last_congestion_signal_ = feedback.feedback_time;
+      
+      RTC_LOG(LS_WARNING) << "L4S Prague: CE mark detected! Count=" << new_ce_count
+                         << ", ECT count=" << new_ect_count;
+    }
+  }
+  
+  // Update ECN support detection
+  if (new_ect_count > 0 || new_ce_count > 0) {
+    ecn_supported_ = true;
+    ecn_capable_network_ = true;
+  }
+  
+  // Update Prague estimator with CE ratio
+  if (new_ect_count + new_ce_count > 0) {
+    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    prague_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
+    
+    // Update fusion engine with ECN estimate
+    double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
+    
+    // Log congestion metrics
+    if (metrics_enabled_ && metrics_collector_) {
+      metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, ce_ratio);
+    }
+  }
+  
+  // Update counters
+  ect_count_ = new_ect_count;
+  ce_count_ = new_ce_count;
+}
+
+void L4SPragueNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
+  // Extract delay information and update delay-based estimator
+  // This is a simplified implementation - in practice, you'd need to properly
+  // convert the feedback format for DelayBasedBwe
+  
+  if (last_rtt_.IsFinite()) {
+    // Update delay estimator with RTT information
+    // Note: This is a placeholder - actual implementation would need proper adaptation
+    DataRate delay_estimate = DataRate::KilobitsPerSec(1000);  // Placeholder
+    double delay_confidence = CalculateDelayConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateDelayEstimate(delay_estimate, delay_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
+  // Update acknowledged bitrate estimator
+  // This is a simplified implementation - actual implementation would need
+  // proper packet acknowledgment processing
+  
+  if (!feedback.packet_feedbacks.empty()) {
+    // Calculate acknowledged bitrate from feedback
+    DataRate acked_estimate = last_actual_bitrate_;  // Use calculated throughput as proxy
+    double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateAckedEstimate(acked_estimate, acked_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::ProcessProbeResults(const TransportPacketsFeedback& feedback) {
+  // Process probe results and update fusion engine
+  // This is a placeholder - actual implementation would need to detect and process probe clusters
+  
+  TimeDelta since_probe = feedback.feedback_time - last_probe_time_;
+  if (since_probe < TimeDelta::Seconds(2) && last_probe_estimate_ > DataRate::Zero()) {
+    double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateProbeEstimate(last_probe_estimate_, probe_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
+  if (!config_.enable_probing || !probe_controller_) {
+    return;
+  }
+  
+  // Check if it's time for periodic probing
+  bool should_probe = (now - last_probe_time_) >= config_.probe_interval;
+  should_probe = should_probe && ShouldProbeNow(now);
+  
+  if (should_probe) {
+    InitiateProbing(now, update);
+    last_probe_time_ = now;
+  }
+}
+
+bool L4SPragueNetworkController::ShouldProbeNow(Timestamp now) const {
+  // Don't probe if we're experiencing heavy congestion
+  if (HasRecentCongestionSignals(now)) {
+    return false;
+  }
+  
+  // Don't probe if ECN feedback is very fresh and confident
+  if (IsEcnFeedbackFresh(now) && prague_estimator_->GetConfidence(now) > 0.9) {
+    return false;
+  }
+  
+  // Don't probe during high loss periods
+  if (last_loss_fraction_ > 0.02) {  // 2% loss threshold
+    return false;
+  }
+  
+  return true;
+}
+
+void L4SPragueNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
+  // Get current best estimate for probe rate calculation
+  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  
+  // Request probe at 1.5x current estimate
+  DataRate probe_rate = current_estimate * 1.5;
+  if (max_target_rate_) {
+    probe_rate = std::min(probe_rate, *max_target_rate_);
+  }
+  
+  // Store probe estimate for later processing
+  last_probe_estimate_ = probe_rate;
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: Initiating periodic probe at " << probe_rate.bps() << " bps";
+  
+  // Note: Actual probe cluster creation would be done here with probe_controller_
+  // This is a simplified implementation
+}
+
+double L4SPragueNetworkController::CalculateEcnConfidence(Timestamp now) const {
+  return prague_estimator_->GetConfidence(now);
+}
+
+double L4SPragueNetworkController::CalculateDelayConfidence(Timestamp now) const {
+  if (!delay_estimator_ || !last_rtt_.IsFinite()) {
+    return 0.0;
+  }
+  
+  // High confidence if RTT is stable
+  if (IsRttStable()) {
+    return 0.8;
+  }
+  return 0.5;
+}
+
+double L4SPragueNetworkController::CalculateProbeConfidence(Timestamp now) const {
+  TimeDelta since_probe = now - last_probe_time_;
+  if (since_probe < TimeDelta::Seconds(1)) {
+    return 0.95;  // Very high confidence in fresh probe results
+  } else if (since_probe < TimeDelta::Seconds(10)) {
+    return 0.8;   // Good confidence in recent probes
+  }
+  return 0.2;   // Low confidence in old probe results
+}
+
+double L4SPragueNetworkController::CalculateAckedConfidence(Timestamp now) const {
+  if (!acked_estimator_) {
+    return 0.0;
+  }
+  
+  // Moderate confidence in acknowledged bitrate
+  return 0.6;
+}
+
+DataRate L4SPragueNetworkController::FuseBandwidthEstimates(Timestamp now) {
+  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimate(now);
+  
+  // Apply rate constraints
+  if (min_target_rate_ && fused_rate < *min_target_rate_) {
+    fused_rate = *min_target_rate_;
+  }
+  if (max_target_rate_ && fused_rate > *max_target_rate_) {
+    fused_rate = *max_target_rate_;
+  }
+  
+  // Log fusion metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    auto sources = bandwidth_fusion_->GetCurrentSources();
+    metrics_collector_->LogFusionMetrics(now, sources, fused_rate);
+  }
+  
+  return fused_rate;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::CreateRateUpdate(Timestamp at_time) const {
+  NetworkControlUpdate update;
+  
+  if (!at_time.IsFinite()) {
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  
+  DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  
+  // Validate rate
+  if (!current_rate.IsFinite() || current_rate.bps() <= 0) {
+    current_rate = DataRate::KilobitsPerSec(300);
+  }
+  
+  // Set target rate
+  update.target_rate = TargetTransferRate();
+  update.target_rate->at_time = at_time;
+  update.target_rate->network_estimate.at_time = at_time;
+  update.target_rate->network_estimate.bandwidth = current_rate;
+  update.target_rate->network_estimate.loss_rate_ratio = static_cast<float>(last_loss_fraction_);
+  update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_;
+  update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
+  update.target_rate->target_rate = current_rate;
+  
+  // Set pacer config
+  update.pacer_config = PacerConfig();
+  update.pacer_config->at_time = at_time;
+  update.pacer_config->time_window = TimeDelta::Millis(10);
+  update.pacer_config->data_window = current_rate * update.pacer_config->time_window;
+  update.pacer_config->pad_window = DataSize::Zero();
+  
+  return update;
+}
+
+void L4SPragueNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time) {
+  if (!at_time.IsFinite()) {
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  
+  NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
+  
+  if (rate_update.pacer_config) {
+    update->pacer_config = rate_update.pacer_config;
+  }
+  if (rate_update.target_rate) {
+    update->target_rate = rate_update.target_rate;
+  }
+}
+
+bool L4SPragueNetworkController::IsL4SActive() const {
+  return ecn_supported_ && ecn_capable_network_;
+}
+
+bool L4SPragueNetworkController::HasRecentCongestionSignals(Timestamp now) const {
+  return !last_congestion_signal_.IsInfinite() && 
+         (now - last_congestion_signal_) < TimeDelta::Seconds(2);
+}
+
+bool L4SPragueNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
+  return HasRecentCongestionSignals(now) || 
+         (ecn_supported_ && (now - last_congestion_signal_) < TimeDelta::Seconds(5));
+}
+
+bool L4SPragueNetworkController::EstimatesAreDiverging() const {
+  // Simple check for estimate divergence
+  auto sources = bandwidth_fusion_->GetCurrentSources();
+  if (sources.ecn_estimate > DataRate::Zero() && sources.delay_estimate > DataRate::Zero()) {
+    double ratio = sources.ecn_estimate.bps() / static_cast<double>(sources.delay_estimate.bps());
+    return ratio > 2.0 || ratio < 0.5;  // 2x divergence threshold
+  }
+  return false;
+}
+
+bool L4SPragueNetworkController::IsRttStable() const {
+  // Simplified RTT stability check
+  return last_rtt_.IsFinite() && last_rtt_ < TimeDelta::Millis(100);
+}
+
+void L4SPragueNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
+  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
+  Timestamp now = feedback.feedback_time;
+  
+  // Add new packets to the window
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
+    }
+  }
+  
+  // Remove old packets outside the window
+  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
+    throughput_window_.pop_front();
+  }
+  
+  // Calculate throughput over the window
+  int64_t window_bytes = 0;
+  if (!throughput_window_.empty()) {
+    Timestamp window_start = throughput_window_.front().first;
+    Timestamp window_end = throughput_window_.back().first;
+    for (const auto& entry : throughput_window_) {
+      window_bytes += entry.second;
+    }
+    
+    TimeDelta window_interval = window_end - window_start;
+    if (window_interval > TimeDelta::Millis(1)) {
+      last_actual_bitrate_ = DataRate::BitsPerSec(
+          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    } else {
+      last_actual_bitrate_ = DataRate::Zero();
+    }
+  }
+}
+
+void L4SPragueNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
+    return;
+  }
+  
+  metrics_last_logged_ = at_time;
+  
+  // Log bandwidth metrics
+  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, last_actual_bitrate_);
+  
+  // Log delay metrics
+  if (last_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
+  }
+  
+  // Log loss metrics
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_);
+  
+  // Log periodic summary
+  metrics_collector_->LogPeriodicSummary(at_time);
+}
 
 }  // namespace webrtc

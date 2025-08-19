@@ -1,613 +1,994 @@
-/*
- * L4S/Prague Controller - GCC-Aligned Implementation:
- * - Uses GCC's minimum bitrate (5 kbps) and timing intervals (300ms)
- * - ECN-based congestion detection (like GCC's loss-based detection)
- * - GCC-style rate clamping and overflow protection
- * - Removed RTT inflation detection (GCC doesn't use this approach)
- * - Network capacity cap: 200 Mbps (realistic limit)
- */
-
 #include "modules/congestion_controller/l4s/l4s_prague_controller.h"
 
 #include <algorithm>
-#include <cmath>
+#include <memory>
+#include <numeric>
+#include <utility>
 
+#include "absl/strings/match.h"
 #include "api/field_trials_view.h"
+#include "api/rtc_event_log/rtc_event_log.h"
+#include "api/transport/bandwidth_usage.h"
 #include "api/transport/network_types.h"
-#include "modules/remote_bitrate_estimator/include/bwe_defines.h"
+#include "api/units/data_rate.h"
+#include "api/units/data_size.h"
+#include "api/units/time_delta.h"
+#include "api/units/timestamp.h"
+#include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
+#include "system_wrappers/include/metrics.h"
+
+// Metrics collection
+#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+#include "api/test/metrics/metrics_logger.h"
 
 namespace webrtc {
 
-namespace {
-// Default values for Prague controller parameters
-constexpr double kDefaultAlpha = 0.125;  // DCTCP-style decrease factor
-constexpr TimeDelta kDefaultRttFilterTime = TimeDelta::Millis(100);
-constexpr TimeDelta kDefaultMinRtt = TimeDelta::Millis(5);
-constexpr double kDefaultInitCwnd = 2.0;  // Initial cwnd = 2 * BDP
-constexpr double kDefaultBeta = 0.8;      // Multiplicative decrease factor
-}  // namespace
+// =============================================================================
+// PragueCapacityEstimator Implementation
+// =============================================================================
 
-L4SPragueController::L4SPragueController(const FieldTrialsView& field_trials,
-                                         bool use_ect1_marking)
-    : alpha_("alpha", kDefaultAlpha),
-      rtt_filter_time_("rtt_filter_time", kDefaultRttFilterTime),
-      min_rtt_("min_rtt", kDefaultMinRtt),
-      init_cwnd_("init_cwnd", kDefaultInitCwnd),
-      beta_("beta", kDefaultBeta),
-      use_ect1_marking_(use_ect1_marking) {
-  ParseFieldTrial({&alpha_, &rtt_filter_time_, &min_rtt_, &init_cwnd_, &beta_},
-                  field_trials.Lookup("WebRTC-L4SPragueController"));
-  if (use_ect1_marking_) {
-    active_ = true;
-    RTC_LOG(LS_INFO) << "Prague: Controller activated at initialization due to ECT(1) marking enabled";
+PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate)
+    : congestion_based_estimate_(starting_rate),
+      min_target_rate_(min_rate),
+      max_target_rate_(max_rate),
+      current_rtt_(TimeDelta::Millis(50)),
+      last_update_time_(Timestamp::MinusInfinity()),
+      last_congestion_signal_(Timestamp::MinusInfinity()) {
+  
+  // Clamp initial estimate to bounds
+  if (congestion_based_estimate_ < min_target_rate_) {
+    congestion_based_estimate_ = min_target_rate_;
+  }
+  if (congestion_based_estimate_ > max_target_rate_) {
+    congestion_based_estimate_ = max_target_rate_;
   }
 }
 
-L4SPragueController::~L4SPragueController() = default;
+PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 
-void L4SPragueController::UpdateEcnFeedback(
-    const TransportPacketsFeedback& feedback) {
-  if (feedback.packet_feedbacks.empty())
-    return;
-
-  Timestamp now = feedback.feedback_time;
-
-  // Add timestamp validation
-  if (!now.IsFinite() || now.us() < 0) {
-    RTC_LOG(LS_WARNING) << "Invalid feedback timestamp in Prague controller: "
-                        << now.us() << " us";
-    return;
+void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+  constexpr int kDefaultMssBytes = 1440;  // Typical Ethernet MSS
+  
+  TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(50);
+  double rtt_seconds = rtt.seconds<double>();
+  if (rtt_seconds <= 0.0) {
+    rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
   }
 
-  // Count ECT and CE packets in this feedback
-  size_t ect_packets = 0;
-  size_t ce_packets = 0;
-  size_t notect_packets = 0;
-
-  for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.sent_packet.sequence_number > 0) {
-      if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
-        // RTC_LOG(LS_INFO) << "Prague: ECT marked packet detected! Seq="
-        //          << packet.sent_packet.sequence_number
-        //          << ", feedback_time=" << now.us() << " us";
-        ect_packets++;
-      } else if (packet.ecn == EcnMarking::kCe) {
-        ce_packets++;
-        ect_packets++;  // CE also counts as ECT
-        RTC_LOG(LS_INFO) << "Prague: CE marked packet detected! Seq="
-                         << packet.sent_packet.sequence_number
-                         << ", feedback_time=" << now.us() << " us";
-      } else if (packet.ecn == EcnMarking::kNotEct) {
-        notect_packets++;
-      }
-    }
-  }
-
-
-
-  // If we received any ECT or CE packets, activate the controller
-  if (ect_packets > 0) {
-    if (!active_) {
-      startup_time_ = now;  // Record when startup protection began
-      RTC_LOG(LS_INFO) << "Prague: Controller activated, starting startup protection timer";
-    }
-    active_ = true;
-    // Reset the NotECT packet counter when we see ECT packets
-    consecutive_notect_feedbacks_ = 0;
-  } else if (notect_packets > 0) {
-    // Count consecutive feedbacks with only NotECT packets
-    consecutive_notect_feedbacks_++;
+  // Pure Prague DCTCP-style rate adaptation (RFC 9330)
+  if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
+    // DCTCP-style alpha update with standard EWMA gain
+    constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
+    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
     
-    // Only deactivate if we've seen sustained NotECT packets AND we were previously active
-    // This prevents startup transients from causing problems
-    // Increased limit from 10 to 25 to allow more time for ECN marking to stabilize
-    if (active_ && consecutive_notect_feedbacks_ >= 50) {
-      RTC_LOG(LS_WARNING) << "Prague: Deactivating due to " << consecutive_notect_feedbacks_ 
-                          << " consecutive NotECT-only feedbacks";
-      active_ = false;
-      consecutive_notect_feedbacks_ = 0;
-    }
+    // Proportional decrease (much gentler than 50% reduction)
+    double reduction_factor = 1.0 - alpha_ / 2.0;
+    DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+    congestion_based_estimate_ = reduced;
+    
+    // Update congestion signal timestamp
+    last_congestion_signal_ = current_time;
+    
+    RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
+                     << ", ce_ratio=" << ce_ratio 
+                     << ", reduction_factor=" << reduction_factor
+                     << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+                     
+  } else if (current_rate >= congestion_based_estimate_ * 0.9) {
+    // More aggressive additive increase since decreases are gentler
+    int64_t bits_per_rtt = kDefaultMssBytes * 8;
+    double ai_factor = 1.0;  // 1.0 MSS per RTT
+    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
+    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+    
+    congestion_based_estimate_ = increased;
+    
+    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+                     << "new rate=" << congestion_based_estimate_.bps() << " bps";
   }
+  
+  last_update_time_ = current_time;
+}
 
-  // Add to totals
-  total_ect_packets_ += ect_packets;
-  total_ce_packets_ += ce_packets;
-
-  // Add to window
-  ecn_window_.push_back({now, ect_packets, ce_packets});
-
-  // Remove old entries from window
-  while (!ecn_window_.empty()) {
-    TimeDelta age = now - ecn_window_.front().time;
-
-    // Add safety check for age calculation
-    if (!age.IsFinite()) {
-      RTC_LOG(LS_WARNING)
-          << "Invalid age calculation in ECN window cleanup, clearing window";
-      ecn_window_.clear();
-      total_ect_packets_ = ect_packets;
-      total_ce_packets_ = ce_packets;
-      break;
-    }
-
-    if (age > rtt_filter_time_) {
-      total_ect_packets_ -= ecn_window_.front().ect_count;
-      total_ce_packets_ -= ecn_window_.front().ce_count;
-      ecn_window_.pop_front();
-    } else {
-      break;
-    }
+void PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
+  if (rtt.IsFinite() && !rtt.IsZero()) {
+    current_rtt_ = rtt;
   }
+}
 
-  // Calculate new CE ratio (only if we have enough ECT packets for reliable signal)
-  if (total_ect_packets_ > 0) {
-    ecn_ce_ratio_ = static_cast<double>(total_ce_packets_) / total_ect_packets_;
+void PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
+  // Multiplicative decrease for packet loss (fallback mechanism)
+  DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
+  congestion_based_estimate_ = reduced;
+  
+  RTC_LOG(LS_WARNING) << "Prague: Packet loss detected, halving estimate to "
+                      << congestion_based_estimate_.bps() << " bps";
+  
+  last_update_time_ = current_time;
+}
 
-    // Log when CE ratio changes significantly or when we have congestion
-    if (total_ce_packets_ > 0) {
-      RTC_LOG(LS_INFO) << "Prague: Congestion detected! CE ratio="
-                       << (ecn_ce_ratio_ * 100.0) << "% (" << total_ce_packets_
-                       << " CE out of " << total_ect_packets_
-                       << " ECT packets)";
+void PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
+  if (last_update_time_.IsInfinite()) {
+    last_update_time_ = current_time;
+    return;
+  }
+  
+  TimeDelta elapsed = current_time - last_update_time_;
+  if (elapsed >= kDecayInterval) {
+    // Gradually decay estimates if not reinforced
+    congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
+    last_update_time_ = current_time;
+  }
+}
+
+DataRate PragueCapacityEstimator::GetCurrentEstimate() const {
+  return congestion_based_estimate_;
+}
+
+double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
+  if (last_congestion_signal_.IsInfinite()) {
+    return 0.3;  // Low confidence without any ECN feedback
+  }
+  
+  TimeDelta since_signal = now - last_congestion_signal_;
+  if (since_signal < TimeDelta::Seconds(2)) {
+    return 0.9;  // Very confident with recent ECN feedback
+  } else if (since_signal < TimeDelta::Seconds(5)) {
+    return 0.7;  // Moderately confident
+  }
+  return 0.4;  // Lower confidence with stale ECN feedback
+}
+
+// =============================================================================
+// L4SBandwidthFusion Implementation
+// =============================================================================
+
+L4SBandwidthFusion::L4SBandwidthFusion(const L4SPragueConfig& config) : config_(config) {}
+
+L4SBandwidthFusion::~L4SBandwidthFusion() = default;
+
+void L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.ecn_estimate = estimate;
+  sources_.ecn_confidence = confidence;
+  sources_.last_ecn_update = now;
+}
+
+void L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.delay_estimate = estimate;
+  sources_.delay_confidence = confidence;
+  sources_.last_delay_update = now;
+}
+
+void L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.probe_estimate = estimate;
+  sources_.probe_confidence = confidence;
+  sources_.last_probe_update = now;
+}
+
+void L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
+  sources_.acked_estimate = estimate;
+  sources_.acked_confidence = confidence;
+  sources_.last_acked_update = now;
+}
+
+DataRate L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
+  // Priority-based fusion with confidence weighting
+  
+  // 1. If ECN feedback is fresh and confident, prioritize it
+  if (sources_.ecn_confidence > config_.ecn_confidence_threshold && 
+      IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    return sources_.ecn_estimate;
+  }
+  
+  // 2. If we have fresh probe results, they're usually most accurate
+  if (sources_.probe_confidence > config_.probe_confidence_threshold && 
+      IsRecentlyUpdated(sources_.last_probe_update, now)) {
+    // Cross-validate with other estimates
+    return ValidateWithOtherSources(sources_.probe_estimate, sources_);
+  }
+  
+  // 3. Weighted combination of delay and acked estimates
+  double total_weight = sources_.delay_confidence + sources_.acked_confidence;
+  if (total_weight > 0.1) {
+    DataRate weighted_estimate = 
+        (sources_.delay_estimate * sources_.delay_confidence + 
+         sources_.acked_estimate * sources_.acked_confidence) / total_weight;
+    
+    // Apply ECN constraints if available
+    if (sources_.ecn_confidence > 0.3) {
+      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate * 1.2);
     }
+    
+    return weighted_estimate;
+  }
+  
+  // 4. Fallback to most confident single estimate
+  return GetMostConfidentEstimate(now);
+}
+
+DataRate L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp now) const {
+  DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
+  double best_confidence = 0.0;
+  
+  if (sources_.ecn_confidence > best_confidence && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    best_estimate = sources_.ecn_estimate;
+    best_confidence = sources_.ecn_confidence;
+  }
+  
+  if (sources_.delay_confidence > best_confidence && IsRecentlyUpdated(sources_.last_delay_update, now)) {
+    best_estimate = sources_.delay_estimate;
+    best_confidence = sources_.delay_confidence;
+  }
+  
+  if (sources_.probe_confidence > best_confidence && IsRecentlyUpdated(sources_.last_probe_update, now)) {
+    best_estimate = sources_.probe_estimate;
+    best_confidence = sources_.probe_confidence;
+  }
+  
+  if (sources_.acked_confidence > best_confidence && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+    best_estimate = sources_.acked_estimate;
+    best_confidence = sources_.acked_confidence;
+  }
+  
+  return best_estimate;
+}
+
+DataRate L4SBandwidthFusion::ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const {
+  // Don't allow probe results that are dramatically higher than other estimates
+  DataRate max_alternative = DataRate::Zero();
+  
+  if (sources.ecn_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.ecn_estimate);
+  }
+  if (sources.delay_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.delay_estimate);
+  }
+  if (sources.acked_confidence > 0.3) {
+    max_alternative = std::max(max_alternative, sources.acked_estimate);
+  }
+  
+  if (max_alternative > DataRate::Zero() && primary_estimate > max_alternative * 2.0) {
+    // Probe result seems too optimistic, cap it
+    return max_alternative * 1.5;
+  }
+  
+  return primary_estimate;
+}
+
+bool L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
+  return !last_update.IsInfinite() && (now - last_update) < TimeDelta::Seconds(10);
+}
+
+// =============================================================================
+// L4SPragueMetricsCollector Implementation
+// =============================================================================
+
+L4SPragueMetricsCollector::L4SPragueMetricsCollector(test::MetricsLogger* logger, 
+                                                    const std::string& test_case_name,
+                                                    Clock* clock)
+    : logger_(logger), test_case_name_(test_case_name), clock_(clock) {
+  RTC_CHECK(logger_);
+  RTC_CHECK(clock_);
+  RTC_LOG(LS_INFO) << "L4SPragueMetricsCollector initialized for test case: " << test_case_name_;
+}
+
+L4SPragueMetricsCollector::~L4SPragueMetricsCollector() = default;
+
+void L4SPragueMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, DataRate actual_bitrate) {
+  if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
+    return;
+  }
+  
+  last_bandwidth_log_ = at_time;
+  UpdateThroughputStats(actual_bitrate);
+  
+  logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SPragueMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter) {
+  if (at_time - last_delay_log_ < kDelayLogInterval) {
+    return;
+  }
+  
+  last_delay_log_ = at_time;
+  UpdateDelayStats(rtt);
+  
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
+                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  if (one_way_delay.IsFinite()) {
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+}
+
+void L4SPragueMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost) {
+  if (at_time - last_loss_log_ < kLossLogInterval) {
+    return;
+  }
+  
+  last_loss_log_ = at_time;
+  UpdateLossStats(loss_fraction);
+  
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SPragueMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio) {
+  logger_->LogSingleValueMetric("congestion_ce_count", test_case_name_, ce_count, 
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("congestion_ratio", test_case_name_, congestion_ratio, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SPragueMetricsCollector::LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate) {
+  logger_->LogSingleValueMetric("fusion_ecn_estimate_mbps", test_case_name_, sources.ecn_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_delay_estimate_mbps", test_case_name_, sources.delay_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_probe_estimate_mbps", test_case_name_, sources.probe_estimate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("fusion_fused_rate_mbps", test_case_name_, fused_rate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+void L4SPragueMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
+  if (at_time - last_summary_log_ < kSummaryLogInterval) {
+    return;
+  }
+  
+  last_summary_log_ = at_time;
+  
+  if (throughput_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
+                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "throughput"}});
+  }
+  
+  if (delay_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "delay"}});
+  }
+  
+  ExportToJsonFile("l4s_prague_metrics.json");
+}
+
+void L4SPragueMetricsCollector::ExportToJsonFile(const std::string& filename) {
+  if (!logger_) return;
+  auto metrics = logger_->GetCollectedMetrics();
+  FILE* f = fopen(filename.c_str(), "w");
+  if (!f) return;
+  
+  fprintf(f, "[\n");
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    const auto& m = metrics[i];
+    fprintf(f, "  {\n");
+    fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
+    fprintf(f, "    \"samples\": [");
+    for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
+      const auto& s = m.time_series.samples[j];
+      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
+        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
+    }
+    fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
+  }
+  fprintf(f, "]\n");
+  fclose(f);
+}
+
+void L4SPragueMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
+  throughput_stats_.AddSample(actual_bitrate.bps());
+}
+
+void L4SPragueMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
+  if (rtt.IsFinite()) {
+    delay_stats_.AddSample(rtt.ms());
+  }
+}
+
+void L4SPragueMetricsCollector::UpdateLossStats(double loss_fraction) {
+  loss_stats_.AddSample(loss_fraction);
+}
+
+// =============================================================================
+// L4SPragueNetworkController Implementation
+// =============================================================================
+
+L4SPragueNetworkController::L4SPragueNetworkController(NetworkControllerConfig config,
+                                                      L4SPragueConfig l4s_config,
+                                                      test::MetricsLogger* metrics_logger)
+    : env_(config.env), config_(l4s_config) {
+  
+  // Initialize Prague capacity estimator
+  DataRate starting_rate = config.constraints.starting_rate.value_or(DataRate::KilobitsPerSec(300));
+  DataRate min_rate = config.constraints.min_data_rate.value_or(DataRate::KilobitsPerSec(30));
+  DataRate max_rate = config.constraints.max_data_rate.value_or(DataRate::KilobitsPerSec(100000));
+  
+  prague_estimator_ = std::make_unique<PragueCapacityEstimator>(starting_rate, min_rate, max_rate);
+  
+  // Initialize bandwidth fusion engine
+  bandwidth_fusion_ = std::make_unique<L4SBandwidthFusion>(config_);
+  
+  // Initialize bandwidth estimation components
+  InitializeBandwidthEstimators();
+  
+  // Initialize metrics collector
+  if (config_.enable_metrics_collection) {
+    using webrtc::test::GetGlobalMetricsLogger;
+    test::MetricsLogger* logger_to_use = metrics_logger;
+    if (!logger_to_use) {
+      logger_to_use = GetGlobalMetricsLogger();
+    }
+    metrics_collector_ = std::make_unique<L4SPragueMetricsCollector>(
+        logger_to_use, config_.test_case_name, &env_.clock());
+  }
+  
+  // Set initial rate constraints
+  starting_rate_ = config.constraints.starting_rate;
+  min_target_rate_ = config.constraints.min_data_rate;
+  max_target_rate_ = config.constraints.max_data_rate;
+  target_rate_ = starting_rate;
+  
+  RTC_LOG(LS_INFO) << "L4SPragueNetworkController created with starting rate: " 
+                   << starting_rate.bps() << " bps";
+}
+
+L4SPragueNetworkController::~L4SPragueNetworkController() {
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->ExportToJsonFile("l4s_prague_metrics.json");
+    RTC_LOG(LS_INFO) << "L4S Prague: Exported metrics to l4s_prague_metrics.json";
+  }
+}
+
+void L4SPragueNetworkController::InitializeBandwidthEstimators() {
+  if (config_.enable_delay_estimation) {
+    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.clock(), &env_.field_trials(), nullptr);
+  }
+  
+  if (config_.enable_probing) {
+    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
+  }
+  
+  if (config_.enable_acked_estimation) {
+    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials(), nullptr);
+  }
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: Initialized bandwidth estimators - "
+                   << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
+                   << ", Probe: " << (probe_controller_ ? "enabled" : "disabled")
+                   << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled");
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkRouteChange(NetworkRouteChange msg) {
+  NetworkControlUpdate update;
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: OnNetworkRouteChange called";
+  
+  // Reset ECN support detection on network change
+  ecn_supported_ = false;
+  ecn_capable_network_ = false;
+  ect_count_ = 0;
+  ce_count_ = 0;
+  last_congestion_signal_ = Timestamp::MinusInfinity();
+  
+  // Update rate constraints
+  if (msg.constraints.starting_rate) {
+    starting_rate_ = msg.constraints.starting_rate;
+    target_rate_ = starting_rate_;
+  }
+  min_target_rate_ = msg.constraints.min_data_rate;
+  max_target_rate_ = msg.constraints.max_data_rate;
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnProcessInterval(ProcessInterval msg) {
+  NetworkControlUpdate update;
+  
+  // Log periodic metrics
+  LogPeriodicMetrics(msg.at_time);
+  
+  // Handle periodic probing
+  HandlePeriodicProbing(msg.at_time, &update);
+  
+  // Update time-based decay in Prague estimator
+  prague_estimator_->OnTimeUpdate(msg.at_time);
+  
+  // Fuse all bandwidth estimates and update target rate
+  DataRate fused_rate = FuseBandwidthEstimates(msg.at_time);
+  target_rate_ = fused_rate;
+  
+  // Create rate update
+  MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnRemoteBitrateReport(RemoteBitrateReport msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
+  NetworkControlUpdate update;
+  
+  // Update Prague estimator with RTT
+  prague_estimator_->UpdateFromRtt(msg.round_trip_time);
+  
+  // Update local RTT tracking
+  if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
+    last_rtt_ = msg.round_trip_time;
+    last_estimated_round_trip_time_ = msg.round_trip_time;
+  }
+  
+  // Log RTT metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+  }
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: RTT updated to " << msg.round_trip_time.ms() << " ms";
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnSentPacket(SentPacket msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnReceivedPacket(ReceivedPacket msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnStreamsConfig(StreamsConfig msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnTargetRateConstraints(TargetRateConstraints msg) {
+  NetworkControlUpdate update;
+  
+  // Update constraints
+  min_target_rate_ = msg.min_data_rate;
+  max_target_rate_ = msg.max_data_rate;
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnTransportLossReport(TransportLossReport msg) {
+  NetworkControlUpdate update;
+  
+  if (msg.packets_lost_delta > 0) {
+    RTC_LOG(LS_INFO) << "L4S Prague: Transport loss report - "
+                     << "Lost: " << msg.packets_lost_delta
+                     << ", Received: " << msg.packets_received_delta;
+    
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    prague_estimator_->OnPacketLoss(current_rate, msg.receive_time);
+  }
+  
+  // Update loss metrics
+  int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
+  if (total_packets > 0) {
+    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
   } else {
-    // No ECT packets in window - this could be due to:
-    // 1. Startup transients (NotECT packets before ECN marking activates)
-    // 2. ECN marking disabled temporarily 
-    // 3. Network path doesn't support ECN
-    ecn_ce_ratio_ = 0.0;
-    
-    if (notect_packets > 0 && active_) {
-      RTC_LOG(LS_INFO) << "Prague: No ECT packets in feedback window (received " 
-                       << notect_packets << " NotECT packets). CE ratio reset to 0.";
-    }
+    last_loss_fraction_ = 0.0;
   }
-  last_update_time_ = now;
+  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+  
+  return update;
 }
 
-void L4SPragueController::UpdateRtt(TimeDelta rtt) {
-  rtt_ = rtt;
-
-  // Log raw RTT for debugging
-  // RTC_LOG(LS_INFO) << "Prague: Raw RTT measurement: " << rtt.ms() << "ms";
-
-  // Update min_rtt_estimate with more realistic floor
-  // Prevent unrealistically low RTT estimates that can cause issues
-  // Use 10ms minimum for realistic network scenarios (LAN: 1-10ms, WAN: 10-500ms)
-  TimeDelta realistic_rtt = std::max(rtt, TimeDelta::Millis(10)); // At least 10ms
+NetworkControlUpdate L4SPragueNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
+  NetworkControlUpdate update;
   
-  if (!min_rtt_estimate_ || realistic_rtt < *min_rtt_estimate_) {
-    min_rtt_estimate_ = realistic_rtt;
-    RTC_LOG(LS_INFO) << "Prague: Updated min RTT estimate to " << min_rtt_estimate_->ms() << "ms";
+  // Update all bandwidth estimators
+  UpdateAllBandwidthEstimators(msg);
+  
+  // Handle periodic probing
+  HandlePeriodicProbing(msg.feedback_time, &update);
+  
+  // Fuse bandwidth estimates and update target rate
+  DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
+  target_rate_ = fused_rate;
+  
+  // Update throughput calculation
+  UpdateThroughputWindow(msg);
+  
+  // Create rate update
+  MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
+  
+  return update;
+}
+
+NetworkControlUpdate L4SPragueNetworkController::OnNetworkStateEstimate(NetworkStateEstimate msg) {
+  NetworkControlUpdate update;
+  return update;
+}
+
+void L4SPragueNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback) {
+  // 1. Update Prague ECN controller
+  ProcessEcnFeedback(feedback);
+  
+  // 2. Update DelayBasedBwe
+  if (delay_estimator_) {
+    UpdateDelayBasedEstimator(feedback);
+  }
+  
+  // 3. Update AcknowledgedBitrateEstimator
+  if (acked_estimator_) {
+    UpdateAckedBitrateEstimator(feedback);
+  }
+  
+  // 4. Process probe results
+  if (probe_controller_) {
+    ProcessProbeResults(feedback);
   }
 }
 
-std::optional<DataRate> L4SPragueController::GetTargetRate(
-    Timestamp now,
-    DataRate current_rate) {
-  if (!active_ || !rtt_)
-    return std::nullopt;
-
-  // Add timestamp validation
-  if (!now.IsFinite() || now.us() < 0) {
-    RTC_LOG(LS_WARNING) << "Invalid timestamp in Prague controller: "
-                        << now.us() << " us";
-    return std::nullopt;
+void L4SPragueNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback) {
+  if (feedback.packet_feedbacks.empty()) {
+    return;
   }
-
-  // Startup protection: Don't reduce rates aggressively when we haven't seen 
-  // enough ECN signal history. This prevents startup transients from causing problems.
-  // Add timeout-based fallback for non-ECN environments.
-  bool startup_protection = total_ect_packets_ < 1;  // Need at least 1 ECT packet for reliable signal
-
-  // Check if we've been in startup protection for too long (indicating no ECN support)
-  if (startup_protection && startup_time_.IsFinite()) {
-    TimeDelta startup_duration = now - startup_time_;
-    const TimeDelta kStartupProtectionTimeout = TimeDelta::Seconds(15);  // 15 second timeout
-
-    if (startup_duration > kStartupProtectionTimeout) {
-      RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " << startup_duration.ms() 
-                       << "ms with only " << total_ect_packets_ << " ECT packets. "
-                       << "Disabling startup protection (likely non-ECN environment)";
-      startup_protection = false;
+  
+  int new_ect_count = 0;
+  int new_ce_count = 0;
+  
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
+      new_ect_count++;
+    }
+    if (packet.ecn == EcnMarking::kCe) {
+      new_ce_count++;
+      last_congestion_signal_ = feedback.feedback_time;
+      
+      RTC_LOG(LS_WARNING) << "L4S Prague: CE mark detected! Count=" << new_ce_count
+                         << ", ECT count=" << new_ect_count;
     }
   }
   
-  if (startup_protection && ecn_ce_ratio_ == 0.0) {
-    RTC_LOG(LS_INFO) << "Prague: Startup protection active (only " << total_ect_packets_ 
-                     << " ECT packets seen), maintaining current rate " << current_rate.bps() << " bps";
-    return current_rate;
-  }
-
-  // Use the provided current rate as the base rate instead of calculating from
-  // cwnd
-  DataRate base_rate = current_rate;
-
-  // Network capacity protection: reasonable upper limits for real networks
-  const int64_t max_safe_rate_bps =
-      200000000;  // 200 Mbps - realistic upper limit for most networks
-
-  if (base_rate.bps() > max_safe_rate_bps) {
-    RTC_LOG(LS_WARNING) << "Prague: Rate " << base_rate.bps()
-                        << " exceeds realistic network limit "
-                        << max_safe_rate_bps
-                        << ", capping to prevent unrealistic rates";
-    return DataRate::BitsPerSec(max_safe_rate_bps);
-  }
-
-  // OLD METHOD (commented out): Calculate base rate from congestion window
-  // DataSize cwnd = CalculateCongestionWindow();
-  //
-  // // Add safety checks to prevent division by zero or overflow
-  // if (current_rtt.ms() <= 0) {
-  //   RTC_LOG(LS_WARNING) << "Invalid RTT in Prague controller: " <<
-  //   current_rtt.ms() << "ms, using default rate"; return
-  //   DataRate::KilobitsPerSec(300);  // Default fallback rate
-  // }
-  //
-  // // Prevent potential overflow in multiplication
-  // int64_t cwnd_bits = static_cast<int64_t>(cwnd.bytes()) * 8;
-  // int64_t rtt_ms = current_rtt.ms();
-  //
-  // // Check for potential overflow
-  // if (cwnd_bits > (std::numeric_limits<int64_t>::max() / 1000)) {
-  //   RTC_LOG(LS_WARNING) << "Potential overflow in rate calculation, using
-  //   default rate"; return DataRate::KilobitsPerSec(300);
-  // }
-  //
-  // int64_t rate_bps = (cwnd_bits * 1000) / rtt_ms;
-  //
-  // // Ensure the result is positive and reasonable
-  // if (rate_bps <= 0) {
-  //   RTC_LOG(LS_WARNING) << "Invalid rate calculation result: " << rate_bps <<
-  //   " bps, using default"; return DataRate::KilobitsPerSec(300);
-  // }
-  //
-  // DataRate base_rate = DataRate::BitsPerSec(rate_bps);
-
-  // Get current RTT for additive increase calculations
-  TimeDelta current_rtt = rtt_.value();
-  if (min_rtt_estimate_.has_value()) {
-    current_rtt = std::max(current_rtt, min_rtt_estimate_.value());
-  }
-
-  // Apply Prague's scalable congestion control formula based on ECN signals
-  // Similar to how GCC uses loss-based signals, but we use ECN marking
-  if (ecn_ce_ratio_ > 0) {
-    // Rate limit reductions to prevent death spiral (GCC-style timing)
-    TimeDelta time_since_last_reduction = now - last_reduction_time_;
-    const TimeDelta kBweDecreaseInterval = TimeDelta::Millis(100); // l4s decrease interval
-    
-    if (time_since_last_reduction.IsFinite() && time_since_last_reduction < kBweDecreaseInterval) {
-      RTC_LOG(LS_INFO) << "Prague: Rate reduction rate-limited (last reduction " 
-                       << time_since_last_reduction.ms() << "ms ago, need " 
-                       << kBweDecreaseInterval.ms() << "ms), returning base rate " 
-                       << base_rate.bps() << " bps";
-      return base_rate;
-    }
-    
-    // Additional protection during startup: Require stronger CE signal if we haven't seen much ECN traffic
-    double effective_ce_ratio = ecn_ce_ratio_;
-    // if (startup_protection && total_ect_packets_ < 100) {
-    //   // During startup, require at least 2% CE ratio before reducing (instead of any CE ratio)
-    //   if (ecn_ce_ratio_ < 0.02) {
-    //     RTC_LOG(LS_INFO) << "Prague: Startup protection - CE ratio " << (ecn_ce_ratio_ * 100.0) 
-    //                      << "% below 2% threshold with only " << total_ect_packets_ 
-    //                      << " ECT packets, not reducing rate";
-    //     return base_rate;
-    //   }
-    //   // Scale down the reduction during startup to be more conservative
-    //   effective_ce_ratio = ecn_ce_ratio_ * 0.5;  // Half the reduction strength
-    //   RTC_LOG(LS_INFO) << "Prague: Startup protection - scaling CE ratio from " 
-    //                    << (ecn_ce_ratio_ * 100.0) << "% to " << (effective_ce_ratio * 100.0) << "%";
-    // }
-    
-    // ECN-based reduction (similar to GCC's loss-based reduction)
-    double reduction_factor = 1.0 - (alpha_.Get() * effective_ce_ratio);
-    reduction_factor = std::max(reduction_factor, beta_.Get());
-
-    // Add additional protection against overly aggressive reductions
-    // Limit the maximum reduction to prevent system instability
-    const double kMaxReductionPerStep = 0.5;  // Don't reduce more than 50% at once
-    if (reduction_factor < kMaxReductionPerStep) {
-      RTC_LOG(LS_WARNING) << "Prague: Limiting reduction factor from " << reduction_factor 
-                          << " to " << kMaxReductionPerStep << " to prevent aggressive reduction";
-      reduction_factor = kMaxReductionPerStep;
-    }
-
-    RTC_LOG(LS_INFO) << "Prague: Applying ECN-based congestion reduction. "
-                     << "CE ratio=" << (ecn_ce_ratio_ * 100.0) << "%, "
-                     << "reduction_factor=" << reduction_factor << ", "
-                     << "base_rate=" << base_rate.bps() << " bps";
-
-    DataRate reduced_rate = base_rate * reduction_factor;
-    
-    // GCC-style minimum rate enforcement
-    if (reduced_rate < kCongestionControllerMinBitrate) {
-      RTC_LOG(LS_WARNING) << "Prague: Rate would drop to " << reduced_rate.bps() 
-                          << " bps, enforcing GCC minimum " << kCongestionControllerMinBitrate.bps() << " bps";
-      reduced_rate = kCongestionControllerMinBitrate;
-    }
-
-    RTC_LOG(LS_INFO) << "Prague: Rate reduced from " << base_rate.bps()
-                     << " to " << reduced_rate.bps()
-                     << " bps due to ECN congestion";
-
-    // Update last reduction time
-    last_reduction_time_ = now;
-    base_rate = reduced_rate;
-    return reduced_rate;
-  }
-
-  // If no congestion, try to increase additively based on RTT
-  // For non-ECN environments, use loss-based approach if available
-  if (total_ect_packets_ == 0) {
-    // No ECN marking seen, probably a non-ECN environment
-    // Use a conservative additive increase approach
-    const double kNonEcnAdditiveIncrease = 1.1;  // 10% increase
-    DataRate increased_rate = base_rate * kNonEcnAdditiveIncrease;
-    
-    // Cap the increase to prevent aggressive ramp-up
-    const DataRate kMaxNonEcnIncrease = DataRate::KilobitsPerSec(300);  // 300 kbps max increase
-    if (increased_rate - base_rate > kMaxNonEcnIncrease) {
-      increased_rate = base_rate + kMaxNonEcnIncrease;
-    }
-    
-    RTC_LOG(LS_INFO) << "Prague: Non-ECN fallback mode - increasing rate from " 
-                      << base_rate.bps() << " to " << increased_rate.bps() << " bps";
-    base_rate = increased_rate;
-    return increased_rate;
+  // Update ECN support detection
+  if (new_ect_count > 0 || new_ce_count > 0) {
+    ecn_supported_ = true;
+    ecn_capable_network_ = true;
   }
   
-  // RTC_LOG(LS_INFO)
-  //     << "Prague: No congestion (CE ratio=0), checking for additive increase";
-
-  // Add safety check for uninitialized last_update_time
-  if (!last_update_time_.IsFinite()) {
-    RTC_LOG(LS_INFO)
-        << "Prague: last_update_time not initialized, returning base rate "
-        << base_rate.bps() << " bps";
-    return base_rate;
-  }
-
-  TimeDelta time_since_update = now - last_update_time_;
-
-  // Add safety check for time calculation
-  if (!time_since_update.IsFinite()) {
-    RTC_LOG(LS_WARNING)
-        << "Invalid time_since_update calculation in Prague controller";
-    return base_rate;
-  }
-
-  if (time_since_update > TimeDelta::Zero()) {
-    // Rate limit updates to prevent excessive increases (minimum 10ms between
-    // rate increases for faster ramp-up, reduced from 25ms for better video quality)
-    if (time_since_update < TimeDelta::Millis(10)) {
-      RTC_LOG(LS_INFO) << "Prague: Too frequent update ("
-                       << time_since_update.ms()
-                       << "ms < 10ms), returning base rate " << base_rate.bps()
-                       << " bps";
-      return base_rate;
+  // Update Prague estimator with CE ratio
+  if (new_ect_count + new_ce_count > 0) {
+    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
+    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    prague_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
+    
+    // Update fusion engine with ECN estimate
+    double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
+    
+    // Log congestion metrics
+    if (metrics_enabled_ && metrics_collector_) {
+      metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, ce_ratio);
     }
-
-    // Additive increase proportional to 1/RTT (RTT-fairness)
-    double rtt_seconds = current_rtt.seconds<double>();  // Use double precision
-
-    // Use a minimum RTT of 1ms (0.001 seconds) to avoid division by zero
-    if (rtt_seconds <= 0.001) {
-      rtt_seconds = 0.001;  // 1ms minimum
-    }
-
-    // Calculate a more conservative additive increase
-    // Very conservative additive increase, especially for small RTTs
-    double increase_factor = 1.0;
-
-    // Only increase if RTT is reasonable (>= 1ms) and time since update is
-    // significant
-    if (rtt_seconds >= 0.001 && time_since_update.ms() >= 10) {
-      // RTC_LOG(LS_INFO)
-      //     << "Prague: RTT and time conditions met, calculating increase. RTT="
-      //     << rtt_seconds << "s, time=" << time_since_update.ms() << "ms";
-      // Target: very small increase per RTT (much more conservative than TCP)
-      DataSize packet_size = DataSize::Bytes(1500);  // Assume 1500-byte packets
-      DataSize current_cwnd = CalculateCongestionWindow();
-
-      // Much smaller base increase rate
-      double increase_per_rtt =
-          packet_size.bytes() / static_cast<double>(current_cwnd.bytes());
-      double rtt_cycles = time_since_update.ms() / (rtt_seconds * 1000.0);
-
-      // // Scale down the increase by 10x to be very conservative
-      // increase_factor = 1.0 + (increase_per_rtt * rtt_cycles * 0.1);
-      // Scale down the increase by 5x to be conservative for real networks
-      increase_factor = 1.0 + (increase_per_rtt * rtt_cycles);
-
-      // More aggressive bounds for faster ramp-up: max 5% increase per update (increased from 3% for faster video quality)
-      increase_factor = std::clamp(increase_factor, 1.0, 1.05);
-
-      // Log when we actually increase (only if meaningful)
-      if (increase_factor > 1.001) {
-        // RTC_LOG(LS_INFO) << "Prague additive increase: factor="
-        //                  << increase_factor << ", base_rate=" << base_rate.bps()
-        //                  << " bps"
-        //                  << ", new_rate=" << (base_rate.bps() * increase_factor)
-        //                  << " bps"
-        //                  << ", rtt=" << rtt_seconds
-        //                  << "s, update_interval=" << time_since_update.ms()
-        //                  << "ms";
-      } else {
-        // RTC_LOG(LS_INFO) << "Prague: Small increase factor (" << increase_factor
-        //                  << "), not logging";
-      }
-    } else {
-      // RTC_LOG(LS_INFO) << "Prague: RTT/time conditions not met. RTT="
-      //                  << rtt_seconds
-      //                  << "s (need >=0.001), time=" << time_since_update.ms()
-      //                  << "ms (need >=25)";
-    }
-
-    // Check if multiplication would cause overflow or exceed realistic network
-    // limits
-    int64_t new_rate_bps =
-        static_cast<int64_t>(base_rate.bps() * increase_factor);
-    if (new_rate_bps > max_safe_rate_bps || new_rate_bps < 0) {
-      RTC_LOG(LS_WARNING)
-          << "Prague: Calculated rate " << new_rate_bps
-          << " would exceed realistic network limit or overflow, capping to "
-          << max_safe_rate_bps;
-      return DataRate::BitsPerSec(max_safe_rate_bps);
-    }
-
-    DataRate increased_rate = DataRate::BitsPerSec(new_rate_bps);
-
-    // GCC-style final rate clamping: ensure we never go below minimum
-    increased_rate = std::max(kCongestionControllerMinBitrate, increased_rate);
-
-    RTC_LOG(LS_INFO) << "Prague: Returning increased_rate="
-                     << increased_rate.bps()
-                     << " bps (factor=" << increase_factor << ")";
-    base_rate = increased_rate;  // Update base rate for next calculations
-    return increased_rate;
-  }
-
-  // GCC-style final rate clamping: ensure we never go below minimum  
-  DataRate final_rate = std::max(kCongestionControllerMinBitrate, base_rate);
-  
-  if (final_rate != base_rate) {
-    RTC_LOG(LS_INFO) << "Prague: Applied minimum rate clamp, returning " 
-                     << final_rate.bps() << " bps instead of " << base_rate.bps() << " bps";
   }
   
-  return final_rate;
+  // Update counters
+  ect_count_ = new_ect_count;
+  ce_count_ = new_ce_count;
 }
 
-bool L4SPragueController::IsActive() const {
-  // Check if we're still in startup protection
-  // if (startup_time_.IsFinite()) {
-  //   Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
-  //   TimeDelta startup_duration = now - startup_time_;
-    
-  //   // If startup protection has timed out without ECN feedback, we're not active
-  //   if (startup_duration > TimeDelta::Seconds(30)) {
-  //     // Only log this message occasionally to avoid spam
-  //     static Timestamp last_timeout_log = Timestamp::MinusInfinity();
-  //     if (now - last_timeout_log > TimeDelta::Seconds(10)) {
-  //       RTC_LOG(LS_INFO) << "Prague: Startup protection timeout after " 
-  //                        << startup_duration.seconds() << " seconds, controller not active";
-  //       last_timeout_log = now;
-  //     }
-  //     return false;
-  //   }
-  // }
+void L4SPragueNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
+  // Extract delay information and update delay-based estimator
+  // This is a simplified implementation - in practice, you'd need to properly
+  // convert the feedback format for DelayBasedBwe
   
-  // We're active if we have enough ECN feedback and haven't timed out
-  bool has_ecn_feedback = (total_ect_packets_ > 0 || total_ce_packets_ > 0);
+  if (last_rtt_.IsFinite()) {
+    // Update delay estimator with RTT information
+    // Note: This is a placeholder - actual implementation would need proper adaptation
+    DataRate delay_estimate = DataRate::KilobitsPerSec(1000);  // Placeholder
+    double delay_confidence = CalculateDelayConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateDelayEstimate(delay_estimate, delay_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
+  // Update acknowledged bitrate estimator
+  // This is a simplified implementation - actual implementation would need
+  // proper packet acknowledgment processing
   
-  // Not active if we've received too many consecutive NotECT-only feedbacks
-  if (consecutive_notect_feedbacks_ >= 50) {
-    static Timestamp last_notect_log = Timestamp::MinusInfinity();
-    Timestamp now = Timestamp::Millis(webrtc::TimeMillis());
-    if (now - last_notect_log > TimeDelta::Seconds(10)) {
-      RTC_LOG(LS_INFO) << "Prague: Too many NotECT-only feedbacks (" 
-                       << consecutive_notect_feedbacks_ << "), controller not active";
-      last_notect_log = now;
-    }
+  if (!feedback.packet_feedbacks.empty()) {
+    // Calculate acknowledged bitrate from feedback
+    DataRate acked_estimate = last_actual_bitrate_;  // Use calculated throughput as proxy
+    double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateAckedEstimate(acked_estimate, acked_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::ProcessProbeResults(const TransportPacketsFeedback& feedback) {
+  // Process probe results and update fusion engine
+  // This is a placeholder - actual implementation would need to detect and process probe clusters
+  
+  TimeDelta since_probe = feedback.feedback_time - last_probe_time_;
+  if (since_probe < TimeDelta::Seconds(2) && last_probe_estimate_ > DataRate::Zero()) {
+    double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateProbeEstimate(last_probe_estimate_, probe_confidence, feedback.feedback_time);
+  }
+}
+
+void L4SPragueNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
+  if (!config_.enable_probing || !probe_controller_) {
+    return;
+  }
+  
+  // Check if it's time for periodic probing
+  bool should_probe = (now - last_probe_time_) >= config_.probe_interval;
+  should_probe = should_probe && ShouldProbeNow(now);
+  
+  if (should_probe) {
+    InitiateProbing(now, update);
+    last_probe_time_ = now;
+  }
+}
+
+bool L4SPragueNetworkController::ShouldProbeNow(Timestamp now) const {
+  // Don't probe if we're experiencing heavy congestion
+  if (HasRecentCongestionSignals(now)) {
     return false;
   }
   
-  return active_ || has_ecn_feedback;
+  // Don't probe if ECN feedback is very fresh and confident
+  if (IsEcnFeedbackFresh(now) && prague_estimator_->GetConfidence(now) > 0.9) {
+    return false;
+  }
+  
+  // Don't probe during high loss periods
+  if (last_loss_fraction_ > 0.02) {  // 2% loss threshold
+    return false;
+  }
+  
+  return true;
 }
 
-DataSize L4SPragueController::CalculateCongestionWindow() const {
-  if (!rtt_ || !min_rtt_estimate_) {
-    return DataSize::Bytes(1500 * 2);  // Default: 2 packets
+void L4SPragueNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
+  // Get current best estimate for probe rate calculation
+  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  
+  // Request probe at 1.5x current estimate
+  DataRate probe_rate = current_estimate * 1.5;
+  if (max_target_rate_) {
+    probe_rate = std::min(probe_rate, *max_target_rate_);
   }
+  
+  // Store probe estimate for later processing
+  last_probe_estimate_ = probe_rate;
+  
+  RTC_LOG(LS_INFO) << "L4S Prague: Initiating periodic probe at " << probe_rate.bps() << " bps";
+  
+  // Note: Actual probe cluster creation would be done here with probe_controller_
+  // This is a simplified implementation
+}
 
-  // Use the minimum RTT for BDP calculation to avoid bloating the window
-  TimeDelta base_rtt = *min_rtt_estimate_;
+double L4SPragueNetworkController::CalculateEcnConfidence(Timestamp now) const {
+  return prague_estimator_->GetConfidence(now);
+}
 
-  // Calculate base congestion window (BDP)
-  // Base it on a reasonable link capacity for interactive media
-  DataRate base_rate = DataRate::KilobitsPerSec(10000);  // 10 Mbps base
-  // DataRate base_rate = DataRate::KilobitsPerSec(1000);  // 1 Mbps base (for
-  // testing)
-  DataSize bdp = base_rate * base_rtt;
-
-  // Apply the initial window multiplier
-  DataSize cwnd = bdp * init_cwnd_;
-
-  // RTC_LOG(LS_INFO) << "Prague after init_cwnd multiplication: cwnd.bytes()="
-  // << cwnd.bytes()
-  //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" :
-  //                  "false");
-
-  // Apply reduction based on CE marking ratio
-  if (ecn_ce_ratio_ > 0) {
-    double reduction = std::max(1.0 - ecn_ce_ratio_, beta_.Get());
-    // RTC_LOG(LS_INFO) << "Prague applying congestion window reduction: ratio="
-    // << ecn_ce_ratio_
-    //                  << ", reduction_factor=" << reduction
-    //                  << ", cwnd_before=" << cwnd.bytes();
-
-    // Log before another multiplication that might be problematic
-    // RTC_LOG(LS_INFO) << "Prague PRE-REDUCTION-MULTIPLY: cwnd.bytes()=" <<
-    // cwnd.bytes()
-    //                  << ", reduction=" << reduction
-    //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" :
-    //                  "false");
-
-    cwnd = cwnd * reduction;
-
-    // RTC_LOG(LS_INFO) << "Prague POST-REDUCTION-MULTIPLY: cwnd.bytes()=" <<
-    // cwnd.bytes()
-    //                  << ", cwnd.IsFinite()=" << (cwnd.IsFinite() ? "true" :
-    //                  "false");
+double L4SPragueNetworkController::CalculateDelayConfidence(Timestamp now) const {
+  if (!delay_estimator_ || !last_rtt_.IsFinite()) {
+    return 0.0;
   }
+  
+  // High confidence if RTT is stable
+  if (IsRttStable()) {
+    return 0.8;
+  }
+  return 0.5;
+}
 
-  // Ensure minimum congestion window (2 packets)
-  // RTC_LOG(LS_INFO) << "Prague before std::max: cwnd.bytes()=" << cwnd.bytes()
-  //                  << ", min_cwnd=3000 bytes";
+double L4SPragueNetworkController::CalculateProbeConfidence(Timestamp now) const {
+  TimeDelta since_probe = now - last_probe_time_;
+  if (since_probe < TimeDelta::Seconds(1)) {
+    return 0.95;  // Very high confidence in fresh probe results
+  } else if (since_probe < TimeDelta::Seconds(10)) {
+    return 0.8;   // Good confidence in recent probes
+  }
+  return 0.2;   // Low confidence in old probe results
+}
 
-  DataSize final_cwnd = std::max(cwnd, DataSize::Bytes(1500 * 2));
+double L4SPragueNetworkController::CalculateAckedConfidence(Timestamp now) const {
+  if (!acked_estimator_) {
+    return 0.0;
+  }
+  
+  // Moderate confidence in acknowledged bitrate
+  return 0.6;
+}
 
-  // RTC_LOG(LS_INFO) << "Prague final cwnd.bytes()=" << final_cwnd.bytes()
-  //                  << ", final_cwnd.IsFinite()=" << (final_cwnd.IsFinite() ?
-  //                  "true" : "false");
+DataRate L4SPragueNetworkController::FuseBandwidthEstimates(Timestamp now) {
+  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimate(now);
+  
+  // Apply rate constraints
+  if (min_target_rate_ && fused_rate < *min_target_rate_) {
+    fused_rate = *min_target_rate_;
+  }
+  if (max_target_rate_ && fused_rate > *max_target_rate_) {
+    fused_rate = *max_target_rate_;
+  }
+  
+  // Log fusion metrics
+  if (metrics_enabled_ && metrics_collector_) {
+    auto sources = bandwidth_fusion_->GetCurrentSources();
+    metrics_collector_->LogFusionMetrics(now, sources, fused_rate);
+  }
+  
+  return fused_rate;
+}
 
-  return final_cwnd;
+NetworkControlUpdate L4SPragueNetworkController::CreateRateUpdate(Timestamp at_time) const {
+  NetworkControlUpdate update;
+  
+  if (!at_time.IsFinite()) {
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  
+  DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  
+  // Validate rate
+  if (!current_rate.IsFinite() || current_rate.bps() <= 0) {
+    current_rate = DataRate::KilobitsPerSec(300);
+  }
+  
+  // Set target rate
+  update.target_rate = TargetTransferRate();
+  update.target_rate->at_time = at_time;
+  update.target_rate->network_estimate.at_time = at_time;
+  update.target_rate->network_estimate.bandwidth = current_rate;
+  update.target_rate->network_estimate.loss_rate_ratio = static_cast<float>(last_loss_fraction_);
+  update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_;
+  update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
+  update.target_rate->target_rate = current_rate;
+  
+  // Set pacer config
+  update.pacer_config = PacerConfig();
+  update.pacer_config->at_time = at_time;
+  update.pacer_config->time_window = TimeDelta::Millis(10);
+  update.pacer_config->data_window = current_rate * update.pacer_config->time_window;
+  update.pacer_config->pad_window = DataSize::Zero();
+  
+  return update;
+}
+
+void L4SPragueNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time) {
+  if (!at_time.IsFinite()) {
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  
+  NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
+  
+  if (rate_update.pacer_config) {
+    update->pacer_config = rate_update.pacer_config;
+  }
+  if (rate_update.target_rate) {
+    update->target_rate = rate_update.target_rate;
+  }
+}
+
+bool L4SPragueNetworkController::IsL4SActive() const {
+  return ecn_supported_ && ecn_capable_network_;
+}
+
+bool L4SPragueNetworkController::HasRecentCongestionSignals(Timestamp now) const {
+  return !last_congestion_signal_.IsInfinite() && 
+         (now - last_congestion_signal_) < TimeDelta::Seconds(2);
+}
+
+bool L4SPragueNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
+  return HasRecentCongestionSignals(now) || 
+         (ecn_supported_ && (now - last_congestion_signal_) < TimeDelta::Seconds(5));
+}
+
+bool L4SPragueNetworkController::EstimatesAreDiverging() const {
+  // Simple check for estimate divergence
+  auto sources = bandwidth_fusion_->GetCurrentSources();
+  if (sources.ecn_estimate > DataRate::Zero() && sources.delay_estimate > DataRate::Zero()) {
+    double ratio = sources.ecn_estimate.bps() / static_cast<double>(sources.delay_estimate.bps());
+    return ratio > 2.0 || ratio < 0.5;  // 2x divergence threshold
+  }
+  return false;
+}
+
+bool L4SPragueNetworkController::IsRttStable() const {
+  // Simplified RTT stability check
+  return last_rtt_.IsFinite() && last_rtt_ < TimeDelta::Millis(100);
+}
+
+void L4SPragueNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
+  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
+  Timestamp now = feedback.feedback_time;
+  
+  // Add new packets to the window
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
+    }
+  }
+  
+  // Remove old packets outside the window
+  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
+    throughput_window_.pop_front();
+  }
+  
+  // Calculate throughput over the window
+  int64_t window_bytes = 0;
+  if (!throughput_window_.empty()) {
+    Timestamp window_start = throughput_window_.front().first;
+    Timestamp window_end = throughput_window_.back().first;
+    for (const auto& entry : throughput_window_) {
+      window_bytes += entry.second;
+    }
+    
+    TimeDelta window_interval = window_end - window_start;
+    if (window_interval > TimeDelta::Millis(1)) {
+      last_actual_bitrate_ = DataRate::BitsPerSec(
+          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    } else {
+      last_actual_bitrate_ = DataRate::Zero();
+    }
+  }
+}
+
+void L4SPragueNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
+    return;
+  }
+  
+  metrics_last_logged_ = at_time;
+  
+  // Log bandwidth metrics
+  DataRate target_rate = target_rate_.value_or(DataRate::Zero());
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, last_actual_bitrate_);
+  
+  // Log delay metrics
+  if (last_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
+  }
+  
+  // Log loss metrics
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_);
+  
+  // Log periodic summary
+  metrics_collector_->LogPeriodicSummary(at_time);
 }
 
 }  // namespace webrtc
-
-/*
-**Summary of L4S/Prague Controller - GCC-Aligned Implementation:**
-
-**GCC-Style Safety Mechanisms:**
-1. **Minimum Rate Protection**: Uses GCC's kCongestionControllerMinBitrate (5 kbps)
-2. **Rate Limiting**: Uses GCC's kBweDecreaseInterval (300ms between reductions)
-3. **Target Rate Clamping**: Always ensures rate >= minimum like GCC's target_rate()
-4. **Overflow Protection**: Prevents crashes from unrealistic rates
-
-**L4S-Specific Features:**
-1. **ECN-Based Detection**: Uses CE marking ratio (like GCC uses loss ratio)
-2. **Prague Algorithm**: Scalable congestion control with alpha/beta parameters
-3. **Network Capacity Cap**: 200 Mbps realistic upper limit
-4. **Conservative Growth**: 1% max increase per update
-
-**Key Architectural Similarities to GCC:**
-- Multiple protection layers (minimum rate + timing + clamping)
-- Time-based rate limiting to prevent death spirals
-- Conservative reduction factors
-- Explicit congestion signaling (ECN vs loss/delay)
-
-**Major Difference from Previous Version:**
-- REMOVED RTT inflation detection (GCC doesn't use this approach)
-- Focus on ECN signals only, like GCC focuses on loss/delay signals
-- Aligned timing intervals and minimum rates with GCC standards
-
-This implementation should behave as robustly as GCC while providing L4S/Prague's
-scalable congestion control benefits through ECN marking.
-
-*/
