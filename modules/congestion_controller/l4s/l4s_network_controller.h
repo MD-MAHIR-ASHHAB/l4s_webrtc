@@ -98,16 +98,19 @@ public:
     DataRate delay_estimate = DataRate::Zero();
     DataRate probe_estimate = DataRate::Zero();
     DataRate acked_estimate = DataRate::Zero();
+    DataRate alr_estimate = DataRate::Zero();
     
     double ecn_confidence = 0.0;
     double delay_confidence = 0.0;
     double probe_confidence = 0.0;
     double acked_confidence = 0.0;
+    double alr_confidence = 0.0;
     
     Timestamp last_ecn_update = Timestamp::MinusInfinity();
     Timestamp last_delay_update = Timestamp::MinusInfinity();
     Timestamp last_probe_update = Timestamp::MinusInfinity();
     Timestamp last_acked_update = Timestamp::MinusInfinity();
+    Timestamp last_alr_update = Timestamp::MinusInfinity();
   };
 
   explicit L4SBandwidthFusion(const L4SControllerConfig& config);
