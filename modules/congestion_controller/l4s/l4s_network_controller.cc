@@ -112,17 +112,28 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
     int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
     
-    // Apply conservative limits to prevent explosive growth
-    int64_t ai_step_bps = std::min(
-        theoretical_ai_bps,  // DCTCP standard AI rate
-        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.05)  // Limit to 5% increase per step
+    // Apply very conservative limits to prevent explosive growth
+    // Use the 1% rule as the primary limit, with a hard cap
+    int64_t conservative_step = std::min(
+        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.005),  // 0.5% per step 
+        static_cast<int64_t>(20000)  // Hard cap: max 20 kbps per step
     );
+    
+    int64_t ai_step_bps = std::min(theoretical_ai_bps, conservative_step);
     
     DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
     
     // Don't exceed maximum rate
     if (max_target_rate_ > DataRate::Zero()) {
         increased = std::min(increased, max_target_rate_);
+    }
+    
+    // Additional safety: Don't grow too much above reasonable estimates
+    // Use a conservative upper bound based on link capacity hints
+    DataRate reasonable_upper_bound = DataRate::KilobitsPerSec(10000);  // 10 Mbps reasonable for most links
+    if (increased > reasonable_upper_bound) {
+        increased = reasonable_upper_bound;
+        RTC_LOG(LS_WARNING) << "Prague: Capped rate at reasonable upper bound: " << increased.bps() << " bps";
     }
     
     congestion_based_estimate_ = increased;
@@ -713,30 +724,31 @@ void L4SNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFe
   // Update ALR detector first
   UpdateAlrDetector(feedback);
   
-  // 1. Update Prague ECN controller (skip if application limited)
-  if (!IsApplicationLimited()) {
-    ProcessEcnFeedback(feedback);
-  } else {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
-  }
-  
-  // 2. Update DelayBasedBwe
+  // 1. Update non-ECN estimators first (delay, acked, probe)
   if (delay_estimator_) {
     UpdateDelayBasedEstimator(feedback);
   }
   
-  // 3. Update AcknowledgedBitrateEstimator
   if (acked_estimator_) {
     UpdateAckedBitrateEstimator(feedback);
   }
   
-  // 4. Process probe results (more aggressive during ALR)
   if (probe_controller_) {
     ProcessProbeResults(feedback);
   }
+  
+  // 2. Get initial fused estimate (without ECN input)
+  DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
+  
+  // 3. Update Prague ECN controller with the base fused rate (not application limited)
+  if (!IsApplicationLimited()) {
+    ProcessEcnFeedback(feedback, base_fused_rate);
+  } else {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
+  }
 }
 
-void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback) {
+void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
     return;
   }
@@ -763,11 +775,14 @@ void L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& fe
     ecn_capable_network_ = true;
   }
   
-  // Update Prague estimator with CE ratio
+  // Update Prague estimator with CE ratio using the CURRENT FUSED RATE (not Prague's own estimate)
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
-    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    prague_estimator_->UpdateFromCongestionSignal(current_rate, ce_ratio, feedback.feedback_time);
+    
+    RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to current fused rate: " << current_fused_rate.bps() 
+                     << " bps (ce_ratio=" << ce_ratio << ")";
+    
+    prague_estimator_->UpdateFromCongestionSignal(current_fused_rate, ce_ratio, feedback.feedback_time);
     
     // Update fusion engine with ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
@@ -943,6 +958,50 @@ DataRate L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
   }
   
   return fused_rate;
+}
+
+DataRate L4SNetworkController::GetBaseFusedEstimate(Timestamp now) {
+  // Get fused estimate from non-ECN sources only (delay, probe, acked)
+  // This provides the base capacity estimate before Prague applies AI/MD
+  
+  L4SBandwidthFusion::BandwidthSources temp_sources = bandwidth_fusion_->GetCurrentSources();
+  
+  // Temporarily zero out ECN estimate for base fusion
+  temp_sources.ecn_estimate = DataRate::Zero();
+  temp_sources.ecn_confidence = 0.0;
+  
+  // Use weighted combination of delay and acked estimates as base
+  double total_weight = temp_sources.delay_confidence + temp_sources.acked_confidence;
+  if (total_weight > 0.1) {
+    DataRate weighted_estimate = 
+        (temp_sources.delay_estimate * temp_sources.delay_confidence + 
+         temp_sources.acked_estimate * temp_sources.acked_confidence) / total_weight;
+    
+    RTC_LOG(LS_VERBOSE) << "L4S: Base fused estimate (no ECN): " << weighted_estimate.bps() << " bps";
+    return weighted_estimate;
+  }
+  
+  // Fallback to most confident non-ECN estimate
+  DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
+  double best_confidence = 0.0;
+  
+  if (temp_sources.delay_confidence > best_confidence) {
+    best_estimate = temp_sources.delay_estimate;
+    best_confidence = temp_sources.delay_confidence;
+  }
+  
+  if (temp_sources.acked_confidence > best_confidence) {
+    best_estimate = temp_sources.acked_estimate;
+    best_confidence = temp_sources.acked_confidence;
+  }
+  
+  if (temp_sources.probe_confidence > best_confidence) {
+    best_estimate = temp_sources.probe_estimate;
+    best_confidence = temp_sources.probe_confidence;
+  }
+  
+  RTC_LOG(LS_VERBOSE) << "L4S: Fallback base estimate: " << best_estimate.bps() << " bps";
+  return best_estimate;
 }
 
 NetworkControlUpdate L4SNetworkController::CreateRateUpdate(Timestamp at_time) const {
