@@ -782,7 +782,9 @@ bool RtpTransportControllerSend::ProcessL4sFeedbackForImmediateHandling(
   bool has_ce_markings = ce_count > 0;
   
   if (has_ce_markings) {
-    // CE markings detected - switch to immediate mode if not already
+    // CE markings detected - reset consecutive counter and switch to immediate mode if needed
+    consecutive_non_ce_batches_ = 0;
+    
     if (l4s_sender_feedback_mode_ == L4sSenderFeedbackMode::kBatchMode) {
       l4s_sender_feedback_mode_ = L4sSenderFeedbackMode::kImmediateMode;
       RTC_LOG(LS_INFO) << "L4S Sender: Switched to immediate feedback processing mode on CE detection";
@@ -801,10 +803,17 @@ bool RtpTransportControllerSend::ProcessL4sFeedbackForImmediateHandling(
     return true; // Indicate immediate processing occurred
     
   } else {
-    // No CE markings - return to batch mode if currently immediate
+    // No CE markings - increment consecutive counter
     if (l4s_sender_feedback_mode_ == L4sSenderFeedbackMode::kImmediateMode) {
-      l4s_sender_feedback_mode_ = L4sSenderFeedbackMode::kBatchMode;
-      RTC_LOG(LS_INFO) << "L4S Sender: Switched back to batch feedback processing mode";
+      consecutive_non_ce_batches_++;
+      
+      // Only switch back after seeing enough consecutive non-CE batches
+      if (consecutive_non_ce_batches_ >= kMaxConsecutiveNonCeBatches) {
+        l4s_sender_feedback_mode_ = L4sSenderFeedbackMode::kBatchMode;
+        consecutive_non_ce_batches_ = 0; // Reset counter
+        RTC_LOG(LS_INFO) << "L4S Sender: Switched back to batch feedback processing mode after " 
+                         << kMaxConsecutiveNonCeBatches << " consecutive non-CE batches";
+      }
     }
     
     return false; // Indicate normal batch processing should continue

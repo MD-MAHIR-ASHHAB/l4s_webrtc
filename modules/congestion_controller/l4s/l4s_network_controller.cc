@@ -104,7 +104,7 @@ if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
   if (historic_max_ > max_target_rate_) historic_max_ = max_target_rate_;
   if (congestion_based_estimate_ > max_target_rate_) congestion_based_estimate_ = max_target_rate_;
   
-  RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.5 MSS/RTT, rtt=" << rtt.ms() << " ms), "
+  RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
                    << "new rate=" << congestion_based_estimate_.bps() << " bps";
 }
 
@@ -256,7 +256,7 @@ L4SNetworkController::L4SNetworkController(NetworkControllerConfig config,
       // Initialize adaptive capacity estimator first (based on header order)
       capacity_estimator_(
           std::make_unique<AdaptiveCapacityEstimator>(
-              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(20000))),
+              DataRate::KilobitsPerSec(100), DataRate::KilobitsPerSec(30), DataRate::KilobitsPerSec(100000))),
       // Initialize metrics collection
       metrics_enabled_(true),
       current_active_controller_("l4s_initializing") {

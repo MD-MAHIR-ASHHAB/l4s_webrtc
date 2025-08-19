@@ -270,6 +270,10 @@ class RtpTransportControllerSend final
   };
   L4sSenderFeedbackMode l4s_sender_feedback_mode_ RTC_GUARDED_BY(sequence_checker_) = L4sSenderFeedbackMode::kBatchMode;
   
+  // Counter for consecutive non-CE batches to control mode switching
+  int consecutive_non_ce_batches_ RTC_GUARDED_BY(sequence_checker_) = 0;
+  static constexpr int kMaxConsecutiveNonCeBatches = 3;
+  
   // Count of feedback messages received.
   int feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
   int transport_cc_feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
