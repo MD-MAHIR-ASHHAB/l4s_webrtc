@@ -8,7 +8,7 @@ L4SFactory::~L4SFactory() = default;
 
 std::unique_ptr<NetworkControllerInterface> L4SFactory::Create(
     NetworkControllerConfig config) {
-  L4SControllerConfig l4s_config;
+  L4SConfig l4s_config;
   l4s_config.use_ect1_marking = config_.use_ect1_marking;
   l4s_config.fallback_to_gcc = config_.fallback_to_gcc;
   

@@ -2,8 +2,7 @@
 #define MODULES_CONGESTION_CONTROLLER_L4S_L4S_NETWORK_CONTROLLER_H_
 
 #include <deque>
-#i  L4SNetworkController(NetworkControllerConfig config,
-                        L4SConfig l4s_config,lude <memory>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -32,12 +31,21 @@ class RtcEventLog;
 
 // Configuration for L4S network controller
 struct L4SConfig {
+  // ECN Configuration
+  bool use_ect1_marking = true;
+  bool fallback_to_gcc = true;
+  
+  // Metrics and Testing
   bool enable_metrics_collection = true;
   std::string test_case_name = "l4s_network_test";
+  
+  // Bandwidth Estimation Components
   bool enable_probing = true;
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
   TimeDelta probe_interval = TimeDelta::Seconds(5);
+  
+  // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
   double probe_confidence_threshold = 0.7;
   double delay_confidence_threshold = 0.6;
