@@ -120,6 +120,7 @@ public:
   void UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
+  void UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now);
 
   DataRate GetFusedEstimate(Timestamp now) const;
   BandwidthSources GetCurrentSources() const { return sources_; }

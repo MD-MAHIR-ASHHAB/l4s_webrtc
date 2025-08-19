@@ -229,6 +229,13 @@ void L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidenc
   sources_.last_acked_update = now;
 }
 
+void L4SBandwidthFusion::UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now) {
+  RTC_LOG(LS_INFO) << "L4S: Updating ALR estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  sources_.alr_estimate = estimate;
+  sources_.alr_confidence = confidence;
+  sources_.last_alr_update = now;
+}
+
 DataRate L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
   // L4S Fusion: Prague ECN provides congestion control authority,
   // other estimators provide capacity discovery insights
@@ -1164,6 +1171,19 @@ void L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& fee
   }
   
   alr_detector_->OnBytesSent(bytes_sent, feedback.feedback_time.ms());
+  
+  // Update ALR estimate in bandwidth fusion
+  if (IsApplicationLimited()) {
+    // During ALR, use current acked bitrate as ALR constraint
+    auto fusion_sources = bandwidth_fusion_->GetCurrentSources();
+    DataRate alr_constraint = fusion_sources.acked_estimate;
+    if (alr_constraint > DataRate::Zero()) {
+      bandwidth_fusion_->UpdateAlrEstimate(alr_constraint, 0.9, feedback.feedback_time);
+    }
+  } else {
+    // Not in ALR, clear ALR constraint 
+    bandwidth_fusion_->UpdateAlrEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
+  }
 }
 
 }  // namespace webrtc
