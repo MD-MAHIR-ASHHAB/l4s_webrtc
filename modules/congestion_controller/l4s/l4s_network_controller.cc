@@ -93,7 +93,7 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
     
     // Don't exceed maximum rate
-    if (max_target_rate_) {
+    if (max_target_rate_ > 0) {
         increased = std::min(increased, *max_target_rate_);
     }
     
