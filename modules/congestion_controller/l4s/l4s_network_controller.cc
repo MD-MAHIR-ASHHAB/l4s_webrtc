@@ -52,7 +52,7 @@ PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440;  // Typical Ethernet MSS
   
-  TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(50);
+  TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(1);
   double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds <= 0.0) {
     rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
@@ -78,16 +78,30 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
                      << "), new rate=" << congestion_based_estimate_.bps() << " bps";
                      
   } else if (current_rate >= congestion_based_estimate_ * 0.9) {
-    // More aggressive additive increase since decreases are gentler
-    int64_t bits_per_rtt = kDefaultMssBytes * 8;
-    double ai_factor = 1.0;  // 1.0 MSS per RTT
-    int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
-    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+    // Additive increase: +1 MSS per RTT period
+    // This should be a small increment spread over the RTT period
+    int64_t bits_per_rtt = kDefaultMssBytes * 8;  // 1500 * 8 = 12000 bits
+    
+    // Calculate the increase rate: 1 MSS worth of extra bits per RTT period
+    // For proper AI, we need: current_rate + (1_MSS_bits / RTT_duration)
+    // But we want gradual increase, so we limit the step size
+    int64_t ai_step_bps = std::min(
+        static_cast<int64_t>(bits_per_rtt / rtt_seconds),  // Theoretical AI rate
+        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.1)  // Limit to 10% increase per step
+    );
+    
+    DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
+    
+    // Don't exceed maximum rate
+    if (max_target_rate_) {
+        increased = std::min(increased, *max_target_rate_);
+    }
     
     congestion_based_estimate_ = increased;
     
-    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-                     << "new rate=" << congestion_based_estimate_.bps() << " bps";
+    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
+                     << "step=" << ai_step_bps << " bps), new rate=" 
+                     << congestion_based_estimate_.bps() << " bps";
   }
   
   last_update_time_ = current_time;
