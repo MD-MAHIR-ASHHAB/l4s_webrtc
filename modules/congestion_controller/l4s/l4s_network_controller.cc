@@ -454,7 +454,7 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "average"}, {"metric", "delay"}});
   }
   
-  ExportToJsonFile("l4s_network_metrics.json");
+  ExportToJsonFile("l4s_test_1.json");
 }
 
 void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
