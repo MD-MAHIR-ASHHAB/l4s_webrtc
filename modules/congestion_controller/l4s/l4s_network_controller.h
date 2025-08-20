@@ -77,6 +77,9 @@ public:
   double GetConfidence(Timestamp now) const;
 
 private:
+  // Context-aware AI step calculation
+  int64_t CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time);
+
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
   DataRate max_target_rate_;

@@ -124,12 +124,8 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
     int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
     
-    // Apply VERY conservative limits to prevent explosive growth
-    int64_t ai_step_bps = std::min({
-        theoretical_ai_bps,  // DCTCP standard AI rate
-        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.01),  // Limit to 1% increase per step
-        static_cast<int64_t>(100000)  // Absolute maximum 100 kbps per step
-    });
+    // Context-aware AI step calculation based on network conditions
+    int64_t ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
     
     DataRate increased = current_rate + DataRate::BitsPerSec(ai_step_bps);
     
@@ -210,6 +206,90 @@ double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
     return 0.7;  // Moderately confident
   }
   return 0.4;  // Lower confidence with stale ECN feedback
+}
+
+int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time) {
+  // Context-aware AI step calculation that adapts to network conditions
+  
+  // 1. Base multiplier starts at 1.0 (full DCTCP behavior)
+  double context_multiplier = 1.0;
+  
+  // 2. Consider time since last congestion signal
+  TimeDelta since_congestion = current_time - last_congestion_signal_;
+  if (!last_congestion_signal_.IsInfinite()) {
+    if (since_congestion < TimeDelta::Seconds(1)) {
+      // Very recent congestion - be more conservative
+      context_multiplier *= 0.3;
+    } else if (since_congestion < TimeDelta::Seconds(5)) {
+      // Recent congestion - moderate caution
+      context_multiplier *= 0.6;
+    } else if (since_congestion > TimeDelta::Seconds(10)) {
+      // No recent congestion - can be more aggressive
+      context_multiplier *= 1.5;
+    }
+    // Between 5-10 seconds: use base multiplier (1.0)
+  }
+  
+  // 3. Consider current alpha value (congestion severity)
+  if (alpha_ > 0.5) {
+    // High congestion memory - be very conservative
+    context_multiplier *= 0.2;
+  } else if (alpha_ > 0.1) {
+    // Moderate congestion memory - be somewhat conservative
+    context_multiplier *= 0.5;
+  } else if (alpha_ < 0.01) {
+    // Very low congestion memory - can be more aggressive
+    context_multiplier *= 1.3;
+  }
+  
+  // 4. Consider rate magnitude (avoid explosive growth at high rates)
+  int64_t current_bps = current_rate.bps();
+  if (current_bps > 50000000) {  // > 50 Mbps
+    // At very high rates, cap growth to prevent network overload
+    context_multiplier *= 0.4;
+  } else if (current_bps > 10000000) {  // > 10 Mbps
+    // At high rates, be more conservative
+    context_multiplier *= 0.7;
+  } else if (current_bps < 1000000) {  // < 1 Mbps
+    // At low rates, allow more aggressive growth
+    context_multiplier *= 1.8;
+  }
+  
+  // 5. Consider direction flag stability
+  if (direction_flag_ == 1 && non_ce_packet_count_ > kNonCeThreshold * 2) {
+    // Been in additive mode for a while - can be more aggressive
+    context_multiplier *= 1.2;
+  }
+  
+  // 6. Apply RTT-based scaling (better responsiveness for high RTT)
+  double rtt_seconds = current_rtt_.IsFinite() ? current_rtt_.seconds<double>() : 0.05;
+  if (rtt_seconds > 0.1) {  // > 100ms RTT
+    // High RTT networks need more aggressive AI to maintain fairness
+    context_multiplier *= std::min(2.0, rtt_seconds / 0.05);  // Scale with RTT, cap at 2x
+  }
+  
+  // 7. Calculate context-aware step
+  int64_t context_ai_bps = static_cast<int64_t>(theoretical_ai_bps * context_multiplier);
+  
+  // 8. Apply reasonable bounds to prevent pathological behavior
+  int64_t min_step_bps = theoretical_ai_bps / 10;  // At least 10% of DCTCP standard
+  int64_t max_step_bps = std::max(
+      theoretical_ai_bps * 3,  // At most 3x DCTCP standard
+      static_cast<int64_t>(current_bps * 0.1)  // Or 10% of current rate, whichever is larger
+  );
+  
+  context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
+  
+  // Log the decision for debugging
+  RTC_LOG(LS_VERBOSE) << "Prague: Context-aware AI calculation - "
+                      << "theoretical=" << theoretical_ai_bps << " bps, "
+                      << "multiplier=" << context_multiplier << ", "
+                      << "context_step=" << context_ai_bps << " bps, "
+                      << "alpha=" << alpha_ << ", "
+                      << "since_congestion=" << since_congestion.ms() << " ms, "
+                      << "current_rate=" << current_bps << " bps";
+  
+  return context_ai_bps;
 }
 
 // =============================================================================
