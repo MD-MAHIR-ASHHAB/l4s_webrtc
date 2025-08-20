@@ -834,11 +834,11 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
-  logger_->LogSingleValueMetric("rtt_ns", test_case_name_, rtt.us(), 
+  logger_->LogSingleValueMetric("rtt_us", test_case_name_, rtt.us(), 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_ns", test_case_name_, one_way_delay.us(), 
+    logger_->LogSingleValueMetric("one_way_delay_us", test_case_name_, one_way_delay.us(), 
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
@@ -897,7 +897,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   //   logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
   //                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
   //                                 {{"stat_type", "average"}, {"metric", "loss"}});
-  }
+  // }
   // Periodically export all metrics to JSON
   ExportToJsonFile("gcc_test_1.json");
 }
