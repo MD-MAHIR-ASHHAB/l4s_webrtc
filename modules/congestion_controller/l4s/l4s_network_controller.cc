@@ -124,13 +124,14 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
     int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
     
-    // Apply conservative limits to prevent explosive growth
-    int64_t ai_step_bps = std::min(
+    // Apply VERY conservative limits to prevent explosive growth
+    int64_t ai_step_bps = std::min({
         theoretical_ai_bps,  // DCTCP standard AI rate
-        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.05)  // Limit to 5% increase per step
-    );
+        static_cast<int64_t>(congestion_based_estimate_.bps() * 0.01),  // Limit to 1% increase per step
+        static_cast<int64_t>(100000)  // Absolute maximum 100 kbps per step
+    });
     
-    DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
+    DataRate increased = current_rate + DataRate::BitsPerSec(ai_step_bps);
     
     // Don't exceed maximum rate
     if (max_target_rate_ > DataRate::Zero()) {
@@ -141,7 +142,7 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     
     RTC_LOG(LS_INFO) << "Prague: DCTCP additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
                      << "step=" << ai_step_bps << " bps), new rate=" 
-                     << congestion_based_estimate_.bps() << " bps, non_ce_count=" << non_ce_packet_count_;
+                     << congestion_based_estimate_.bps() << " bps (input rate: " << current_rate.bps() << "), non_ce_count=" << non_ce_packet_count_;
     } else if (direction_flag_ == -1) {
       RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, in reduction mode (need " 
                           << (kNonCeThreshold - non_ce_packet_count_) 
