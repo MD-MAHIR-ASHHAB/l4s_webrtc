@@ -287,27 +287,32 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
   // 8. Apply reasonable bounds to prevent pathological behavior
   int64_t min_step_bps = theoretical_ai_bps / 20;  // At least 5% of DCTCP standard
   
-  // Much more aggressive rate-based capping for low RTT scenarios
+  // EMERGENCY: Much more aggressive rate-based capping for low RTT scenarios
   int64_t rate_based_max_step = std::max(
-      static_cast<int64_t>(current_bps * 0.1),   // 10% of current rate
-      static_cast<int64_t>(100000)               // Minimum 100 Kbps step
+      static_cast<int64_t>(current_bps * 0.05),   // 5% of current rate (was 10%)
+      static_cast<int64_t>(50000)                 // Minimum 50 Kbps step (was 100 Kbps)
   );
   
+  // Add absolute emergency cap to prevent RTT spikes
+  int64_t emergency_cap = 500000;  // Never allow more than 500 Kbps increase per step
+  rate_based_max_step = std::min(rate_based_max_step, emergency_cap);
+  
   int64_t max_step_bps = std::min(
-      theoretical_ai_bps * 2,     // At most 2x DCTCP standard
+      theoretical_ai_bps / 2,     // At most 0.5x DCTCP standard (was 2x)
       rate_based_max_step         // But respect rate-based limit
   );
   
   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
   
-  // Log the decision for debugging
-  RTC_LOG(LS_VERBOSE) << "Prague: Context-aware AI calculation - "
-                      << "theoretical=" << theoretical_ai_bps << " bps, "
-                      << "multiplier=" << context_multiplier << ", "
-                      << "context_step=" << context_ai_bps << " bps, "
-                      << "alpha=" << alpha_ << ", "
-                      << "since_congestion=" << since_congestion.ms() << " ms, "
-                      << "current_rate=" << current_bps << " bps";
+  // Log the decision for debugging (change to LS_INFO for visibility)
+  RTC_LOG(LS_INFO) << "Prague: Context-aware AI calculation - "
+                   << "theoretical=" << theoretical_ai_bps << " bps, "
+                   << "multiplier=" << context_multiplier << ", "
+                   << "context_step=" << context_ai_bps << " bps, "
+                   << "alpha=" << alpha_ << ", "
+                   << "since_congestion=" << since_congestion.ms() << " ms, "
+                   << "current_rate=" << current_bps << " bps, "
+                   << "emergency_cap=" << emergency_cap << " bps";
   
   return context_ai_bps;
 }
@@ -529,23 +534,23 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time, int ce_count, 
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
-void L4SMetricsCollector::LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate) {
-  logger_->LogSingleValueMetric("fusion_ecn_estimate_mbps", test_case_name_, sources.ecn_estimate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+// void L4SMetricsCollector::LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate) {
+//   logger_->LogSingleValueMetric("fusion_ecn_estimate_mbps", test_case_name_, sources.ecn_estimate.bps() / 1e6, 
+//                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+//                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
-  logger_->LogSingleValueMetric("fusion_delay_estimate_mbps", test_case_name_, sources.delay_estimate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+//   logger_->LogSingleValueMetric("fusion_delay_estimate_mbps", test_case_name_, sources.delay_estimate.bps() / 1e6, 
+//                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+//                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
-  logger_->LogSingleValueMetric("fusion_probe_estimate_mbps", test_case_name_, sources.probe_estimate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+//   logger_->LogSingleValueMetric("fusion_probe_estimate_mbps", test_case_name_, sources.probe_estimate.bps() / 1e6, 
+//                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+//                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
-  logger_->LogSingleValueMetric("fusion_fused_rate_mbps", test_case_name_, fused_rate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
-}
+//   logger_->LogSingleValueMetric("fusion_fused_rate_mbps", test_case_name_, fused_rate.bps() / 1e6, 
+//                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+//                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
+// }
 
 void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   if (at_time - last_summary_log_ < kSummaryLogInterval) {
@@ -1111,10 +1116,10 @@ DataRate L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
   }
   
   // Log fusion metrics
-  if (metrics_enabled_ && metrics_collector_) {
-    auto sources = bandwidth_fusion_->GetCurrentSources();
-    metrics_collector_->LogFusionMetrics(now, sources, fused_rate);
-  }
+  // if (metrics_enabled_ && metrics_collector_) {
+  //   auto sources = bandwidth_fusion_->GetCurrentSources();
+  //   metrics_collector_->LogFusionMetrics(now, sources, fused_rate);
+  // }
   
   return fused_rate;
 }

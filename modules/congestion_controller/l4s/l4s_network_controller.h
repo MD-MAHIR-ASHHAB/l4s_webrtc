@@ -156,7 +156,7 @@ public:
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);
-  void LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate);
+  // void LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate);
   void LogPeriodicSummary(Timestamp at_time);
 
   void ExportToJsonFile(const std::string& filename);
