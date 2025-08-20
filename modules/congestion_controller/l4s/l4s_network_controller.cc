@@ -246,13 +246,19 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
   int64_t current_bps = current_rate.bps();
   if (current_bps > 50000000) {  // > 50 Mbps
     // At very high rates, cap growth to prevent network overload
-    context_multiplier *= 0.4;
+    context_multiplier *= 0.1;
   } else if (current_bps > 10000000) {  // > 10 Mbps
-    // At high rates, be more conservative
-    context_multiplier *= 0.7;
-  } else if (current_bps < 1000000) {  // < 1 Mbps
-    // At low rates, allow more aggressive growth
-    context_multiplier *= 1.8;
+    // At high rates, be very conservative
+    context_multiplier *= 0.2;
+  } else if (current_bps > 5000000) {  // > 5 Mbps
+    // At medium-high rates, be conservative
+    context_multiplier *= 0.3;
+  } else if (current_bps > 1000000) {  // > 1 Mbps
+    // At medium rates, moderate increases
+    context_multiplier *= 0.6;
+  } else if (current_bps < 300000) {  // < 300 Kbps
+    // At very low rates, allow more aggressive growth
+    context_multiplier *= 1.5;
   }
   
   // 5. Consider direction flag stability
@@ -263,7 +269,14 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
   
   // 6. Apply RTT-based scaling (better responsiveness for high RTT)
   double rtt_seconds = current_rtt_.IsFinite() ? current_rtt_.seconds<double>() : 0.05;
-  if (rtt_seconds > 0.1) {  // > 100ms RTT
+  if (rtt_seconds < 0.01) {  // < 10ms RTT - very low latency scenario
+    // For very low RTT, dramatically reduce AI steps to prevent explosive growth
+    context_multiplier *= 0.1;
+    RTC_LOG(LS_VERBOSE) << "Prague: Very low RTT (" << (rtt_seconds * 1000) << " ms), applying aggressive dampening";
+  } else if (rtt_seconds < 0.05) {  // < 50ms RTT - low latency
+    // For low RTT, moderate reduction to prevent excessive growth
+    context_multiplier *= 0.3;
+  } else if (rtt_seconds > 0.1) {  // > 100ms RTT
     // High RTT networks need more aggressive AI to maintain fairness
     context_multiplier *= std::min(2.0, rtt_seconds / 0.05);  // Scale with RTT, cap at 2x
   }
@@ -272,10 +285,17 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
   int64_t context_ai_bps = static_cast<int64_t>(theoretical_ai_bps * context_multiplier);
   
   // 8. Apply reasonable bounds to prevent pathological behavior
-  int64_t min_step_bps = theoretical_ai_bps / 10;  // At least 10% of DCTCP standard
-  int64_t max_step_bps = std::max(
-      theoretical_ai_bps * 3,  // At most 3x DCTCP standard
-      static_cast<int64_t>(current_bps * 0.1)  // Or 10% of current rate, whichever is larger
+  int64_t min_step_bps = theoretical_ai_bps / 20;  // At least 5% of DCTCP standard
+  
+  // Much more aggressive rate-based capping for low RTT scenarios
+  int64_t rate_based_max_step = std::max(
+      static_cast<int64_t>(current_bps * 0.1),   // 10% of current rate
+      static_cast<int64_t>(100000)               // Minimum 100 Kbps step
+  );
+  
+  int64_t max_step_bps = std::min(
+      theoretical_ai_bps * 2,     // At most 2x DCTCP standard
+      rate_based_max_step         // But respect rate-based limit
   );
   
   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
