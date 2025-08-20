@@ -815,28 +815,31 @@ void GCCMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   UpdateThroughputStats(actual_bitrate);
   
   // Log time-series data for bandwidth
-  logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+  logger_->LogSingleValueMetric("target_sending_rate_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  logger_->LogSingleValueMetric("actual_sending_rate_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});                              
+                                
   
 }
 
 void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                                          TimeDelta jitter) {
-  RTC_LOG(LS_INFO) << "GCC: inside logger before logging Round trip time updated arrived: " << rtt.ms() << " ms";
   if (at_time - last_delay_log_ < kDelayLogInterval) {
     return;
   }
   
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
-  RTC_LOG(LS_INFO) << "GCC inside the logger: Round trip time updated arrived: " << rtt.ms() << " ms";
-  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
-                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  logger_->LogSingleValueMetric("rtt_ns", test_case_name_, rtt.us(), 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
-                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    logger_->LogSingleValueMetric("one_way_delay_ns", test_case_name_, one_way_delay.us(), 
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
   if (jitter.IsFinite()) {
@@ -890,10 +893,10 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "delay"}});
   }
   
-  if (loss_stats_.NumSamples() > 0) {
-    logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
-                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "loss"}});
+  // if (loss_stats_.NumSamples() > 0) {
+  //   logger_->LogSingleValueMetric("loss_avg_fraction", test_case_name_, loss_stats_.GetAverage(), 
+  //                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  //                                 {{"stat_type", "average"}, {"metric", "loss"}});
   }
   // Periodically export all metrics to JSON
   ExportToJsonFile("gcc_test_1.json");
@@ -905,7 +908,7 @@ void GCCMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
 
 void GCCMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
   if (rtt.IsFinite()) {
-    delay_stats_.AddSample(rtt.ms());
+    delay_stats_.AddSample(rtt.us());
   }
 }
 
