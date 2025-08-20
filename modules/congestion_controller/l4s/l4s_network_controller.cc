@@ -513,12 +513,12 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
   
-  logger_->LogSingleValueMetric("rtt_raw", test_case_name_, rtt.us(), 
+  logger_->LogSingleValueMetric("rtt_us", test_case_name_, rtt.us(), 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_raw", test_case_name_, one_way_delay.us(), 
+    logger_->LogSingleValueMetric("one_way_delay_us", test_case_name_, one_way_delay.us(), 
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
