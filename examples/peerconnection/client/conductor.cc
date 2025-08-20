@@ -93,9 +93,9 @@ class DummySetSessionDescriptionObserver
 
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 1920;
-  const size_t kHeight = 1080;
-  const size_t kFps = 300;
+  const size_t kWidth = 640;
+  const size_t kHeight = 480;
+  const size_t kFps = 30;
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
       webrtc::VideoCaptureFactory::CreateDeviceInfo());
   if (!info) {
@@ -116,11 +116,11 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
  // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
  //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
 
-  auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
-  auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
+  // auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+  // auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
 
-//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-//      kWidth, kHeight, std::nullopt, std::nullopt);
+ auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+     kWidth, kHeight, std::nullopt, std::nullopt);
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
       task_queue_factory);
@@ -254,11 +254,11 @@ bool Conductor::CreatePeerConnection() {
   
   // DISABLE ALL RESOLUTION ADAPTATIONS
   // 1. Disable CPU-based adaptation
-  config.media_config.video.enable_cpu_adaptation = false;
-  // 2. Disable bandwidth-based suspension
-  config.media_config.video.suspend_below_min_bitrate = false;
-  // 3. Disable experimental CPU load estimator
-  config.media_config.video.experiment_cpu_load_estimator = false;
+  // config.media_config.video.enable_cpu_adaptation = false;
+  // // 2. Disable bandwidth-based suspension
+  // config.media_config.video.suspend_below_min_bitrate = false;
+  // // 3. Disable experimental CPU load estimator
+  // config.media_config.video.experiment_cpu_load_estimator = false;
   
   webrtc::PeerConnectionInterface::IceServer server;
   server.uri = GetPeerConnectionString();
