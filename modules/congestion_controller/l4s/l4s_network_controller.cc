@@ -66,30 +66,41 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Reset non-CE packet count when we see CE marks
     non_ce_packet_count_ = 0;
     
-    // Only perform reduction if we're in increasing mode (flag = 1)
+    // Always update alpha, even in reduction mode (proper DCTCP behavior)
+    constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
+    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+    
+    // Only switch to reduction mode if we're in increasing mode
     if (direction_flag_ == 1) {
-      // DCTCP-style alpha update with standard EWMA gain
-      constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
-      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-      
+
+      // Switch to reduction mode
+      direction_flag_ = -1;
+
       // Proportional decrease (much gentler than 50% reduction)
       double reduction_factor = 1.0 - alpha_ / 2.0;
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       congestion_based_estimate_ = reduced;
       
-      // Switch to reduction mode
-      direction_flag_ = -1;
-      
-      // Update congestion signal timestamp
-      last_congestion_signal_ = current_time;
+
       
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
                        << ", ce_ratio=" << ce_ratio 
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
     } else {
-      RTC_LOG(LS_VERBOSE) << "Prague: CE marks detected but already in reduction mode, ignoring";
+      // Already in reduction mode: apply additional gentle reduction based on updated alpha
+      double additional_reduction = 1.0 - alpha_ / 4.0;  // Gentler than initial reduction
+      DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
+      congestion_based_estimate_ = further_reduced;
+      
+      RTC_LOG(LS_INFO) << "Prague: Additional reduction in reduction mode (alpha=" << alpha_
+                       << ", ce_ratio=" << ce_ratio 
+                       << ", additional_reduction=" << additional_reduction
+                       << "), new rate=" << congestion_based_estimate_.bps() << " bps";
     }
+    
+    // Update congestion signal timestamp
+    last_congestion_signal_ = current_time;
                      
   } else {  // No CE marks in this batch
     // Increment non-CE packet count
@@ -104,7 +115,7 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     }
     
     // Only perform additive increase if we're in increasing mode (flag = 1)
-    if (direction_flag_ == 1 && current_rate >= congestion_based_estimate_ * 0.9) {
+    if (direction_flag_ == 1) {  // Always increase when in additive mode
     
     // Prague DCTCP additive increase: +1 MSS per RTT period
     // This is the fundamental L4S congestion control behavior
@@ -453,7 +464,7 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "average"}, {"metric", "delay"}});
   }
-  
+
   ExportToJsonFile("l4s_test_1.json");
 }
 

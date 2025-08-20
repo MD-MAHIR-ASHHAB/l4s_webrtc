@@ -89,7 +89,7 @@ private:
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
-  static constexpr int kNonCeThreshold = 10;  // Threshold to switch to additive mode
+  static constexpr int kNonCeThreshold = 7;  // Threshold to switch to additive mode
 };
 
 // Bandwidth source fusion engine
