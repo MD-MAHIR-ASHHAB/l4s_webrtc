@@ -324,7 +324,7 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
                       << "multiplier=" << context_multiplier << ", "
                       << "context_step=" << context_ai_bps << " bps, "
                       << "alpha=" << alpha_ << ", "
-                      << "since_congestion=" << (last_congestion_signal_.IsInfinite() ? -1 : since_congestion.ms()) << " ms, "
+                      << "since_congestion=" << (last_congestion_signal_.IsInfinite() ? -1.0 : since_congestion.ms<double>()) << " ms, "
                       << "current_rate=" << current_bps << " bps";
   
   return context_ai_bps;
@@ -496,11 +496,11 @@ void L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
   last_bandwidth_log_ = at_time;
   UpdateThroughputStats(actual_bitrate);
   
-  logger_->LogSingleValueMetric("bandwidth_target_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
+  logger_->LogSingleValueMetric("target_sending_rate_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
-  logger_->LogSingleValueMetric("bandwidth_actual_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+  logger_->LogSingleValueMetric("actual_throughput_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
@@ -513,12 +513,12 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
   
-  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms<double>(), 
                                 webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms<double>(), 
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
@@ -616,7 +616,7 @@ void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
 
 void L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
   if (rtt.IsFinite()) {
-    delay_stats_.AddSample(rtt.ms());
+    delay_stats_.AddSample(rtt.ms<double>());
   }
 }
 
