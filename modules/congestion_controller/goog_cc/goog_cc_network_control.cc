@@ -819,7 +819,7 @@ void GCCMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 
-  logger_->LogSingleValueMetric("actual_sending_rate_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
+  logger_->LogSingleValueMetric("actual_throughput_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});                              
                                 
