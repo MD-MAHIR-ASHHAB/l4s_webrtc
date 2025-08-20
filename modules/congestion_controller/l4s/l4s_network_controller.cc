@@ -127,6 +127,12 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Context-aware AI step calculation based on network conditions
     int64_t ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
     
+    // Safety check to ensure valid step size
+    if (ai_step_bps <= 0 || ai_step_bps > 1000000000) {  // Cap at 1 Gbps for safety
+      RTC_LOG(LS_WARNING) << "Prague: Invalid AI step " << ai_step_bps << " bps, using fallback";
+      ai_step_bps = std::min(theoretical_ai_bps, static_cast<int64_t>(current_rate.bps() * 0.1));
+    }
+    
     DataRate increased = current_rate + DataRate::BitsPerSec(ai_step_bps);
     
     // Don't exceed maximum rate
@@ -210,6 +216,12 @@ double PragueCapacityEstimator::GetConfidence(Timestamp now) const {
 
 int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time) {
   // Context-aware AI step calculation that adapts to network conditions
+  
+  // Safety checks for input parameters
+  if (theoretical_ai_bps <= 0 || !current_rate.IsFinite() || current_time.IsInfinite()) {
+    RTC_LOG(LS_WARNING) << "Prague: Invalid input parameters to CalculateContextAwareAiStep";
+    return 100000;  // Fallback: 100 Kbps step
+  }
   
   // 1. Base multiplier starts at 1.0 (full DCTCP behavior)
   double context_multiplier = 1.0;
@@ -300,13 +312,19 @@ int64_t PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical
   
   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
   
+  // Final safety check to ensure result is valid
+  if (context_ai_bps <= 0 || context_ai_bps > 1000000000 || !std::isfinite(context_ai_bps)) {
+    RTC_LOG(LS_WARNING) << "Prague: Invalid context AI step calculated: " << context_ai_bps;
+    context_ai_bps = 100000;  // Fallback: 100 Kbps
+  }
+  
   // Log the decision for debugging
   RTC_LOG(LS_INFO) << "Prague: Context-aware AI calculation - "
                       << "theoretical=" << theoretical_ai_bps << " bps, "
                       << "multiplier=" << context_multiplier << ", "
                       << "context_step=" << context_ai_bps << " bps, "
                       << "alpha=" << alpha_ << ", "
-                      << "since_congestion=" << since_congestion.ms() << " ms, "
+                      << "since_congestion=" << (last_congestion_signal_.IsInfinite() ? -1 : since_congestion.ms()) << " ms, "
                       << "current_rate=" << current_bps << " bps";
   
   return context_ai_bps;
