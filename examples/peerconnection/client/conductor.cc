@@ -68,6 +68,9 @@
 // L4S Metrics Collection
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
+// Test Audio Device Module for Linux VM deployment
+#include "modules/audio_device/include/test_audio_device.h"
+
 
 
 
@@ -246,6 +249,17 @@ bool Conductor::InitializePeerConnection() {
   
   deps.network_controller_factory = 
       std::make_unique<L4SNetworkControllerFactory>(l4s_config);
+  
+  // Use TestAudioDeviceModule for Linux VM deployment (no real audio hardware)
+  auto capturer = webrtc::TestAudioDeviceModule::CreatePulsedNoiseCapturer(
+      1000, 48000, 1);  // max_amplitude=1000, sample_rate=48kHz, mono
+  auto renderer = webrtc::TestAudioDeviceModule::CreateDiscardRenderer(
+      48000, 1);  // sample_rate=48kHz, mono
+  
+  deps.adm = webrtc::TestAudioDeviceModule::Create(
+      env_, std::move(capturer), std::move(renderer), 1.0f);
+  
+  RTC_LOG(LS_INFO) << "Using TestAudioDeviceModule for Linux VM deployment";
   
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =

@@ -780,6 +780,7 @@ if (is_linux || is_chromeos || is_win) {
       "../api/video_codecs:video_encoder_factory_template_open_h264_adapter",
       "../media:rtc_audio_video",
       "../modules/audio_device",
+      "../modules/audio_device:test_audio_device_module",
       "../modules/audio_processing",
       "../modules/video_capture:video_capture_module",
       "../pc:libjingle_peerconnection",
