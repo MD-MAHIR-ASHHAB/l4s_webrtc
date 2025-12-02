@@ -50,6 +50,7 @@
 #include "examples/peerconnection/client/defaults.h"
 #include "examples/peerconnection/client/main_wnd.h"
 #include "examples/peerconnection/client/peer_connection_client.h"
+#include "modules/audio_device/include/test_audio_device.h"
 #include "json/reader.h"
 #include "json/value.h"
 #include "json/writer.h"
@@ -191,6 +192,17 @@ bool Conductor::InitializePeerConnection() {
   deps.env = env_,
   deps.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   deps.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
+  
+  // Use TestAudioDeviceModule for Linux VM deployment (no real audio hardware)
+  auto capturer = webrtc::TestAudioDeviceModule::CreatePulsedNoiseCapturer(
+      1000, 48000, 1);  // max_amplitude=1000, sample_rate=48kHz, mono
+  auto renderer = webrtc::TestAudioDeviceModule::CreateDiscardRenderer(
+      48000, 1);  // sample_rate=48kHz, mono
+
+  deps.adm = webrtc::TestAudioDeviceModule::Create(
+      env_, std::move(capturer), std::move(renderer), 1.0f);
+
+  RTC_LOG(LS_INFO) << "Using TestAudioDeviceModule for Linux VM deployment";
   deps.video_encoder_factory =
       std::make_unique<webrtc::VideoEncoderFactoryTemplate<
           webrtc::LibvpxVp8EncoderTemplateAdapter,
