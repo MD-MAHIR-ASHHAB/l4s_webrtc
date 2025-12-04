@@ -39,7 +39,9 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
       last_congestion_signal_(Timestamp::MinusInfinity()),
       last_ecn_feedback_(Timestamp::MinusInfinity()),
       direction_flag_(1),
-      non_ce_packet_count_(0) {
+      non_ce_packet_count_(0),
+      discovery_mode_active_(true),
+      first_ce_mark_detected_(false) {
   
   // Clamp initial estimate to bounds
   if (congestion_based_estimate_ < min_target_rate_) {
@@ -65,6 +67,14 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
     // Reset non-CE packet count when we see CE marks
     non_ce_packet_count_ = 0;
+    
+    // Immediately exit discovery mode on first CE mark (highest priority)
+    if (discovery_mode_active_ && !first_ce_mark_detected_) {
+      discovery_mode_active_ = false;
+      first_ce_mark_detected_ = true;
+      RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" 
+                       << ce_ratio << ")";
+    }
     
     // Always update alpha, even in reduction mode (proper DCTCP behavior)
     constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
@@ -124,8 +134,32 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
     int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
     
-    // Context-aware AI step calculation based on network conditions
-    int64_t ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
+    int64_t ai_step_bps;
+    
+    // Discovery Mode: Fast startup for rates below 5 Mbps when no congestion detected
+    bool in_discovery_mode = discovery_mode_active_ && 
+                            !first_ce_mark_detected_ && 
+                            current_rate.bps() < 5000000;  // 5 Mbps threshold
+    
+    if (in_discovery_mode) {
+      // Moderate aggressive growth: 5x normal AI step
+      ai_step_bps = theoretical_ai_bps * 5;
+      
+      // Safety cap for discovery mode
+      ai_step_bps = std::min(ai_step_bps, static_cast<int64_t>(2000000));  // Cap at 2 Mbps/RTT
+      
+      RTC_LOG(LS_INFO) << "Prague: Discovery mode active - aggressive AI step: " 
+                       << ai_step_bps << " bps (5x theoretical: " << theoretical_ai_bps << " bps)";
+    } else {
+      // Normal Prague mode: Context-aware AI step calculation
+      ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
+      
+      // Exit discovery mode when rate threshold reached
+      if (discovery_mode_active_ && current_rate.bps() >= 5000000) {
+        discovery_mode_active_ = false;
+        RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - rate threshold (5 Mbps) reached";
+      }
+    }
     
     // Safety check to ensure valid step size
     if (ai_step_bps <= 0 || ai_step_bps > 1000000000) {  // Cap at 1 Gbps for safety
@@ -193,6 +227,16 @@ void PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
     last_update_time_ = current_time;
   }
+  
+  // Re-enable discovery mode after 30 seconds without congestion signals
+  if (first_ce_mark_detected_ && !discovery_mode_active_) {
+    TimeDelta since_congestion = current_time - last_congestion_signal_;
+    if (since_congestion > TimeDelta::Seconds(30)) {
+      discovery_mode_active_ = true;
+      RTC_LOG(LS_INFO) << "Prague: Re-enabling discovery mode after 30s without congestion";
+    }
+  }
+}
 }
 
 DataRate PragueCapacityEstimator::GetCurrentEstimate() const {
