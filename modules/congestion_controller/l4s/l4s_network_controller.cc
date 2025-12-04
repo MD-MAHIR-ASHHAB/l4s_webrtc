@@ -1167,6 +1167,14 @@ double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) con
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
+  // During discovery mode, use Prague's estimate directly to avoid fusion constraints
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+    DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+    RTC_LOG(LS_INFO) << "L4S: Discovery mode - using Prague estimate directly: " 
+                     << prague_rate.bps() << " bps (bypassing fusion)";
+    return prague_rate;
+  }
+  
   DataRate fused_rate = bandwidth_fusion_->GetFusedEstimate(now);
   
   // Apply rate constraints
