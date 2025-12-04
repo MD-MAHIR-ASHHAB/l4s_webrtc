@@ -513,12 +513,12 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt);
   
-  logger_->LogSingleValueMetric("rtt_us", test_case_name_, rtt.us(), 
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_us", test_case_name_, one_way_delay.us(), 
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
@@ -616,7 +616,7 @@ void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
 
 void L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
   if (rtt.IsFinite()) {
-    delay_stats_.AddSample(rtt.us());
+    delay_stats_.AddSample(rtt.ms());
   }
 }
 
