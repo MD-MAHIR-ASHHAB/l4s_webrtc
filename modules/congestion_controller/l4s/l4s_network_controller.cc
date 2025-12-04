@@ -913,6 +913,10 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   }
   
   // 2. Get appropriate fused estimate - during discovery mode use full estimate to allow growth
+  // CRITICAL FIX: During discovery mode, we must use FuseBandwidthEstimates() instead of GetBaseFusedEstimate()
+  // to ensure Prague receives its own current estimate as input, creating a positive feedback loop that
+  // allows aggressive growth from ~1.5 Mbps to 5 Mbps. Without this, Prague gets constrained by other
+  // estimators (~2.3 Mbps limit) and cannot reach the discovery mode exit threshold.
   DataRate input_rate;
   if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
     input_rate = FuseBandwidthEstimates(feedback.feedback_time);  // Use full fused estimate with Prague bypass
