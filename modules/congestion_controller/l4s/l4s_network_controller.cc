@@ -957,13 +957,19 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
-    // Determine appropriate target rate based on bottleneck analysis
-    DataRate prague_target_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
+    // During discovery mode, use Prague's own estimate to create positive feedback loop
+    DataRate prague_input_rate;
+    if (prague_estimator_->IsDiscoveryModeActive()) {
+      prague_input_rate = prague_estimator_->GetCurrentEstimate();
+      RTC_LOG(LS_INFO) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
+                       << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
+    } else {
+      prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
+      RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
+                       << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
+    }
     
-    RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_target_rate.bps() 
-                     << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
-    
-    prague_estimator_->UpdateFromCongestionSignal(prague_target_rate, ce_ratio, feedback.feedback_time);
+    prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
     
     // Update fusion engine with ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
