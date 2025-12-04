@@ -912,12 +912,17 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     ProcessProbeResults(feedback);
   }
   
-  // 2. Get initial fused estimate (without ECN input)
-  DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
+  // 2. Get appropriate fused estimate - during discovery mode use full estimate to allow growth
+  DataRate input_rate;
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+    input_rate = FuseBandwidthEstimates(feedback.feedback_time);  // Use full fused estimate with Prague bypass
+  } else {
+    input_rate = GetBaseFusedEstimate(feedback.feedback_time);  // Use base estimate without ECN input
+  }
   
-  // 3. Update Prague ECN controller with the base fused rate (not application limited)
+  // 3. Update Prague ECN controller with the appropriate input rate (not application limited)
   if (!IsApplicationLimited()) {
-    ProcessEcnFeedback(feedback, base_fused_rate);
+    ProcessEcnFeedback(feedback, input_rate);
   } else {
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
   }
