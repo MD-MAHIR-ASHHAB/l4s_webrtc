@@ -233,7 +233,8 @@ void PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
     TimeDelta since_congestion = current_time - last_congestion_signal_;
     if (since_congestion > TimeDelta::Seconds(30)) {
       discovery_mode_active_ = true;
-      RTC_LOG(LS_INFO) << "Prague: Re-enabling discovery mode after 30s without congestion";
+      first_ce_mark_detected_ = false;  // Reset CE flag to allow rediscovery
+      RTC_LOG(LS_INFO) << "Prague: Re-enabling discovery mode after 30s without congestion (CE flag reset)";
     }
   }
 }
