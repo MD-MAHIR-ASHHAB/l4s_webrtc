@@ -43,6 +43,11 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
       discovery_mode_active_(true),
       first_ce_mark_detected_(false) {
   
+  // Force discovery mode active at startup for debugging
+  discovery_mode_active_ = true;
+  first_ce_mark_detected_ = false;
+  RTC_LOG(LS_INFO) << "Prague: Force enabling discovery mode at startup";
+  
   // Clamp initial estimate to bounds
   if (congestion_based_estimate_ < min_target_rate_) {
     congestion_based_estimate_ = min_target_rate_;
