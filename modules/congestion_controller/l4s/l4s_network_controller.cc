@@ -43,11 +43,6 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
       discovery_mode_active_(true),
       first_ce_mark_detected_(false) {
   
-  // Force discovery mode active at startup for debugging
-  discovery_mode_active_ = true;
-  first_ce_mark_detected_ = false;
-  RTC_LOG(LS_INFO) << "Prague: Force enabling discovery mode at startup";
-  
   // Clamp initial estimate to bounds
   if (congestion_based_estimate_ < min_target_rate_) {
     congestion_based_estimate_ = min_target_rate_;
@@ -917,21 +912,12 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     ProcessProbeResults(feedback);
   }
   
-  // 2. Get appropriate fused estimate - during discovery mode use full estimate to allow growth
-  // CRITICAL FIX: During discovery mode, we must use FuseBandwidthEstimates() instead of GetBaseFusedEstimate()
-  // to ensure Prague receives its own current estimate as input, creating a positive feedback loop that
-  // allows aggressive growth from ~1.5 Mbps to 5 Mbps. Without this, Prague gets constrained by other
-  // estimators (~2.3 Mbps limit) and cannot reach the discovery mode exit threshold.
-  DataRate input_rate;
-  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-    input_rate = FuseBandwidthEstimates(feedback.feedback_time);  // Use full fused estimate with Prague bypass
-  } else {
-    input_rate = GetBaseFusedEstimate(feedback.feedback_time);  // Use base estimate without ECN input
-  }
+  // 2. Get initial fused estimate (without ECN input)
+  DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
   
-  // 3. Update Prague ECN controller with the appropriate input rate (not application limited)
+  // 3. Update Prague ECN controller with the base fused rate (not application limited)
   if (!IsApplicationLimited()) {
-    ProcessEcnFeedback(feedback, input_rate);
+    ProcessEcnFeedback(feedback, base_fused_rate);
   } else {
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
   }
