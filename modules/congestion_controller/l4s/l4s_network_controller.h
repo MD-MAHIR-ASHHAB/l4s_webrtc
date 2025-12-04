@@ -93,6 +93,10 @@ private:
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
   static constexpr int kNonCeThreshold = 7;  // Threshold to switch to additive mode
+  
+  // Discovery mode for fast startup
+  bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
+  bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
 };
 
 // Bandwidth source fusion engine
