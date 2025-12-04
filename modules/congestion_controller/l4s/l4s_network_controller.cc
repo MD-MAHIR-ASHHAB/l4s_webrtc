@@ -91,8 +91,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       congestion_based_estimate_ = reduced;
       
-
-      
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
                        << ", ce_ratio=" << ce_ratio 
                        << ", reduction_factor=" << reduction_factor
@@ -237,7 +235,6 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
       RTC_LOG(LS_INFO) << "Prague: Re-enabling discovery mode after 30s without congestion (CE flag reset)";
     }
   }
-}
 }
 
 webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
@@ -743,12 +740,12 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
                    << ", ALR: " << (alr_detector_ ? "enabled" : "disabled");
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
   NetworkControlUpdate update;
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(NetworkRouteChange msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(NetworkRouteChange msg) {
   NetworkControlUpdate update;
   
   RTC_LOG(LS_INFO) << "L4S: OnNetworkRouteChange called";
@@ -771,7 +768,7 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(NetworkR
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(ProcessInterval msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(ProcessInterval msg) {
   NetworkControlUpdate update;
   
   // Log periodic metrics
@@ -793,12 +790,12 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(ProcessInte
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport(RemoteBitrateReport msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport(RemoteBitrateReport msg) {
   NetworkControlUpdate update;
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
   NetworkControlUpdate update;
   
   // Update Prague estimator with RTT
@@ -822,22 +819,22 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTr
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
   NetworkControlUpdate update;
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnReceivedPacket(ReceivedPacket msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnReceivedPacket(ReceivedPacket msg) {
   NetworkControlUpdate update;
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
   NetworkControlUpdate update;
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstraints(TargetRateConstraints msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstraints(TargetRateConstraints msg) {
   NetworkControlUpdate update;
   
   // Update constraints
@@ -847,7 +844,7 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstraints(Targe
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(TransportLossReport msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(TransportLossReport msg) {
   NetworkControlUpdate update;
   
   if (msg.packets_lost_delta > 0) {
@@ -871,7 +868,7 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(Transpo
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
   NetworkControlUpdate update;
   
   // Update all bandwidth estimators
@@ -893,7 +890,7 @@ NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(Tr
   return update;
 }
 
-NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimate(NetworkStateEstimate msg) {
+webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimate(NetworkStateEstimate msg) {
   NetworkControlUpdate update;
   return update;
 }
