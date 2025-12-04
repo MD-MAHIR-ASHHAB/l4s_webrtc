@@ -988,6 +988,13 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
+  // During discovery mode, bypass bottleneck constraints to allow aggressive growth
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+    RTC_LOG(LS_INFO) << "L4S: Discovery mode active - bypassing bottleneck detection, using fused rate: " 
+                     << fused_rate.bps() << " bps";
+    return fused_rate;
+  }
+  
   // Intelligent bottleneck detection for Prague rate targeting
   auto sources = bandwidth_fusion_->GetCurrentSources();
   

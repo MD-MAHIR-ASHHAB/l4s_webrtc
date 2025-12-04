@@ -74,6 +74,7 @@ public:
   double GetAlpha() const { return alpha_; }
   int GetDirectionFlag() const { return direction_flag_; }
   int GetNonCePacketCount() const { return non_ce_packet_count_; }
+  bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
   double GetConfidence(Timestamp now) const;
 
 private:
