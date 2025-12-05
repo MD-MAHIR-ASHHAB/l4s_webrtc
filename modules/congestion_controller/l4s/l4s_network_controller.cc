@@ -1271,7 +1271,7 @@ bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
   
   // Don't probe if ECN feedback is very fresh and confident (more permissive for discovery)
   double ecn_confidence = prague_estimator_->GetConfidence(now);
-  bool is_discovery_mode = mode_ == PragueMode::kDiscovery;
+  bool is_discovery_mode = prague_estimator_->IsDiscoveryModeActive();
   double confidence_threshold = is_discovery_mode ? 0.99 : 0.95;  // More permissive in discovery
   
   if (IsEcnFeedbackFresh(now) && ecn_confidence > confidence_threshold) {
