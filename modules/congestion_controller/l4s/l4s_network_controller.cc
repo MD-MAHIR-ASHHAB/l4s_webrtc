@@ -1315,8 +1315,10 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   }
 
   // Use real ProbeController to create probe clusters
+  RTC_LOG(LS_INFO) << "L4S: Requesting probe clusters from ProbeController";
   auto probes = probe_controller_->RequestProbe(now);
   
+  RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " probe clusters";
   if (!probes.empty()) {
     // Add probe clusters to network update for transport layer to send
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
@@ -1329,6 +1331,8 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
       RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe.id 
                        << " at " << probe.target_data_rate.bps() << " bps";
     }
+  } else {
+    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters for regular probing";
   }
 }
 
@@ -1738,8 +1742,10 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   }
 
   // Use real ProbeController to create recovery probe clusters
+  RTC_LOG(LS_INFO) << "L4S: Requesting recovery probe clusters from ProbeController";
   auto probes = probe_controller_->RequestProbe(now);
   
+  RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " recovery probe clusters";
   if (!probes.empty()) {
     // Add probe clusters to network update for transport layer to send
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
@@ -1753,6 +1759,8 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
       RTC_LOG(LS_INFO) << "L4S: Recovery probe cluster " << probe.id 
                        << " at " << probe.target_data_rate.bps() << " bps";
     }
+  } else {
+    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters for recovery probing";
   }
 }
 
