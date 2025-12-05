@@ -1314,9 +1314,19 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Use real ProbeController to create probe clusters
+  // Update ProbeController with current bitrate first
+  RTC_LOG(LS_INFO) << "L4S: Setting ProbeController bitrate to " << current_estimate.bps() << " bps";
+  auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
+      current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
+  
+  // Request additional probe clusters
   RTC_LOG(LS_INFO) << "L4S: Requesting probe clusters from ProbeController";
-  auto probes = probe_controller_->RequestProbe(now);
+  auto request_probes = probe_controller_->RequestProbe(now);
+  
+  // Combine both sets of probes
+  std::vector<ProbeClusterConfig> probes;
+  probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
+  probes.insert(probes.end(), request_probes.begin(), request_probes.end());
   
   RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " probe clusters";
   if (!probes.empty()) {
@@ -1741,9 +1751,19 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Use real ProbeController to create recovery probe clusters
+  // Update ProbeController with current bitrate first
+  RTC_LOG(LS_INFO) << "L4S: Setting recovery ProbeController bitrate to " << current_estimate.bps() << " bps";
+  auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
+      current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
+  
+  // Request additional probe clusters for recovery
   RTC_LOG(LS_INFO) << "L4S: Requesting recovery probe clusters from ProbeController";
-  auto probes = probe_controller_->RequestProbe(now);
+  auto request_probes = probe_controller_->RequestProbe(now);
+  
+  // Combine both sets of probes
+  std::vector<ProbeClusterConfig> probes;
+  probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
+  probes.insert(probes.end(), request_probes.begin(), request_probes.end());
   
   RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " recovery probe clusters";
   if (!probes.empty()) {
