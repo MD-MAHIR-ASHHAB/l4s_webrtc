@@ -1755,17 +1755,26 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   RTC_LOG(LS_INFO) << "L4S: Setting recovery ProbeController bitrate to " << current_estimate.bps() << " bps";
   auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
       current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
+  RTC_LOG(LS_INFO) << "L4S: SetEstimatedBitrate returned " << bitrate_probes.size() << " probe clusters";
   
-  // Request additional probe clusters for recovery
-  RTC_LOG(LS_INFO) << "L4S: Requesting recovery probe clusters from ProbeController";
+  // Try different probe approaches
   auto request_probes = probe_controller_->RequestProbe(now);
+  RTC_LOG(LS_INFO) << "L4S: RequestProbe returned " << request_probes.size() << " probe clusters";
   
-  // Combine both sets of probes
+  // Try setting higher bitrates to trigger probing
+  DataRate higher_rate = probe_rate;  // Use our calculated probe rate
+  auto higher_probes = probe_controller_->SetEstimatedBitrate(
+      higher_rate, BandwidthLimitedCause::kDelayBasedLimited, now);
+  RTC_LOG(LS_INFO) << "L4S: SetEstimatedBitrate with higher rate " << higher_rate.bps() 
+                   << " bps returned " << higher_probes.size() << " probe clusters";
+  
+  // Combine all probe sets
   std::vector<ProbeClusterConfig> probes;
   probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
   probes.insert(probes.end(), request_probes.begin(), request_probes.end());
+  probes.insert(probes.end(), higher_probes.begin(), higher_probes.end());
   
-  RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " recovery probe clusters";
+  RTC_LOG(LS_INFO) << "L4S: Total probe clusters collected: " << probes.size();
   if (!probes.empty()) {
     // Add probe clusters to network update for transport layer to send
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
@@ -1780,7 +1789,18 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
                        << " at " << probe.target_data_rate.bps() << " bps";
     }
   } else {
-    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters for recovery probing";
+    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters, creating manual probe";
+    
+    // Create manual probe cluster as fallback
+    ProbeClusterConfig manual_probe;
+    manual_probe.target_data_rate = probe_rate;
+    manual_probe.target_duration = TimeDelta::Millis(15);  // 15ms probe duration
+    manual_probe.target_probe_count = 5;  // 5 probe packets
+    manual_probe.id = 999;  // Manual probe ID
+    
+    update->probe_cluster_configs.push_back(manual_probe);
+    RTC_LOG(LS_INFO) << "L4S: Created manual recovery probe cluster at " 
+                     << probe_rate.bps() << " bps";
   }
 }
 
