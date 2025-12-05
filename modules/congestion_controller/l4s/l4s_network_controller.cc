@@ -152,11 +152,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // Normal Prague mode: Context-aware AI step calculation
       ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
       
-      // Exit discovery mode when rate threshold reached
-      if (discovery_mode_active_ && current_rate.bps() >= 5000000) {
-        discovery_mode_active_ = false;
-        RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - rate threshold (5 Mbps) reached";
-      }
+      // Note: Discovery mode exit is now handled by L4SNetworkController
+      // based on probe-Prague convergence or fallback threshold
     }
     
     // Safety check to ensure valid step size
@@ -170,6 +167,16 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     // Don't exceed maximum rate
     if (max_target_rate_ > DataRate::Zero()) {
         increased = std::min(increased, max_target_rate_);
+    }
+    
+    // Apply probe constraint during discovery mode
+    if (discovery_mode_active_ && probe_constraint_ > DataRate::Zero() && probe_constraint_confidence_ > 0.7) {
+      DataRate max_allowed = probe_constraint_ * 0.95;  // 95% of probe estimate
+      if (increased > max_allowed) {
+        increased = max_allowed;
+        RTC_LOG(LS_INFO) << "Prague: Rate limited by probe constraint to " << increased.bps() 
+                         << " bps (probe: " << probe_constraint_.bps() << " bps)";
+      }
     }
     
     congestion_based_estimate_ = increased;
@@ -372,6 +379,29 @@ int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t the
   return context_ai_bps;
 }
 
+void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate, double probe_confidence) {
+  probe_constraint_ = probe_estimate;
+  probe_constraint_confidence_ = probe_confidence;
+  
+  RTC_LOG(LS_INFO) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
+                   << " bps with confidence " << probe_confidence;
+}
+
+void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
+  probe_constraint_ = DataRate::Zero();
+  probe_constraint_confidence_ = 0.0;
+  
+  RTC_LOG(LS_VERBOSE) << "Prague: Cleared probe constraint";
+}
+
+void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reason) {
+  if (discovery_mode_active_) {
+    discovery_mode_active_ = false;
+    ClearProbeConstraint();  // Clear any probe constraints when exiting discovery
+    RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - " << reason;
+  }
+}
+
 // =============================================================================
 // L4SBandwidthFusion Implementation
 // =============================================================================
@@ -416,8 +446,17 @@ void webrtc::L4SBandwidthFusion::UpdateAlrEstimate(DataRate estimate, double con
 }
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
+  return GetFusedEstimateWithMode(now, false, false);
+}
+
+webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const {
   // L4S Fusion: Prague ECN provides congestion control authority,
   // other estimators provide capacity discovery insights
+  
+  // During discovery or recovery mode, use probe-weighted fusion
+  if (discovery_mode || recovery_mode) {
+    return GetDiscoveryModeFusedEstimate(now, recovery_mode);
+  }
   
   // 1. Prague ECN estimate has highest priority for congestion control
   // When Prague detects congestion, it overrides other estimates
@@ -509,6 +548,67 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::ValidateWithOtherSources(DataRate p
   }
   
   return primary_estimate;
+}
+
+webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const {
+  // During discovery/recovery mode, give probe controller higher weight (80%)
+  // and other estimators lower weight (20%)
+  
+  DataRate probe_weighted = DataRate::Zero();
+  DataRate other_weighted = DataRate::Zero();
+  double probe_weight = 0.0;
+  double other_weight = 0.0;
+  
+  // Probe estimate gets 80% weight if available and confident
+  if (sources_.probe_confidence > 0.5 && IsRecentlyUpdated(sources_.last_probe_update, now)) {
+    probe_weighted = sources_.probe_estimate;
+    probe_weight = recovery_mode ? 0.85 : 0.80;  // Slightly higher weight in recovery
+  }
+  
+  // Combine other estimates for remaining weight
+  double total_other_confidence = 0.0;
+  DataRate combined_other = DataRate::Zero();
+  
+  if (sources_.ecn_confidence > 0.3 && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
+    combined_other = combined_other + sources_.ecn_estimate * sources_.ecn_confidence;
+    total_other_confidence += sources_.ecn_confidence;
+  }
+  
+  if (sources_.delay_confidence > 0.3 && IsRecentlyUpdated(sources_.last_delay_update, now)) {
+    combined_other = combined_other + sources_.delay_estimate * sources_.delay_confidence;
+    total_other_confidence += sources_.delay_confidence;
+  }
+  
+  if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+    combined_other = combined_other + sources_.acked_estimate * sources_.acked_confidence;
+    total_other_confidence += sources_.acked_confidence;
+  }
+  
+  if (total_other_confidence > 0.0) {
+    other_weighted = combined_other / total_other_confidence;
+    other_weight = 1.0 - probe_weight;
+  }
+  
+  // Calculate weighted fusion
+  DataRate fused_estimate;
+  if (probe_weight > 0.0 && other_weight > 0.0) {
+    fused_estimate = probe_weighted * probe_weight + other_weighted * other_weight;
+    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Probe: " << probe_weighted.bps() 
+                     << " bps (" << (probe_weight * 100) << "%), Other: " << other_weighted.bps() 
+                     << " bps (" << (other_weight * 100) << "%), Fused: " << fused_estimate.bps() << " bps";
+  } else if (probe_weight > 0.0) {
+    fused_estimate = probe_weighted;
+    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Using probe only: " << fused_estimate.bps() << " bps";
+  } else if (other_weight > 0.0) {
+    fused_estimate = other_weighted;
+    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Using other estimates: " << fused_estimate.bps() << " bps";
+  } else {
+    // Fallback to most confident estimate
+    fused_estimate = GetMostConfidentEstimate(now);
+    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion fallback: " << fused_estimate.bps() << " bps";
+  }
+  
+  return fused_estimate;
 }
 
 bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
@@ -991,6 +1091,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   // Update counters
   ect_count_ = new_ect_count;
   ce_count_ = new_ce_count;
+  
+  // Handle packet-based recovery detection
+  HandleRecoveryDetection(new_ect_count, new_ce_count, feedback.feedback_time);
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
@@ -1081,7 +1184,18 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     return;
   }
   
-  // Check if it's time for periodic probing
+  // Recovery probing has higher priority and frequency
+  if (recovery_mode_active_) {
+    TimeDelta since_last_probe = now - last_probe_time_;
+    // More frequent probing during recovery (every 2 seconds vs 5 seconds)
+    if (since_last_probe >= TimeDelta::Seconds(2)) {
+      InitiateRecoveryProbing(now, update);
+      last_probe_time_ = now;
+    }
+    return;
+  }
+  
+  // Regular periodic probing
   bool should_probe = (now - last_probe_time_) >= config_.probe_interval;
   should_probe = should_probe && ShouldProbeNow(now);
   
@@ -1173,15 +1287,33 @@ double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) con
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
-  // During discovery mode, use Prague's estimate directly to avoid fusion constraints
-  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-    DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_INFO) << "L4S: Discovery mode - using Prague estimate directly: " 
-                     << prague_rate.bps() << " bps (bypassing fusion)";
-    return prague_rate;
+  bool discovery_active = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
+  
+  // Check if we should exit discovery mode based on convergence
+  if (discovery_active && ShouldExitDiscoveryMode(now)) {
+    prague_estimator_->ExitDiscoveryMode("probe-Prague convergence or fallback threshold");
+    discovery_active = false;
   }
   
-  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimate(now);
+  // Update Prague with probe constraints during discovery
+  if (discovery_active) {
+    auto sources = bandwidth_fusion_->GetCurrentSources();
+    if (sources.probe_confidence > 0.7) {
+      prague_estimator_->SetProbeConstraint(sources.probe_estimate, sources.probe_confidence);
+    }
+  }
+  
+  // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
+  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active, recovery_mode_active_);
+  
+  // During discovery mode, still use Prague's estimate as it incorporates probe constraints
+  if (discovery_active) {
+    DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+    RTC_LOG(LS_INFO) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
+                     << " bps, Fused rate: " << fused_rate.bps() << " bps";
+    // Use Prague rate if it's lower (respecting probe constraints)
+    fused_rate = std::min(prague_rate, fused_rate);
+  }
   
   // Apply rate constraints
   if (min_target_rate_ && fused_rate < *min_target_rate_) {
@@ -1428,6 +1560,145 @@ void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedb
     // Not in ALR, clear ALR constraint 
     bandwidth_fusion_->UpdateAlrEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
   }
+}
+
+bool webrtc::L4SNetworkController::CheckProbeAndPragueConvergence(Timestamp now) const {
+  if (!prague_estimator_ || !bandwidth_fusion_) {
+    return false;
+  }
+
+  auto sources = bandwidth_fusion_->GetCurrentSources();
+  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+  DataRate probe_rate = sources.probe_estimate;
+
+  // Need both estimates to be valid and recent
+  if (probe_rate <= DataRate::Zero() || prague_rate <= DataRate::Zero()) {
+    return false;
+  }
+
+  if (sources.probe_confidence < 0.7 || !IsRecentlyUpdated(sources.last_probe_update, now)) {
+    return false;
+  }
+
+  // Check convergence: estimates within 10% of each other
+  double rate_ratio = std::min(prague_rate.bps(), probe_rate.bps()) / 
+                     static_cast<double>(std::max(prague_rate.bps(), probe_rate.bps()));
+
+  bool converged = rate_ratio >= 0.9;  // 10% tolerance
+
+  if (converged) {
+    RTC_LOG(LS_INFO) << "L4S: Prague-Probe convergence detected - Prague: " 
+                     << prague_rate.bps() << " bps, Probe: " << probe_rate.bps() 
+                     << " bps, ratio: " << rate_ratio;
+  }
+
+  return converged;
+}
+
+bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const {
+  if (!prague_estimator_ || !prague_estimator_->IsDiscoveryModeActive()) {
+    return false;
+  }
+
+  // Exit if CE marks detected (already handled in Prague estimator)
+  if (prague_estimator_->GetDirectionFlag() == -1) {
+    return true;
+  }
+
+  // Exit if Prague and Probe converged on capacity
+  if (CheckProbeAndPragueConvergence(now)) {
+    return true;
+  }
+
+  // Fallback: Exit at higher rate threshold (10 Mbps instead of 5 Mbps)
+  DataRate current_rate = prague_estimator_->GetCurrentEstimate();
+  if (current_rate.bps() >= 10000000) {
+    RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - fallback rate threshold (10 Mbps) reached";
+    return true;
+  }
+
+  return false;
+}
+
+void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
+  if (!probe_controller_) {
+    return;
+  }
+
+  // Get current best estimate for probe rate calculation
+  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+
+  // More aggressive than normal probing during recovery
+  double recovery_multiplier = 2.5;  // vs 1.5 normal
+  if (IsApplicationLimited()) {
+    recovery_multiplier = 3.0;  // Even more aggressive when application limited
+  }
+
+  // Request probe at multiplier x current estimate
+  DataRate probe_rate = current_estimate * recovery_multiplier;
+  if (max_target_rate_) {
+    probe_rate = std::min(probe_rate, *max_target_rate_);
+  }
+
+  // Store probe estimate for later processing
+  last_probe_estimate_ = probe_rate;
+
+  RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe at " << probe_rate.bps() 
+                   << " bps (multiplier: " << recovery_multiplier << ")";
+
+  // Note: Actual probe cluster creation would be done here with probe_controller_
+  // This is a simplified implementation
+}
+
+void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
+  // Handle recovery mode detection based on clean ECT1 packets
+  if (ce_count == 0 && ect_count > 0) {
+    consecutive_clean_packets_ += ect_count;
+    
+    // Trigger recovery mode if enough clean packets seen and not already in discovery
+    if (consecutive_clean_packets_ >= kRecoveryPacketThreshold && 
+        !recovery_mode_active_ && 
+        !prague_estimator_->IsDiscoveryModeActive()) {
+      
+      recovery_mode_active_ = true;
+      recovery_start_time_ = now;
+      
+      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_ 
+                       << " clean ECT packets";
+    }
+  } else if (ce_count > 0) {
+    // Reset clean packet count on congestion
+    consecutive_clean_packets_ = 0;
+    
+    // Exit recovery mode on congestion
+    if (recovery_mode_active_) {
+      recovery_mode_active_ = false;
+      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
+    }
+  }
+  
+  // Check recovery mode exit conditions
+  if (recovery_mode_active_) {
+    TimeDelta recovery_duration = now - recovery_start_time_;
+    
+    // Exit conditions:
+    // 1. Maximum recovery duration exceeded (10 seconds)
+    // 2. Prague and probe converged at higher capacity
+    if (recovery_duration > TimeDelta::Seconds(10) || 
+        CheckProbeAndPragueConvergence(now)) {
+      
+      recovery_mode_active_ = false;
+      consecutive_clean_packets_ = 0;
+      
+      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - " 
+                       << (recovery_duration > TimeDelta::Seconds(10) ? 
+                           "timeout" : "convergence achieved");
+    }
+  }
+}
+
+bool webrtc::L4SNetworkController::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
+  return !last_update.IsInfinite() && (now - last_update) < TimeDelta::Seconds(10);
 }
 
 }  // namespace webrtc

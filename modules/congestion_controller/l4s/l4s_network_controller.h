@@ -76,6 +76,13 @@ public:
   int GetNonCePacketCount() const { return non_ce_packet_count_; }
   bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
   double GetConfidence(Timestamp now) const;
+  
+  // Probe-aware rate limiting
+  void SetProbeConstraint(DataRate probe_estimate, double probe_confidence);
+  void ClearProbeConstraint();
+  
+  // Discovery mode control
+  void ExitDiscoveryMode(const std::string& reason);
 
 private:
   // Context-aware AI step calculation
@@ -98,6 +105,10 @@ private:
   // Discovery mode for fast startup
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
+  
+  // Probe constraint for discovery mode
+  DataRate probe_constraint_ = DataRate::Zero();
+  double probe_constraint_confidence_ = 0.0;
 };
 
 // Bandwidth source fusion engine
@@ -133,11 +144,13 @@ public:
   void UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now);
 
   DataRate GetFusedEstimate(Timestamp now) const;
+  DataRate GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const;
   BandwidthSources GetCurrentSources() const { return sources_; }
 
 private:
   DataRate GetMostConfidentEstimate(Timestamp now) const;
   DataRate ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const;
+  DataRate GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
 
   BandwidthSources sources_;
@@ -228,6 +241,15 @@ private:
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
   bool ShouldProbeNow(Timestamp now) const;
   void InitiateProbing(Timestamp now, NetworkControlUpdate* update);
+  void InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update);
+  
+  // Convergence detection
+  bool CheckProbeAndPragueConvergence(Timestamp now) const;
+  bool ShouldExitDiscoveryMode(Timestamp now) const;
+  bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
+  
+  // Recovery detection
+  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
 
   // ALR detection
   bool IsApplicationLimited() const;
@@ -293,6 +315,12 @@ private:
   // Probing state
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
   DataRate last_probe_estimate_ = DataRate::Zero();
+  
+  // Recovery state tracking
+  bool recovery_mode_active_ = false;
+  int consecutive_clean_packets_ = 0;  // ECT1 without CE
+  Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
+  static constexpr int kRecoveryPacketThreshold = 20; // ~3 RTTs worth
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
