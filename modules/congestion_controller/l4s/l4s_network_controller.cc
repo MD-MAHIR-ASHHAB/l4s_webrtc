@@ -1491,8 +1491,9 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
     
     // Update probe controller with new estimated bitrate
     if (probe_controller_ && rate_update.target_rate) {
+      DataRate target_bitrate = rate_update.target_rate->target_rate;
       auto probes = probe_controller_->SetEstimatedBitrate(
-          *rate_update.target_rate, 
+          target_bitrate, 
           BandwidthLimitedCause::kDelayBasedLimited,  // Default cause
           at_time);
       
@@ -1500,7 +1501,7 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
         update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
                                             probes.begin(), probes.end());
         RTC_LOG(LS_INFO) << "L4S: ProbeController created " << probes.size() 
-                         << " probes due to bitrate update to " << rate_update.target_rate->bps() << " bps";
+                         << " probes due to bitrate update to " << target_bitrate.bps() << " bps";
       }
     }
   }
