@@ -1739,7 +1739,7 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
-  // More aggressive than normal probing during recovery
+  // More aggressive than normal probing during recovery testing
   double recovery_multiplier = 2.5;  // vs 1.5 normal
   if (IsApplicationLimited()) {
     recovery_multiplier = 3.0;  // Even more aggressive when application limited
