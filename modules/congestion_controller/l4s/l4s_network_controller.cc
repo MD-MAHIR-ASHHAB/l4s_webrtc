@@ -1225,14 +1225,18 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
   if (!config_.enable_probing || !probe_controller_) {
+    RTC_LOG(LS_WARNING) << "L4S: Probing disabled - enable_probing=" << config_.enable_probing 
+                        << ", probe_controller=" << (probe_controller_ ? "available" : "null");
     return;
   }
   
   // Recovery probing has higher priority and frequency
   if (recovery_mode_active_) {
     TimeDelta since_last_probe = now - last_probe_time_;
+    RTC_LOG(LS_INFO) << "L4S: Recovery mode active, time since last probe: " << since_last_probe.ms() << "ms";
     // More frequent probing during recovery (every 2 seconds vs 5 seconds)
     if (since_last_probe >= TimeDelta::Seconds(2)) {
+      RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
       InitiateRecoveryProbing(now, update);
       last_probe_time_ = now;
     }
@@ -1240,10 +1244,19 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
   
   // Regular periodic probing
-  bool should_probe = (now - last_probe_time_) >= config_.probe_interval;
-  should_probe = should_probe && ShouldProbeNow(now);
+  bool interval_ok = (now - last_probe_time_) >= config_.probe_interval;
+  bool probe_allowed = ShouldProbeNow(now);
+  bool should_probe = interval_ok && probe_allowed;
+  
+  // More detailed debug logging with INFO level
+  RTC_LOG(LS_INFO) << "L4S: Probe decision - time_since_last=" << (now - last_probe_time_).ms() 
+                   << "ms, interval_req=" << config_.probe_interval.ms() 
+                   << "ms, interval_ok=" << interval_ok 
+                   << ", probe_allowed=" << probe_allowed 
+                   << ", final_decision=" << should_probe;
   
   if (should_probe) {
+    RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe!";
     InitiateProbing(now, update);
     last_probe_time_ = now;
   }
@@ -1252,19 +1265,29 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
   // Don't probe if we're experiencing heavy congestion
   if (HasRecentCongestionSignals(now)) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to recent congestion signals";
     return false;
   }
   
-  // Don't probe if ECN feedback is very fresh and confident
-  if (IsEcnFeedbackFresh(now) && prague_estimator_->GetConfidence(now) > 0.9) {
+  // Don't probe if ECN feedback is very fresh and confident (more permissive for discovery)
+  double ecn_confidence = prague_estimator_->GetConfidence(now);
+  bool is_discovery_mode = mode_ == PragueMode::kDiscovery;
+  double confidence_threshold = is_discovery_mode ? 0.99 : 0.95;  // More permissive in discovery
+  
+  if (IsEcnFeedbackFresh(now) && ecn_confidence > confidence_threshold) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to high ECN confidence: " << ecn_confidence 
+                        << " > " << confidence_threshold << " (mode: " << (is_discovery_mode ? "discovery" : "recovery") << ")";
     return false;
   }
   
   // Don't probe during high loss periods
   if (last_loss_fraction_ > 0.02) {  // 2% loss threshold
+    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to high loss: " << last_loss_fraction_;
     return false;
   }
   
+  RTC_LOG(LS_VERBOSE) << "L4S: Probe allowed - ECN confidence: " << ecn_confidence 
+                      << ", loss: " << last_loss_fraction_;
   return true;
 }
 
