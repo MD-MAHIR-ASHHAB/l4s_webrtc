@@ -24,6 +24,9 @@
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
 
+// Real probe infrastructure
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
+
 namespace webrtc {
 
 // =============================================================================
@@ -823,6 +826,20 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   
   if (config_.enable_probing) {
     probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
+    probe_bitrate_estimator_ = std::make_unique<ProbeBitrateEstimator>(&env_.event_log());
+    
+    // Configure probe controller with initial bitrates
+    if (starting_rate_ && min_target_rate_ && max_target_rate_) {
+      auto initial_probes = probe_controller_->SetBitrates(
+          *min_target_rate_, *starting_rate_, *max_target_rate_, 
+          Timestamp::Millis(env_.clock().TimeInMilliseconds()));
+      
+      RTC_LOG(LS_INFO) << "L4S: Configured probe controller with initial bitrates - "
+                       << "min: " << min_target_rate_->bps() << " bps, "
+                       << "start: " << starting_rate_->bps() << " bps, "
+                       << "max: " << max_target_rate_->bps() << " bps, "
+                       << "initial probes: " << initial_probes.size();
+    }
   }
   
   if (config_.enable_acked_estimation) {
@@ -1009,7 +1026,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   }
   
   if (probe_controller_) {
-    ProcessProbeResults(feedback);
+    ProcessRealProbeResults(feedback);
   }
   
   // 2. Get initial fused estimate (without ECN input)
@@ -1168,15 +1185,42 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   }
 }
 
-void webrtc::L4SNetworkController::ProcessProbeResults(const TransportPacketsFeedback& feedback) {
-  // Process probe results and update fusion engine
-  // This is a placeholder - actual implementation would need to detect and process probe clusters
-  
-  TimeDelta since_probe = feedback.feedback_time - last_probe_time_;
-  if (since_probe < TimeDelta::Seconds(2) && last_probe_estimate_ > DataRate::Zero()) {
-    double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
-    bandwidth_fusion_->UpdateProbeEstimate(last_probe_estimate_, probe_confidence, feedback.feedback_time);
+void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
+  if (!probe_bitrate_estimator_) {
+    return;
   }
+
+  // Process each packet to detect probe clusters and measure real throughput
+  for (const auto& packet_feedback : feedback.SortedByReceiveTime()) {
+    if (packet_feedback.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
+      // This is a real probe packet - let ProbeBitrateEstimator measure it
+      probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_feedback);
+      
+      RTC_LOG(LS_VERBOSE) << "L4S: Processing probe packet from cluster " 
+                         << packet_feedback.sent_packet.pacing_info.probe_cluster_id
+                         << ", size: " << packet_feedback.sent_packet.size.bytes() << " bytes";
+    }
+  }
+
+  // Get the real measured probe result (if any)
+  std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
+  if (measured_probe_rate) {
+    // Update fusion engine with REAL network measurement
+    double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+    bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
+    
+    RTC_LOG(LS_INFO) << "L4S: Real probe result measured: " << measured_probe_rate->bps() 
+                     << " bps with confidence " << probe_confidence;
+  }
+}
+
+std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
+  if (!probe_bitrate_estimator_) {
+    return std::nullopt;
+  }
+  
+  // Fetch the latest real probe measurement from the estimator
+  return probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
 }
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
@@ -1225,6 +1269,10 @@ bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
 }
 
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
+  if (!probe_controller_) {
+    return;
+  }
+
   // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
@@ -1235,20 +1283,28 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     RTC_LOG(LS_VERBOSE) << "L4S: Using aggressive probing during ALR period";
   }
   
-  // Request probe at multiplier x current estimate
+  // Calculate probe rate
   DataRate probe_rate = current_estimate * probe_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
+
+  // Use real ProbeController to create probe clusters
+  auto probes = probe_controller_->RequestProbe(now);
   
-  // Store probe estimate for later processing
-  last_probe_estimate_ = probe_rate;
-  
-  RTC_LOG(LS_INFO) << "L4S: Initiating probe at " << probe_rate.bps() 
-                   << " bps (multiplier: " << probe_multiplier << ")";
-  
-  // Note: Actual probe cluster creation would be done here with probe_controller_
-  // This is a simplified implementation
+  if (!probes.empty()) {
+    // Add probe clusters to network update for transport layer to send
+    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
+                                        probes.begin(), probes.end());
+    
+    RTC_LOG(LS_INFO) << "L4S: Created " << probes.size() << " real probe clusters, "
+                     << "target rate: " << probe_rate.bps() << " bps";
+    
+    for (const auto& probe : probes) {
+      RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe.id 
+                       << " at " << probe.target_data_rate.bps() << " bps";
+    }
+  }
 }
 
 double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
@@ -1432,6 +1488,21 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   }
   if (rate_update.target_rate) {
     update->target_rate = rate_update.target_rate;
+    
+    // Update probe controller with new estimated bitrate
+    if (probe_controller_ && rate_update.target_rate) {
+      auto probes = probe_controller_->SetEstimatedBitrate(
+          *rate_update.target_rate, 
+          BandwidthLimitedCause::kDelayBasedLimited,  // Default cause
+          at_time);
+      
+      if (!probes.empty()) {
+        update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
+                                            probes.begin(), probes.end());
+        RTC_LOG(LS_INFO) << "L4S: ProbeController created " << probes.size() 
+                         << " probes due to bitrate update to " << rate_update.target_rate->bps() << " bps";
+      }
+    }
   }
 }
 
@@ -1634,20 +1705,29 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     recovery_multiplier = 3.0;  // Even more aggressive when application limited
   }
 
-  // Request probe at multiplier x current estimate
+  // Calculate target probe rate
   DataRate probe_rate = current_estimate * recovery_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Store probe estimate for later processing
-  last_probe_estimate_ = probe_rate;
-
-  RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe at " << probe_rate.bps() 
-                   << " bps (multiplier: " << recovery_multiplier << ")";
-
-  // Note: Actual probe cluster creation would be done here with probe_controller_
-  // This is a simplified implementation
+  // Use real ProbeController to create recovery probe clusters
+  auto probes = probe_controller_->RequestProbe(now);
+  
+  if (!probes.empty()) {
+    // Add probe clusters to network update for transport layer to send
+    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
+                                        probes.begin(), probes.end());
+    
+    RTC_LOG(LS_INFO) << "L4S: Created " << probes.size() << " recovery probe clusters, "
+                     << "target rate: " << probe_rate.bps() << " bps (multiplier: " 
+                     << recovery_multiplier << ")";
+    
+    for (const auto& probe : probes) {
+      RTC_LOG(LS_INFO) << "L4S: Recovery probe cluster " << probe.id 
+                       << " at " << probe.target_data_rate.bps() << " bps";
+    }
+  }
 }
 
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {

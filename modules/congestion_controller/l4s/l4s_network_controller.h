@@ -19,6 +19,7 @@
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/probe_controller.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "system_wrappers/include/clock.h"
 
@@ -232,7 +233,8 @@ private:
   DataRate DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now);
   void UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
-  void ProcessProbeResults(const TransportPacketsFeedback& feedback);
+  void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
+  std::optional<DataRate> GetLastProbeResult();
   
   // Bandwidth fusion methods
   DataRate GetBaseFusedEstimate(Timestamp now);
@@ -287,6 +289,7 @@ private:
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_estimator_;
   std::unique_ptr<ProbeController> probe_controller_;
+  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
   std::unique_ptr<AlrDetector> alr_detector_;
   std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
@@ -314,7 +317,6 @@ private:
 
   // Probing state
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
-  DataRate last_probe_estimate_ = DataRate::Zero();
   
   // Recovery state tracking
   bool recovery_mode_active_ = false;
