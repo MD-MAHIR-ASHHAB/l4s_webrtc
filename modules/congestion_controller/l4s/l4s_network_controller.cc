@@ -1232,8 +1232,9 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   
   // Recovery probing has higher priority and frequency
   if (recovery_mode_active_) {
-    TimeDelta since_last_probe = now - last_probe_time_;
-    RTC_LOG(LS_INFO) << "L4S: Recovery mode active, time since last probe: " << since_last_probe.ms() << "ms";
+    TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
+    int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
+    RTC_LOG(LS_INFO) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
     // More frequent probing during recovery (every 2 seconds vs 5 seconds)
     if (since_last_probe >= TimeDelta::Seconds(2)) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
@@ -1244,12 +1245,13 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
   
   // Regular periodic probing
-  bool interval_ok = (now - last_probe_time_) >= config_.probe_interval;
+  bool interval_ok = last_probe_time_.IsInfinite() || (now - last_probe_time_) >= config_.probe_interval;
   bool probe_allowed = ShouldProbeNow(now);
   bool should_probe = interval_ok && probe_allowed;
   
-  // More detailed debug logging with INFO level
-  RTC_LOG(LS_INFO) << "L4S: Probe decision - time_since_last=" << (now - last_probe_time_).ms() 
+  // More detailed debug logging with INFO level (safe timestamp handling)
+  int64_t time_since_last_ms = last_probe_time_.IsInfinite() ? -1 : (now - last_probe_time_).ms();
+  RTC_LOG(LS_INFO) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
                    << "ms, interval_req=" << config_.probe_interval.ms() 
                    << "ms, interval_ok=" << interval_ok 
                    << ", probe_allowed=" << probe_allowed 
@@ -1347,7 +1349,7 @@ double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) con
 }
 
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
-  TimeDelta since_probe = now - last_probe_time_;
+  TimeDelta since_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
   if (since_probe < TimeDelta::Seconds(1)) {
     return 0.95;  // Very high confidence in fresh probe results
   } else if (since_probe < TimeDelta::Seconds(10)) {
