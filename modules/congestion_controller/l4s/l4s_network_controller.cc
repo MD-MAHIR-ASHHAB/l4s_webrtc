@@ -1158,6 +1158,7 @@ void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPack
   // Delay estimation disabled for L4S - ECN marks are the primary signal
   // L4S philosophy: explicit congestion signals (CE marks) replace delay inference
   return;
+}
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
   // Update acknowledged bitrate estimator
