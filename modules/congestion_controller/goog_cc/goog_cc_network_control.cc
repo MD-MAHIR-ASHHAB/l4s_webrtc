@@ -615,6 +615,14 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   TimeDelta window_interval = window_end - window_start;
   if (window_interval > TimeDelta::Millis(1)) {
     last_actual_bitrate_ = DataRate::BitsPerSec(static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    
+    RTC_LOG(LS_INFO) << "GCC Throughput Calculation: "
+                     << "packets=" << throughput_window_.size()
+                     << " bytes=" << window_bytes
+                     << " interval=" << window_interval.ms() << " ms"
+                     << " throughput=" << last_actual_bitrate_.bps() / 1e6 << " Mbps"
+                     << " ack_estimate=" << (acknowledged_bitrate_estimator_->bitrate().has_value() ? 
+                                             acknowledged_bitrate_estimator_->bitrate()->bps() / 1e6 : 0.0) << " Mbps";
   } else {
     last_actual_bitrate_ = DataRate::Zero();
   }
@@ -747,6 +755,15 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
                                          probes.begin(), probes.end());
     update->pacer_config = GetPacingRates(at_time);
+    
+    RTC_LOG(LS_INFO) << "GCC Rate Update at " << at_time.ms() << " ms:"
+                     << " loss_based=" << loss_based_target_rate.bps() / 1e6 << " Mbps"
+                     << " pushback=" << pushback_target_rate.bps() / 1e6 << " Mbps"
+                     << " acknowledged=" << (acknowledged_bitrate_estimator_->bitrate().has_value() ? 
+                                             acknowledged_bitrate_estimator_->bitrate()->bps() / 1e6 : 0.0) << " Mbps"
+                     << " loss=" << static_cast<int>(fraction_loss) << "/255"
+                     << " rtt=" << round_trip_time.ms() << " ms";
+    
     RTC_LOG(LS_VERBOSE) << "bwe " << at_time.ms() << " pushback_target_bps="
                         << last_pushback_target_rate_.bps()
                         << " estimate_bps=" << loss_based_target_rate.bps();
@@ -821,9 +838,25 @@ void GCCMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target
 
   logger_->LogSingleValueMetric("actual_throughput_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
                                 webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});                              
-                                
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
   
+  // Log the gap between target and actual for analysis
+  double rate_gap_mbps = (target_bitrate.bps() - actual_bitrate.bps()) / 1e6;
+  double utilization_percent = actual_bitrate.bps() > 0 ? 
+                                (actual_bitrate.bps() * 100.0 / target_bitrate.bps()) : 0.0;
+  
+  logger_->LogSingleValueMetric("rate_gap_mbps", test_case_name_, rate_gap_mbps, 
+                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  logger_->LogSingleValueMetric("bandwidth_utilization_percent", test_case_name_, utilization_percent, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  
+  RTC_LOG(LS_INFO) << "GCC Bandwidth: target=" << target_bitrate.bps() / 1e6 
+                   << " Mbps, actual=" << actual_bitrate.bps() / 1e6 
+                   << " Mbps, gap=" << rate_gap_mbps 
+                   << " Mbps (" << utilization_percent << "% utilization)";
 }
 
 void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
