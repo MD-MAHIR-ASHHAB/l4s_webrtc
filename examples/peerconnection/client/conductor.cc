@@ -94,9 +94,9 @@ class DummySetSessionDescriptionObserver
 
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 2560;   // 2K resolution (2560x1440)
-  const size_t kHeight = 1440;
-  const size_t kFps = 60;       // 60 FPS
+  const size_t kWidth = 1920;   // (1920x1080)
+  const size_t kHeight = 1080;
+  const size_t kFps = 30;       // 30 FPS
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
       webrtc::VideoCaptureFactory::CreateDeviceInfo());
   if (!info) {
