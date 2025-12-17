@@ -572,14 +572,10 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Times
   double total_other_confidence = 0.0;
   DataRate combined_other = DataRate::Zero();
   
+  // Combine ECN and Acked estimates (delay and ALR removed for L4S simplicity)
   if (sources_.ecn_confidence > 0.3 && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
     combined_other = combined_other + sources_.ecn_estimate * sources_.ecn_confidence;
     total_other_confidence += sources_.ecn_confidence;
-  }
-  
-  if (sources_.delay_confidence > 0.3 && IsRecentlyUpdated(sources_.last_delay_update, now)) {
-    combined_other = combined_other + sources_.delay_estimate * sources_.delay_confidence;
-    total_other_confidence += sources_.delay_confidence;
   }
   
   if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
@@ -1159,18 +1155,9 @@ webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(Da
 }
 
 void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
-  // Extract delay information and update delay-based estimator
-  // This is a simplified implementation - in practice, you'd need to properly
-  // convert the feedback format for DelayBasedBwe
-  
-  if (last_rtt_.IsFinite()) {
-    // Update delay estimator with RTT information
-    // Note: This is a placeholder - actual implementation would need proper adaptation
-    DataRate delay_estimate = DataRate::KilobitsPerSec(1000);  // Placeholder
-    double delay_confidence = CalculateDelayConfidence(feedback.feedback_time);
-    bandwidth_fusion_->UpdateDelayEstimate(delay_estimate, delay_confidence, feedback.feedback_time);
-  }
-}
+  // Delay estimation disabled for L4S - ECN marks are the primary signal
+  // L4S philosophy: explicit congestion signals (CE marks) replace delay inference
+  return;
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
   // Update acknowledged bitrate estimator
@@ -1645,33 +1632,9 @@ bool webrtc::L4SNetworkController::IsApplicationLimited() const {
 }
 
 void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& feedback) {
-  if (!alr_detector_) {
-    return;
-  }
-  
-  // Calculate approximate bytes sent from feedback
-  size_t bytes_sent = 0;
-  for (const auto& packet : feedback.PacketsWithFeedback()) {
-    (void)packet;  // Mark as used to avoid warning
-    // Use a reasonable estimate if packet size isn't available
-    bytes_sent += 1200;  // Typical packet size
-  }
-  
-  alr_detector_->OnBytesSent(bytes_sent, feedback.feedback_time.ms());
-  
-  // Update ALR estimate in bandwidth fusion
-  if (IsApplicationLimited()) {
-    // During ALR, use current acked bitrate as ALR constraint
-    auto fusion_sources = bandwidth_fusion_->GetCurrentSources();
-    DataRate alr_constraint = fusion_sources.acked_estimate;
-    if (alr_constraint > DataRate::Zero()) {
-      bandwidth_fusion_->UpdateAlrEstimate(alr_constraint, 0.9, feedback.feedback_time);
-    }
-  } else {
-    // Not in ALR, clear ALR constraint 
-    bandwidth_fusion_->UpdateAlrEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
-  }
-}
+  // ALR detection disabled - not useful for continuous video streaming
+  // Video conferencing scenarios rarely become application-limited
+  return;
 
 bool webrtc::L4SNetworkController::CheckProbeAndPragueConvergence(Timestamp now) const {
   if (!prague_estimator_ || !bandwidth_fusion_) {
