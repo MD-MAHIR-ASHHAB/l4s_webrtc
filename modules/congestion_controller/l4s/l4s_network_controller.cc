@@ -562,10 +562,10 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Times
   double probe_weight = 0.0;
   double other_weight = 0.0;
   
-  // Probe estimate gets 80% weight if available and confident
+  // Probe estimate gets reduced weight due to underestimation tendency
   if (sources_.probe_confidence > 0.5 && IsRecentlyUpdated(sources_.last_probe_update, now)) {
     probe_weighted = sources_.probe_estimate;
-    probe_weight = recovery_mode ? 0.85 : 0.80;  // Slightly higher weight in recovery
+    probe_weight = recovery_mode ? 0.65 : 0.60;  // Reduced weight due to probe underestimation
   }
   
   // Combine other estimates for remaining weight
@@ -1791,12 +1791,15 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   } else {
     RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters, creating manual probe";
     
-    // Create manual probe cluster as fallback
+    // Create manual probe cluster as fallback with GCC-like parameters
     ProbeClusterConfig manual_probe;
     manual_probe.target_data_rate = probe_rate;
-    manual_probe.target_duration = TimeDelta::Millis(15);  // 15ms probe duration
-    manual_probe.target_probe_count = 5;  // 5 probe packets
+    manual_probe.target_duration = TimeDelta::Millis(50);  // Longer duration for stability
+    manual_probe.target_probe_count = 15;  // More packets for better measurement
     manual_probe.id = 999;  // Manual probe ID
+    
+    RTC_LOG(LS_INFO) << "L4S: Manual probe config - rate: " << probe_rate.bps() 
+                     << " bps, duration: 50ms, packets: 15";
     
     update->probe_cluster_configs.push_back(manual_probe);
     RTC_LOG(LS_INFO) << "L4S: Created manual recovery probe cluster at " 
