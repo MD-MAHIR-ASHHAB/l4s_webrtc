@@ -1636,6 +1636,7 @@ void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedb
   // ALR detection disabled - not useful for continuous video streaming
   // Video conferencing scenarios rarely become application-limited
   return;
+}
 
 bool webrtc::L4SNetworkController::CheckProbeAndPragueConvergence(Timestamp now) const {
   if (!prague_estimator_ || !bandwidth_fusion_) {
