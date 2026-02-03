@@ -99,51 +99,13 @@ class DummySetSessionDescriptionObserver
   }
 };
 
-std::unique_ptr<TestVideoCapturer> CreateCapturer(
-    webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 1920;   // (1920x1080) Full HD
-  const size_t kHeight = 1080;
-  const size_t kFps = 30;       // 30 FPS
-
-  
-  std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
-      webrtc::VideoCaptureFactory::CreateDeviceInfo());
-  if (!info) {
-    return nullptr;
-  }
-  int num_devices = info->NumberOfDevices();
-  for (int i = 0; i < num_devices; ++i) {
-    std::unique_ptr<TestVideoCapturer> capturer =
-        webrtc::test::CreateVideoCapturer(kWidth, kHeight, kFps, i);
-    if (capturer) {
-      return capturer;
-    }
-  }
-  
- // //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
- //    //   kWidth, kHeight, std::nullopt, std::nullopt);
-
- // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
- //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
-
-  // auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
-  // auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
-
- auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-     kWidth, kHeight, std::nullopt, std::nullopt);
-  return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
-      webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
-      task_queue_factory);
-}
 // std::unique_ptr<TestVideoCapturer> CreateCapturer(
 //     webrtc::TaskQueueFactory& task_queue_factory) {
-//   // 1. Update Resolution to match clock_720p.yuv
-//   const size_t kWidth = 1280;   
-//   const size_t kHeight = 720;
-//   const size_t kFps = 30;       
+//   const size_t kWidth = 1920;   // (1920x1080) Full HD
+//   const size_t kHeight = 1080;
+//   const size_t kFps = 30;       // 30 FPS
 
-//   // 2. Webcam logic (Commented out to force file usage)
-//   /*
+  
 //   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
 //       webrtc::VideoCaptureFactory::CreateDeviceInfo());
 //   if (!info) {
@@ -157,23 +119,62 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
 //       return capturer;
 //     }
 //   }
-//   */
-
-//   // 3. File Generator Logic using ResourcePath
-//   // This looks for "clock_720p.yuv" inside your resources folder
-//   auto file_path = webrtc::test::ResourcePath("clock_720p", "yuv");
   
-//   // We use 1000 repeats so the video loops continuously
-//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
-//       {file_path}, kWidth, kHeight, 1000);
+//  // //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+//  //    //   kWidth, kHeight, std::nullopt, std::nullopt);
 
-//   // 4. Return the Capturer
+//  // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//  //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
+
+//   // auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+//   // auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
+
+//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+//      kWidth, kHeight, std::nullopt, std::nullopt);
 //   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
-//       webrtc::Clock::GetRealTimeClock(), 
-//       std::move(frame_generator), 
-//       kFps,
+//       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
 //       task_queue_factory);
 // }
+std::unique_ptr<TestVideoCapturer> CreateCapturer(
+    webrtc::TaskQueueFactory& task_queue_factory) {
+  // 1. Update Resolution to match clock_720p.yuv
+  const size_t kWidth = 1280;   
+  const size_t kHeight = 720;
+  const size_t kFps = 30;       
+
+  // 2. Webcam logic (Commented out to force file usage)
+  /*
+  std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
+      webrtc::VideoCaptureFactory::CreateDeviceInfo());
+  if (!info) {
+    return nullptr;
+  }
+  int num_devices = info->NumberOfDevices();
+  for (int i = 0; i < num_devices; ++i) {
+    std::unique_ptr<TestVideoCapturer> capturer =
+        webrtc::test::CreateVideoCapturer(kWidth, kHeight, kFps, i);
+    if (capturer) {
+      return capturer;
+    }
+  }
+  */
+
+  // 3. File Generator Logic using ResourcePath
+  // This looks for "clock_720p.yuv" inside your resources folder
+  auto file_path = webrtc::test::ResourcePath("clock_720p", "yuv");
+  RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+  
+  // We use 1000 repeats so the video loops continuously
+  auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+      {file_path}, kWidth, kHeight, 1);
+
+  // 4. Return the Capturer
+  return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+      webrtc::Clock::GetRealTimeClock(), 
+      std::move(frame_generator), 
+      kFps,
+      task_queue_factory);
+}
 
 class CapturerTrackSource : public webrtc::VideoTrackSource {
  public:
