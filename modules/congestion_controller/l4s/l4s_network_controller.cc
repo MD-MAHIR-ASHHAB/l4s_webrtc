@@ -621,7 +621,11 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Times
 }
 
 bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
-  return !last_update.IsInfinite() && (now - last_update) < TimeDelta::Seconds(10);
+  // Check both timestamps for infinity before arithmetic to prevent crash
+  if (last_update.IsInfinite() || now.IsInfinite()) {
+    return false;
+  }
+  return (now - last_update) < TimeDelta::Seconds(10);
 }
 
 // =============================================================================
@@ -1832,7 +1836,11 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
 }
 
 bool webrtc::L4SNetworkController::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
-  return !last_update.IsInfinite() && (now - last_update) < TimeDelta::Seconds(10);
+  // Check both timestamps for infinity before arithmetic to prevent crash
+  if (last_update.IsInfinite() || now.IsInfinite()) {
+    return false;
+  }
+  return (now - last_update) < TimeDelta::Seconds(10);
 }
 
 }  // namespace webrtc
