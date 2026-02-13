@@ -92,6 +92,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // Proportional decrease (much gentler than 50% reduction)
       double reduction_factor = 1.0 - alpha_ / 2.0;
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+      // Enforce absolute minimum of 20 kbps to prevent pacer crashes
+      reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
       
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
@@ -102,6 +104,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // Already in reduction mode: apply additional gentle reduction based on updated alpha
       double additional_reduction = 1.0 - alpha_ / 4.0;  // Gentler than initial reduction
       DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
+      // Enforce absolute minimum of 20 kbps to prevent pacer crashes
+      further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = further_reduced;
       
       RTC_LOG(LS_INFO) << "Prague: Additional reduction in reduction mode (alpha=" << alpha_
@@ -211,6 +215,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
   // Multiplicative decrease for packet loss (fallback mechanism)
   DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
+  // Enforce absolute minimum of 20 kbps to prevent pacer crashes
+  reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
   congestion_based_estimate_ = reduced;
   
   // Switch to reduction mode and reset non-CE counter
@@ -233,6 +239,8 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   if (elapsed >= kDecayInterval) {
     // Gradually decay estimates if not reinforced
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
+    // Enforce absolute minimum of 20 kbps to prevent pacer crashes
+    congestion_based_estimate_ = std::max(congestion_based_estimate_, DataRate::KilobitsPerSec(20));
     last_update_time_ = current_time;
   }
   
@@ -414,8 +422,10 @@ webrtc::L4SBandwidthFusion::L4SBandwidthFusion(const L4SControllerConfig& config
 webrtc::L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 
 void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_INFO) << "L4S: Updating ECN estimate to " << estimate.bps() << " bps with confidence " << confidence;
-  sources_.ecn_estimate = estimate;
+  // Enforce absolute minimum of 20 kbps to prevent pacer crashes
+  DataRate clamped_estimate = std::max(estimate, DataRate::KilobitsPerSec(20));
+  RTC_LOG(LS_INFO) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() << " bps with confidence " << confidence;
+  sources_.ecn_estimate = clamped_estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
 }
@@ -1402,6 +1412,8 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   if (min_target_rate_ && fused_rate < *min_target_rate_) {
     fused_rate = *min_target_rate_;
   }
+  // Final safety: enforce absolute minimum of 20 kbps to prevent pacer crashes
+  fused_rate = std::max(fused_rate, DataRate::KilobitsPerSec(20));
   if (max_target_rate_ && fused_rate > *max_target_rate_) {
     fused_rate = *max_target_rate_;
   }
