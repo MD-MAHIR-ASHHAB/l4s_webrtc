@@ -108,7 +108,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = further_reduced;
       
-      RTC_LOG(LS_INFO) << "Prague: Additional reduction in reduction mode (alpha=" << alpha_
+      RTC_LOG(LS_VERBOSE) << "Prague: Additional reduction in reduction mode (alpha=" << alpha_
                        << ", ce_ratio=" << ce_ratio 
                        << ", additional_reduction=" << additional_reduction
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
@@ -153,7 +153,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // Safety cap for discovery mode
       ai_step_bps = std::min(ai_step_bps, static_cast<int64_t>(2000000));  // Cap at 2 Mbps/RTT
       
-      RTC_LOG(LS_INFO) << "Prague: Discovery mode active - aggressive AI step: " 
+      RTC_LOG(LS_VERBOSE) << "Prague: Discovery mode active - aggressive AI step: " 
                        << ai_step_bps << " bps (5x theoretical: " << theoretical_ai_bps << " bps)";
     } else {
       // Normal Prague mode: Context-aware AI step calculation
@@ -181,14 +181,14 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       DataRate max_allowed = probe_constraint_ * 0.95;  // 95% of probe estimate
       if (increased > max_allowed) {
         increased = max_allowed;
-        RTC_LOG(LS_INFO) << "Prague: Rate limited by probe constraint to " << increased.bps() 
+        RTC_LOG(LS_VERBOSE) << "Prague: Rate limited by probe constraint to " << increased.bps() 
                          << " bps (probe: " << probe_constraint_.bps() << " bps)";
       }
     }
     
     congestion_based_estimate_ = increased;
     
-    RTC_LOG(LS_INFO) << "Prague: DCTCP additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
+    RTC_LOG(LS_VERBOSE) << "Prague: DCTCP additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
                      << "step=" << ai_step_bps << " bps), new rate=" 
                      << congestion_based_estimate_.bps() << " bps (input rate: " << current_rate.bps() << "), non_ce_count=" << non_ce_packet_count_;
     } else if (direction_flag_ == -1) {
@@ -379,7 +379,7 @@ int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t the
   }
   
   // Log the decision for debugging
-  RTC_LOG(LS_INFO) << "Prague: Context-aware AI calculation - "
+  RTC_LOG(LS_VERBOSE) << "Prague: Context-aware AI calculation - "
                       << "theoretical=" << theoretical_ai_bps << " bps, "
                       << "multiplier=" << context_multiplier << ", "
                       << "context_step=" << context_ai_bps << " bps, "
@@ -394,7 +394,7 @@ void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate
   probe_constraint_ = probe_estimate;
   probe_constraint_confidence_ = probe_confidence;
   
-  RTC_LOG(LS_INFO) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
+  RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
                    << " bps with confidence " << probe_confidence;
 }
 
@@ -424,35 +424,35 @@ webrtc::L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   DataRate clamped_estimate = std::max(estimate, DataRate::KilobitsPerSec(20));
-  RTC_LOG(LS_INFO) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() << " bps with confidence " << confidence;
   sources_.ecn_estimate = clamped_estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_INFO) << "L4S: Updating delay estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating delay estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.delay_estimate = estimate;
   sources_.delay_confidence = confidence;
   sources_.last_delay_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_INFO) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.probe_estimate = estimate;
   sources_.probe_confidence = confidence;
   sources_.last_probe_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_INFO) << "L4S: Updating acked estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating acked estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.acked_estimate = estimate;
   sources_.acked_confidence = confidence;
   sources_.last_acked_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_INFO) << "L4S: Updating ALR estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating ALR estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.alr_estimate = estimate;
   sources_.alr_confidence = confidence;
   sources_.last_alr_update = now;
@@ -602,19 +602,19 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Times
   DataRate fused_estimate;
   if (probe_weight > 0.0 && other_weight > 0.0) {
     fused_estimate = probe_weighted * probe_weight + other_weighted * other_weight;
-    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Probe: " << probe_weighted.bps() 
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Probe: " << probe_weighted.bps() 
                      << " bps (" << (probe_weight * 100) << "%), Other: " << other_weighted.bps() 
                      << " bps (" << (other_weight * 100) << "%), Fused: " << fused_estimate.bps() << " bps";
   } else if (probe_weight > 0.0) {
     fused_estimate = probe_weighted;
-    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Using probe only: " << fused_estimate.bps() << " bps";
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using probe only: " << fused_estimate.bps() << " bps";
   } else if (other_weight > 0.0) {
     fused_estimate = other_weighted;
-    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion - Using other estimates: " << fused_estimate.bps() << " bps";
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using other estimates: " << fused_estimate.bps() << " bps";
   } else {
     // Fallback to most confident estimate
     fused_estimate = GetMostConfidentEstimate(now);
-    RTC_LOG(LS_INFO) << "L4S: Discovery/recovery fusion fallback: " << fused_estimate.bps() << " bps";
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion fallback: " << fused_estimate.bps() << " bps";
   }
   
   return fused_estimate;
@@ -941,7 +941,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
         msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
   }
   
-  RTC_LOG(LS_INFO) << "L4S: RTT updated to " << msg.round_trip_time.ms() << " ms";
+  RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms() << " ms";
   
   return update;
 }
@@ -1088,11 +1088,11 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     DataRate prague_input_rate;
     if (prague_estimator_->IsDiscoveryModeActive()) {
       prague_input_rate = prague_estimator_->GetCurrentEstimate();
-      RTC_LOG(LS_INFO) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
+      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
                        << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
     } else {
       prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
-      RTC_LOG(LS_INFO) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
+      RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
                        << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
     }
     
@@ -1126,7 +1126,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
   // During discovery mode, bypass bottleneck constraints to allow aggressive growth
   if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-    RTC_LOG(LS_INFO) << "L4S: Discovery mode active - bypassing bottleneck detection, using fused rate: " 
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode active - bypassing bottleneck detection, using fused rate: " 
                      << fused_rate.bps() << " bps";
     return fused_rate;
   }
@@ -1147,14 +1147,14 @@ webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(Da
   if (probe_vs_acked_ratio > 2.0) {
     if (IsApplicationLimited()) {
       // Application bottleneck - respect application demand
-      RTC_LOG(LS_INFO) << "L4S: Application bottleneck detected, targeting acked rate: " 
+      RTC_LOG(LS_VERBOSE) << "L4S: Application bottleneck detected, targeting acked rate: " 
                        << acked_throughput.bps() << " bps";
       return acked_throughput;
     } else {
       // Receiver processing bottleneck - probe gently upward
       DataRate gentle_target = acked_throughput * 1.25;  // 25% increase
       gentle_target = std::min(gentle_target, fused_rate);  // Don't exceed fused rate
-      RTC_LOG(LS_INFO) << "L4S: Receiver bottleneck detected, gentle increase to: " 
+      RTC_LOG(LS_VERBOSE) << "L4S: Receiver bottleneck detected, gentle increase to: " 
                        << gentle_target.bps() << " bps (probe: " << probe_capacity.bps() 
                        << ", acked: " << acked_throughput.bps() << ")";
       return gentle_target;
@@ -1163,7 +1163,7 @@ webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(Da
   
   // Scenario 2: Network is the bottleneck - follow network-centric approach
   // Use fused rate which includes probe discoveries and safety constraints
-  RTC_LOG(LS_INFO) << "L4S: Network bottleneck detected, targeting fused rate: " 
+  RTC_LOG(LS_VERBOSE) << "L4S: Network bottleneck detected, targeting fused rate: " 
                    << fused_rate.bps() << " bps (ratio: " << probe_vs_acked_ratio << ")";
   return fused_rate;
 }
@@ -1211,7 +1211,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
     double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
     bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
     
-    RTC_LOG(LS_INFO) << "L4S: Real probe result measured: " << measured_probe_rate->bps() 
+    RTC_LOG(LS_VERBOSE) << "L4S: Real probe result measured: " << measured_probe_rate->bps() 
                      << " bps with confidence " << probe_confidence;
   }
 }
@@ -1236,7 +1236,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   if (recovery_mode_active_) {
     TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
-    RTC_LOG(LS_INFO) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
+    RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
     // More frequent probing during recovery (every 2 seconds vs 5 seconds)
     if (since_last_probe >= TimeDelta::Seconds(2)) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
@@ -1253,7 +1253,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   
   // More detailed debug logging with INFO level (safe timestamp handling)
   int64_t time_since_last_ms = last_probe_time_.IsInfinite() ? -1 : (now - last_probe_time_).ms();
-  RTC_LOG(LS_INFO) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
+  RTC_LOG(LS_VERBOSE) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
                    << "ms, interval_req=" << config_.probe_interval.ms() 
                    << "ms, interval_ok=" << interval_ok 
                    << ", probe_allowed=" << probe_allowed 
@@ -1317,12 +1317,12 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   }
 
   // Update ProbeController with current bitrate first
-  RTC_LOG(LS_INFO) << "L4S: Setting ProbeController bitrate to " << current_estimate.bps() << " bps";
+  RTC_LOG(LS_VERBOSE) << "L4S: Setting ProbeController bitrate to " << current_estimate.bps() << " bps";
   auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
       current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
   
   // Request additional probe clusters
-  RTC_LOG(LS_INFO) << "L4S: Requesting probe clusters from ProbeController";
+  RTC_LOG(LS_VERBOSE) << "L4S: Requesting probe clusters from ProbeController";
   auto request_probes = probe_controller_->RequestProbe(now);
   
   // Combine both sets of probes
@@ -1330,17 +1330,17 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
   probes.insert(probes.end(), request_probes.begin(), request_probes.end());
   
-  RTC_LOG(LS_INFO) << "L4S: ProbeController returned " << probes.size() << " probe clusters";
+  RTC_LOG(LS_VERBOSE) << "L4S: ProbeController returned " << probes.size() << " probe clusters";
   if (!probes.empty()) {
     // Add probe clusters to network update for transport layer to send
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
                                         probes.begin(), probes.end());
     
-    RTC_LOG(LS_INFO) << "L4S: Created " << probes.size() << " real probe clusters, "
+    RTC_LOG(LS_VERBOSE) << "L4S: Created " << probes.size() << " real probe clusters, "
                      << "target rate: " << probe_rate.bps() << " bps";
     
     for (const auto& probe : probes) {
-      RTC_LOG(LS_INFO) << "L4S: Probe cluster " << probe.id 
+      RTC_LOG(LS_VERBOSE) << "L4S: Probe cluster " << probe.id 
                        << " at " << probe.target_data_rate.bps() << " bps";
     }
   } else {
@@ -1406,7 +1406,7 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // During discovery mode, still use Prague's estimate as it incorporates probe constraints
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_INFO) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
+    RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
                      << " bps, Fused rate: " << fused_rate.bps() << " bps";
     // Use Prague rate if it's lower (respecting probe constraints)
     fused_rate = std::min(prague_rate, fused_rate);
@@ -1733,20 +1733,20 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   }
 
   // Update ProbeController with current bitrate first
-  RTC_LOG(LS_INFO) << "L4S: Setting recovery ProbeController bitrate to " << current_estimate.bps() << " bps";
+  RTC_LOG(LS_VERBOSE) << "L4S: Setting recovery ProbeController bitrate to " << current_estimate.bps() << " bps";
   auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
       current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  RTC_LOG(LS_INFO) << "L4S: SetEstimatedBitrate returned " << bitrate_probes.size() << " probe clusters";
+  RTC_LOG(LS_VERBOSE) << "L4S: SetEstimatedBitrate returned " << bitrate_probes.size() << " probe clusters";
   
   // Try different probe approaches
   auto request_probes = probe_controller_->RequestProbe(now);
-  RTC_LOG(LS_INFO) << "L4S: RequestProbe returned " << request_probes.size() << " probe clusters";
+  RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << request_probes.size() << " probe clusters";
   
   // Try setting higher bitrates to trigger probing
   DataRate higher_rate = probe_rate;  // Use our calculated probe rate
   auto higher_probes = probe_controller_->SetEstimatedBitrate(
       higher_rate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  RTC_LOG(LS_INFO) << "L4S: SetEstimatedBitrate with higher rate " << higher_rate.bps() 
+  RTC_LOG(LS_VERBOSE) << "L4S: SetEstimatedBitrate with higher rate " << higher_rate.bps() 
                    << " bps returned " << higher_probes.size() << " probe clusters";
   
   // Combine all probe sets
@@ -1755,18 +1755,18 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   probes.insert(probes.end(), request_probes.begin(), request_probes.end());
   probes.insert(probes.end(), higher_probes.begin(), higher_probes.end());
   
-  RTC_LOG(LS_INFO) << "L4S: Total probe clusters collected: " << probes.size();
+  RTC_LOG(LS_VERBOSE) << "L4S: Total probe clusters collected: " << probes.size();
   if (!probes.empty()) {
     // Add probe clusters to network update for transport layer to send
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
                                         probes.begin(), probes.end());
     
-    RTC_LOG(LS_INFO) << "L4S: Created " << probes.size() << " recovery probe clusters, "
+    RTC_LOG(LS_VERBOSE) << "L4S: Created " << probes.size() << " recovery probe clusters, "
                      << "target rate: " << probe_rate.bps() << " bps (multiplier: " 
                      << recovery_multiplier << ")";
     
     for (const auto& probe : probes) {
-      RTC_LOG(LS_INFO) << "L4S: Recovery probe cluster " << probe.id 
+      RTC_LOG(LS_VERBOSE) << "L4S: Recovery probe cluster " << probe.id 
                        << " at " << probe.target_data_rate.bps() << " bps";
     }
   } else {
@@ -1779,7 +1779,7 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     manual_probe.target_probe_count = 15;  // More packets for better measurement
     manual_probe.id = 999;  // Manual probe ID
     
-    RTC_LOG(LS_INFO) << "L4S: Manual probe config - rate: " << probe_rate.bps() 
+    RTC_LOG(LS_VERBOSE) << "L4S: Manual probe config - rate: " << probe_rate.bps() 
                      << " bps, duration: 50ms, packets: 15";
     
     update->probe_cluster_configs.push_back(manual_probe);
