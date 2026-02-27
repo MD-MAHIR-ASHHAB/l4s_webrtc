@@ -1377,36 +1377,17 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Update ProbeController with current bitrate first
-  RTC_LOG(LS_VERBOSE) << "L4S: Setting ProbeController bitrate to " << current_estimate.bps() << " bps";
-  auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
-      current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  
-  // Request additional probe clusters
-  RTC_LOG(LS_VERBOSE) << "L4S: Requesting probe clusters from ProbeController";
-  auto request_probes = probe_controller_->RequestProbe(now);
-  
-  // Combine both sets of probes
-  std::vector<ProbeClusterConfig> probes;
-  probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
-  probes.insert(probes.end(), request_probes.begin(), request_probes.end());
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: ProbeController returned " << probes.size() << " probe clusters";
+  // RequestProbe handles the ALR-end + large-drop case.  Periodic ALR
+  // probing is already driven by Process() in OnProcessInterval, so there is
+  // nothing else to do here for the normal (non-ALR) steady-state path.
+  auto probes = probe_controller_->RequestProbe(now);
   if (!probes.empty()) {
-    // Add probe clusters to network update for transport layer to send
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
-                                        probes.begin(), probes.end());
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Created " << probes.size() << " real probe clusters, "
-                     << "target rate: " << probe_rate.bps() << " bps";
-    
-    for (const auto& probe : probes) {
-      RTC_LOG(LS_VERBOSE) << "L4S: Probe cluster " << probe.id 
-                       << " at " << probe.target_data_rate.bps() << " bps";
-    }
-  } else {
-    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters for regular probing";
+    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
+                                         probes.begin(), probes.end());
+    RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << probes.size()
+                        << " probe clusters";
   }
+  (void)probe_rate;  // calculated above, kept for ALR multiplier logic
 }
 
 double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
@@ -1592,20 +1573,39 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   }
   if (rate_update.target_rate) {
     update->target_rate = rate_update.target_rate;
-    
-    // Update probe controller with new estimated bitrate
-    if (probe_controller_ && rate_update.target_rate) {
+
+    // Notify ProbeController of a meaningful bitrate change (>5% shift).
+    // Calling SetEstimatedBitrate on every feedback batch would flood
+    // probe_controller.cc's "Measured bitrate" log because that log fires
+    // unconditionally while state == kWaitingForProbingResult.
+    if (probe_controller_) {
       DataRate target_bitrate = rate_update.target_rate->target_rate;
-      auto probes = probe_controller_->SetEstimatedBitrate(
-          target_bitrate, 
-          BandwidthLimitedCause::kDelayBasedLimited,  // Default cause
-          at_time);
-      
-      if (!probes.empty()) {
-        update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
-                                            probes.begin(), probes.end());
-        RTC_LOG(LS_INFO) << "L4S: ProbeController created " << probes.size() 
-                         << " probes due to bitrate update to " << target_bitrate.bps() << " bps";
+      bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
+      bool changed_significantly =
+          is_first_report ||
+          (std::abs(static_cast<int64_t>(target_bitrate.bps()) -
+                    static_cast<int64_t>(
+                        last_reported_bitrate_to_probe_controller_.bps())) >
+           static_cast<int64_t>(
+               0.05 * last_reported_bitrate_to_probe_controller_.bps()));
+      if (changed_significantly) {
+        // Use kLossLimitedBweIncreasing during recovery so ProbeController
+        // records the cause correctly for future RequestProbe decisions.
+        BandwidthLimitedCause cause =
+            recovery_mode_active_
+                ? BandwidthLimitedCause::kLossLimitedBweIncreasing
+                : BandwidthLimitedCause::kDelayBasedLimited;
+        auto probes = probe_controller_->SetEstimatedBitrate(
+            target_bitrate, cause, at_time);
+        last_reported_bitrate_to_probe_controller_ = target_bitrate;
+        if (!probes.empty()) {
+          update->probe_cluster_configs.insert(
+              update->probe_cluster_configs.end(),
+              probes.begin(), probes.end());
+          RTC_LOG(LS_INFO) << "L4S: ProbeController created " << probes.size()
+                           << " probes due to bitrate change to "
+                           << target_bitrate.bps() << " bps";
+        }
       }
     }
   }
@@ -1803,60 +1803,37 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Update ProbeController with current bitrate first
-  RTC_LOG(LS_VERBOSE) << "L4S: Setting recovery ProbeController bitrate to " << current_estimate.bps() << " bps";
-  auto bitrate_probes = probe_controller_->SetEstimatedBitrate(
-      current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  RTC_LOG(LS_VERBOSE) << "L4S: SetEstimatedBitrate returned " << bitrate_probes.size() << " probe clusters";
-  
-  // Try different probe approaches
-  auto request_probes = probe_controller_->RequestProbe(now);
-  RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << request_probes.size() << " probe clusters";
-  
-  // Try setting higher bitrates to trigger probing
-  DataRate higher_rate = probe_rate;  // Use our calculated probe rate
-  auto higher_probes = probe_controller_->SetEstimatedBitrate(
-      higher_rate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  RTC_LOG(LS_VERBOSE) << "L4S: SetEstimatedBitrate with higher rate " << higher_rate.bps() 
-                   << " bps returned " << higher_probes.size() << " probe clusters";
-  
-  // Combine all probe sets
-  std::vector<ProbeClusterConfig> probes;
-  probes.insert(probes.end(), bitrate_probes.begin(), bitrate_probes.end());
-  probes.insert(probes.end(), request_probes.begin(), request_probes.end());
-  probes.insert(probes.end(), higher_probes.begin(), higher_probes.end());
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: Total probe clusters collected: " << probes.size();
-  if (!probes.empty()) {
-    // Add probe clusters to network update for transport layer to send
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(), 
-                                        probes.begin(), probes.end());
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Created " << probes.size() << " recovery probe clusters, "
-                     << "target rate: " << probe_rate.bps() << " bps (multiplier: " 
-                     << recovery_multiplier << ")";
-    
-    for (const auto& probe : probes) {
-      RTC_LOG(LS_VERBOSE) << "L4S: Recovery probe cluster " << probe.id 
-                       << " at " << probe.target_data_rate.bps() << " bps";
-    }
-  } else {
-    RTC_LOG(LS_WARNING) << "L4S: ProbeController returned no probe clusters, creating manual probe";
-    
-    // Create manual probe cluster as fallback with GCC-like parameters
-    ProbeClusterConfig manual_probe;
-    manual_probe.target_data_rate = probe_rate;
-    manual_probe.target_duration = TimeDelta::Millis(50);  // Longer duration for stability
-    manual_probe.target_probe_count = 15;  // More packets for better measurement
-    manual_probe.id = 999;  // Manual probe ID
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Manual probe config - rate: " << probe_rate.bps() 
-                     << " bps, duration: 50ms, packets: 15";
-    
-    update->probe_cluster_configs.push_back(manual_probe);
-    RTC_LOG(LS_INFO) << "L4S: Created manual recovery probe cluster at " 
-                     << probe_rate.bps() << " bps";
+  // Reset ProbeController back to kInit so SetBitrates triggers a fresh
+  // exponential probe sequence from current_estimate.  Reset() preserves
+  // network_available_, enable_periodic_alr_probing_, and
+  // max_total_allocated_bitrate_ per the ProbeController contract.
+  DataRate clamped_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+  DataRate clamped_max = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
+  if (!clamped_max.IsFinite()) {
+    clamped_max = DataRate::KilobitsPerSec(100000);
   }
+  // Ensure max >= current so the probe target is meaningful.
+  clamped_max = std::max(clamped_max, current_estimate);
+
+  probe_controller_->Reset(now);
+  auto probes = probe_controller_->SetBitrates(
+      clamped_min, current_estimate, clamped_max, now);
+  last_reported_bitrate_to_probe_controller_ = current_estimate;
+
+  if (!probes.empty()) {
+    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
+                                         probes.begin(), probes.end());
+    RTC_LOG(LS_INFO) << "L4S: Recovery probe initiated - "
+                     << probes.size() << " clusters from "
+                     << current_estimate.bps() << " bps "
+                     << "(max=" << clamped_max.bps() << " bps)";
+  } else {
+    // Network not yet available inside ProbeController; probe will fire once
+    // OnNetworkAvailability is forwarded.
+    RTC_LOG(LS_VERBOSE) << "L4S: Recovery probe deferred - network not available";
+  }
+  (void)probe_rate;         // computed above for max clamping
+  (void)recovery_multiplier;
 }
 
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {

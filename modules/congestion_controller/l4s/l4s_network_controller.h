@@ -318,6 +318,10 @@ private:
   // Probing state
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
   bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
+  // Last bitrate reported to ProbeController via SetEstimatedBitrate.  Used to
+  // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
+  // don't flood probe_controller.cc's "Measured bitrate" log.
+  DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
 
   // ALR state tracking for probe controller
   bool previously_in_alr_ = false;
