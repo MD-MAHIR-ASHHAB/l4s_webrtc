@@ -836,7 +836,7 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   }
   
   if (config_.enable_probing) {
-    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
+    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), &env_.event_log());
     probe_bitrate_estimator_ = std::make_unique<ProbeBitrateEstimator>(&env_.event_log());
     // SetBitrates is intentionally deferred to the first OnProcessInterval call
     // so we have a valid network timestamp and can return probe clusters to the
