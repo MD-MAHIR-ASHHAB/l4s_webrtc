@@ -797,7 +797,14 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
   
   // Initialize bandwidth fusion engine
   bandwidth_fusion_ = std::make_unique<L4SBandwidthFusion>(config_);
-  
+
+  // Set initial rate constraints BEFORE initializing estimators so that
+  // InitializeBandwidthEstimators() can read them if needed.
+  starting_rate_ = config.constraints.starting_rate;
+  min_target_rate_ = config.constraints.min_data_rate;
+  max_target_rate_ = config.constraints.max_data_rate;
+  target_rate_ = starting_rate;
+
   // Initialize bandwidth estimation components
   InitializeBandwidthEstimators();
   
@@ -811,12 +818,6 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
     metrics_collector_ = std::make_unique<L4SMetricsCollector>(
         logger_to_use, config_.test_case_name, &env_.clock());
   }
-  
-  // Set initial rate constraints
-  starting_rate_ = config.constraints.starting_rate;
-  min_target_rate_ = config.constraints.min_data_rate;
-  max_target_rate_ = config.constraints.max_data_rate;
-  target_rate_ = starting_rate;
   
   RTC_LOG(LS_INFO) << "L4SNetworkController created with starting rate: " 
                    << starting_rate.bps() << " bps";
@@ -837,19 +838,10 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   if (config_.enable_probing) {
     probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), nullptr);
     probe_bitrate_estimator_ = std::make_unique<ProbeBitrateEstimator>(&env_.event_log());
-    
-    // Configure probe controller with initial bitrates
-    if (starting_rate_ && min_target_rate_ && max_target_rate_) {
-      auto initial_probes = probe_controller_->SetBitrates(
-          *min_target_rate_, *starting_rate_, *max_target_rate_, 
-          Timestamp::Millis(env_.clock().TimeInMilliseconds()));
-      
-      RTC_LOG(LS_INFO) << "L4S: Configured probe controller with initial bitrates - "
-                       << "min: " << min_target_rate_->bps() << " bps, "
-                       << "start: " << starting_rate_->bps() << " bps, "
-                       << "max: " << max_target_rate_->bps() << " bps, "
-                       << "initial probes: " << initial_probes.size();
-    }
+    // SetBitrates is intentionally deferred to the first OnProcessInterval call
+    // so we have a valid network timestamp and can return probe clusters to the
+    // caller.  Calling it here would (a) use a stale clock timestamp and (b)
+    // silently discard the returned ProbeClusterConfig vector.
   }
   
   if (config_.enable_acked_estimation) {
@@ -869,6 +861,9 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
   NetworkControlUpdate update;
+  if (probe_controller_) {
+    update.probe_cluster_configs = probe_controller_->OnNetworkAvailability(msg);
+  }
   return update;
 }
 
@@ -900,7 +895,58 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   
   // Log periodic metrics
   LogPeriodicMetrics(msg.at_time);
-  
+
+  // --- ProbeController integration (GCC-compatible) ---
+  if (probe_controller_) {
+    // First call: initialise ProbeController with properly clamped bitrates and
+    // the real network timestamp.  We defer this from the constructor so that
+    // (a) the at_time is valid and (b) we can return probe clusters to the
+    // transport.
+    if (!initial_probes_sent_) {
+      initial_probes_sent_ = true;
+      DataRate clamped_min =
+          min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+      DataRate clamped_start =
+          starting_rate_.value_or(DataRate::KilobitsPerSec(300));
+      // Guard against PlusInfinity being passed to ProbeController – that
+      // causes internal probe targets to overflow to infinity.
+      DataRate clamped_max =
+          max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
+      if (!clamped_max.IsFinite()) {
+        clamped_max = DataRate::KilobitsPerSec(100000);  // 100 Mbps ceiling
+      }
+      // Ensure ordering invariant: min <= start <= max
+      clamped_start = std::max(clamped_min, clamped_start);
+      clamped_max   = std::max(clamped_start, clamped_max);
+
+      auto init_probes = probe_controller_->SetBitrates(
+          clamped_min, clamped_start, clamped_max, msg.at_time);
+      update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+                                          init_probes.begin(), init_probes.end());
+      probe_controller_->EnablePeriodicAlrProbing(true);
+      RTC_LOG(LS_INFO) << "L4S: ProbeController initialised - "
+                       << "min=" << clamped_min.bps() << " bps, "
+                       << "start=" << clamped_start.bps() << " bps, "
+                       << "max=" << clamped_max.bps() << " bps, "
+                       << "initial_probes=" << init_probes.size();
+    }
+
+    // Every interval: feed ALR state so the probe controller can trigger ALR
+    // probes at the right time.
+    if (alr_detector_) {
+      probe_controller_->SetAlrStartTimeMs(
+          alr_detector_->GetApplicationLimitedRegionStartTime());
+    }
+
+    // Let ProbeController emit any time-driven probes (ALR periodic, network
+    // state probes, etc.).
+    auto periodic_probes = probe_controller_->Process(msg.at_time);
+    update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+                                        periodic_probes.begin(),
+                                        periodic_probes.end());
+  }
+  // --- end ProbeController integration ---
+
   // Handle periodic probing
   HandlePeriodicProbing(msg.at_time, &update);
   
@@ -948,6 +994,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
   NetworkControlUpdate update;
+  // Feed ALR detector so it can track application-limited periods.
+  if (alr_detector_) {
+    alr_detector_->OnBytesSent(msg.size.bytes(), msg.send_time.ms());
+  }
   return update;
 }
 
@@ -958,6 +1008,17 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnReceivedPacket(Rece
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
   NetworkControlUpdate update;
+  if (probe_controller_) {
+    if (msg.requests_alr_probing) {
+      probe_controller_->EnablePeriodicAlrProbing(*msg.requests_alr_probing);
+    }
+    if (msg.max_total_allocated_bitrate) {
+      auto probes = probe_controller_->OnMaxTotalAllocatedBitrate(
+          *msg.max_total_allocated_bitrate, msg.at_time);
+      update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
+                                          probes.begin(), probes.end());
+    }
+  }
   return update;
 }
 
@@ -1649,9 +1710,19 @@ bool webrtc::L4SNetworkController::IsApplicationLimited() const {
 }
 
 void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& feedback) {
-  // ALR detection disabled - not useful for continuous video streaming
-  // Video conferencing scenarios rarely become application-limited
-  return;
+  // Track ALR state end so the probe controller can fire an ALR-end probe.
+  // Note: OnBytesSent is fed from OnSentPacket, which drives the ALR detector.
+  if (alr_detector_ && probe_controller_) {
+    std::optional<int64_t> alr_start_time =
+        alr_detector_->GetApplicationLimitedRegionStartTime();
+    if (previously_in_alr_ && !alr_start_time.has_value()) {
+      // ALR just ended – tell ProbeController so it can trigger an ALR probe.
+      probe_controller_->SetAlrEndedTimeMs(feedback.feedback_time.ms());
+      RTC_LOG(LS_INFO) << "L4S: ALR ended, notifying ProbeController at "
+                       << feedback.feedback_time.ms() << " ms";
+    }
+    previously_in_alr_ = alr_start_time.has_value();
+  }
 }
 
 bool webrtc::L4SNetworkController::CheckProbeAndPragueConvergence(Timestamp now) const {

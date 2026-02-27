@@ -317,7 +317,11 @@ private:
 
   // Probing state
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
-  
+  bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
+
+  // ALR state tracking for probe controller
+  bool previously_in_alr_ = false;
+
   // Recovery state tracking
   bool recovery_mode_active_ = false;
   int consecutive_clean_packets_ = 0;  // ECT1 without CE
