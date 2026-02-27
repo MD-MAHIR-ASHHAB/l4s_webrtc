@@ -140,46 +140,19 @@ class DummySetSessionDescriptionObserver
 
 // clock_720p.yuv file generator capturer
 
-// std::unique_ptr<TestVideoCapturer> CreateCapturer(
-//     webrtc::TaskQueueFactory& task_queue_factory) {
-//   // 1. Update Resolution to match clock_720p.yuv
-//   const size_t kWidth = 1280;   
-//   const size_t kHeight = 720;
-//   const size_t kFps = 30;       
-
-
-//   // 3. File Generator Logic using ResourcePath
-//   // This looks for "clock_720p.yuv" inside your resources folder
-//   auto file_path = webrtc::test::ResourcePath("clock_720p", "yuv");
-//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
-
-
-//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
-//       {file_path}, kWidth, kHeight, 1);
-
-//   // 4. Return the Capturer
-//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
-//       webrtc::Clock::GetRealTimeClock(), 
-//       std::move(frame_generator), 
-//       kFps,
-//       task_queue_factory);
-// }
-
-// clock_480p.yuv file generator capturer
-
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  // 1. Update Resolution to match clock_480p.yuv
-  const size_t kWidth = 640;   
-  const size_t kHeight = 480;
+  // 1. Update Resolution to match clock_720p.yuv
+  const size_t kWidth = 1280;   
+  const size_t kHeight = 720;
   const size_t kFps = 30;       
 
 
   // 3. File Generator Logic using ResourcePath
-  // This looks for "clock_480p.yuv" inside your resources folder
-  auto file_path = webrtc::test::ResourcePath("clock_480p", "yuv");
+  // This looks for "clock_720p.yuv" inside your resources folder
+  auto file_path = webrtc::test::ResourcePath("clock_720p", "yuv");
   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
-  
+
 
   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
       {file_path}, kWidth, kHeight, 1);
@@ -191,6 +164,33 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
       kFps,
       task_queue_factory);
 }
+
+// clock_480p.yuv file generator capturer
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   // 1. Update Resolution to match clock_480p.yuv
+//   const size_t kWidth = 640;   
+//   const size_t kHeight = 480;
+//   const size_t kFps = 30;       
+
+
+//   // 3. File Generator Logic using ResourcePath
+//   // This looks for "clock_480p.yuv" inside your resources folder
+//   auto file_path = webrtc::test::ResourcePath("clock_480p", "yuv");
+//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+  
+
+//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//       {file_path}, kWidth, kHeight, 1);
+
+//   // 4. Return the Capturer
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), 
+//       std::move(frame_generator), 
+//       kFps,
+//       task_queue_factory);
+// }
 
 
 class CapturerTrackSource : public webrtc::VideoTrackSource {
