@@ -1127,7 +1127,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       new_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
       
-      RTC_LOG(LS_WARNING) << "L4S: CE mark detected! Count=" << new_ce_count
+      RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << new_ce_count
                          << ", ECT count=" << new_ect_count;
     }
   }
@@ -1864,15 +1864,19 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
   if (ce_count == 0 && ect_count > 0) {
     consecutive_clean_packets_ += ect_count;
     
-    // Trigger recovery mode if enough clean packets seen and not already in discovery
-    if (consecutive_clean_packets_ >= kRecoveryPacketThreshold && 
-        !recovery_mode_active_ && 
-        !prague_estimator_->IsDiscoveryModeActive()) {
-      
+    // Trigger recovery mode if enough clean packets seen, not already in discovery,
+    // and the post-convergence cooldown has expired.
+    bool cooldown_expired = recovery_cooldown_until_.IsInfinite() ||
+                            now >= recovery_cooldown_until_;
+    if (consecutive_clean_packets_ >= kRecoveryPacketThreshold &&
+        !recovery_mode_active_ &&
+        !prague_estimator_->IsDiscoveryModeActive() &&
+        cooldown_expired) {
+
       recovery_mode_active_ = true;
       recovery_start_time_ = now;
-      
-      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_ 
+
+      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
                        << " clean ECT packets";
     }
   } else if (ce_count > 0) {
@@ -1896,12 +1900,19 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     if (recovery_duration > TimeDelta::Seconds(10) || 
         CheckProbeAndPragueConvergence(now)) {
       
+      bool by_convergence = !( recovery_duration > TimeDelta::Seconds(10) );
       recovery_mode_active_ = false;
       consecutive_clean_packets_ = 0;
-      
-      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - " 
-                       << (recovery_duration > TimeDelta::Seconds(10) ? 
-                           "timeout" : "convergence achieved");
+
+      if (by_convergence) {
+        // Impose a cooldown so the controller doesn't oscillate back into
+        // recovery immediately on a stable, low-congestion network.
+        recovery_cooldown_until_ = now + kRecoveryCooldown;
+        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - convergence achieved, "
+                         << "cooldown until +" << kRecoveryCooldown.seconds<int>() << "s";
+      } else {
+        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - timeout";
+      }
     }
   }
 }

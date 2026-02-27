@@ -326,6 +326,10 @@ private:
   bool recovery_mode_active_ = false;
   int consecutive_clean_packets_ = 0;  // ECT1 without CE
   Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
+  // After a successful convergence exit, block re-entry for this duration to
+  // prevent the rapid enter/exit oscillation seen when the network is stable.
+  Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
   static constexpr int kRecoveryPacketThreshold = 20; // ~3 RTTs worth
 
   // Throughput calculation
