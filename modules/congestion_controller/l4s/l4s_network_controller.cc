@@ -1268,12 +1268,24 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
   // Get the real measured probe result (if any)
   std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
   if (measured_probe_rate) {
-    // Update fusion engine with REAL network measurement
-    double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
-    bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Real probe result measured: " << measured_probe_rate->bps() 
-                     << " bps with confidence " << probe_confidence;
+    // Layer 1 sanity guard: discard probe results that are physically impossible.
+    // If the link is already delivering more actual throughput than the probe measured,
+    // the probe result is an artifact (e.g. DualPI2 scheduling spreading the burst
+    // across a long receive window at uncongested rates) and must not be used to cap
+    // the rate. A real capacity measurement can never be below the already-observed
+    // delivery rate.
+    if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
+      double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+      bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
+
+      RTC_LOG(LS_VERBOSE) << "L4S: Real probe result accepted: " << measured_probe_rate->bps()
+                          << " bps (actual throughput: " << last_actual_bitrate_.bps()
+                          << " bps) with confidence " << probe_confidence;
+    } else {
+      RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
+                       << measured_probe_rate->bps() << " bps < actual throughput "
+                       << last_actual_bitrate_.bps() << " bps - likely AQM scheduling artifact";
+    }
   }
 }
 
