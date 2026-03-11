@@ -88,16 +88,14 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
 
 void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  Timestamp now = env_.clock().CurrentTime();
-  
-  // Only send if we have packets to report and respect minimum interval
-  if (!feedback_trackers_.empty() && 
-      now >= next_possible_feedback_send_time_) {
-    RTC_LOG(LS_INFO) << "L4S: Sending immediate RTCP feedback due to CE detection";
-    SendFeedback(now);
-  } else {
-    RTC_LOG(LS_INFO) << "L4S: Immediate feedback requested but rate limited or no packets";
-  }
+  // CE feedback intentionally bypasses the minimum-interval rate limiter.
+  // RFC 9330 §4.2 requires the sender to act on CE marks within one RTT;
+  // delaying the signal by up to 25 ms defeats the purpose of the immediate
+  // feedback path.  SendFeedback() already clamps 'now' to
+  // next_possible_feedback_send_time_ internally so RTCP NTP timestamps
+  // remain monotonically increasing.
+  RTC_LOG(LS_INFO) << "L4S: Sending immediate RTCP feedback due to CE detection";
+  SendFeedback(env_.clock().CurrentTime());
 }
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
@@ -122,16 +120,18 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   // RTC_LOG(LS_INFO) << "FeedbackGenerator: Creating RFC8888 feedback with " << rtcp_packet_info.size() 
   //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   
-  marker_bit_seen_ = false;
-  first_arrival_time_since_feedback_ = std::nullopt;
-
   // Do not send an empty RFC 8888 packet — the receiver rejects empty packet
   // lists and counts them as malformed, producing spurious "RTCP blocks skipped"
-  // warnings.  This can happen when SendImmediateFeedback() races ahead of the
-  // packet being registered in the tracker.
+  // warnings.  State must NOT be reset here either; resetting before the guard
+  // would clear marker_bit_seen_ and first_arrival_time_since_feedback_ even
+  // when no packet is sent, corrupting the next-feedback-time calculation.
   if (rtcp_packet_info.empty()) {
     return;
   }
+
+  // Only reset scheduling state after we have confirmed there is data to send.
+  marker_bit_seen_ = false;
+  first_arrival_time_since_feedback_ = std::nullopt;
 
   auto feedback = std::make_unique<rtcp::CongestionControlFeedback>(
       std::move(rtcp_packet_info), compact_ntp);

@@ -659,23 +659,21 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   }
 
   if (it->second.sent.send_time.IsInfinite()) {
-    // Check if this packet has been waiting too long for send time update
     auto now = Timestamp::Millis(webrtc::TimeMillis());
     auto age = now - it->second.creation_time;
-    if (age > TimeDelta::Seconds(5)) {
-      RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
-                          << " has been waiting " << age.seconds() 
-                          << "s for send time update. Likely a timing issue.";
-    }
-    
-    // More detailed logging about why send time is missing
     RTC_LOG(LS_WARNING) << "Received feedback before packet was indicated as sent for seq="
                         << transport_seq_num << ", age=" << age.seconds() << "s"
-                        << ", creation_time=" << it->second.creation_time.us() << "us";
-    
-    // Don't completely fail - this might be a legitimate race condition
-    // For now, still return nullopt but with better logging
-    return std::nullopt;
+                        << ", creation_time=" << it->second.creation_time.us() << "us"
+                        << " - using creation_time as conservative send_time fallback";
+    // Use creation_time as a conservative fallback rather than discarding the
+    // packet entirely.  Discarding it removes the CE-mark from the feedback
+    // batch seen by the L4S controller, preventing the Prague MD from firing.
+    // creation_time slightly predates the actual OS send callback so RTT will
+    // be marginally over-estimated, but that is far less harmful than losing
+    // the congestion signal.  This situation is transient and disappears once
+    // the CE rate-limiter bypass (SendImmediateFeedback fix) keeps the receiver
+    // backlog within one RTT.
+    it->second.sent.send_time = it->second.creation_time;
   }
 
   PacketFeedback packet_feedback = it->second;
