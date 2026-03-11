@@ -125,6 +125,14 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   marker_bit_seen_ = false;
   first_arrival_time_since_feedback_ = std::nullopt;
 
+  // Do not send an empty RFC 8888 packet — the receiver rejects empty packet
+  // lists and counts them as malformed, producing spurious "RTCP blocks skipped"
+  // warnings.  This can happen when SendImmediateFeedback() races ahead of the
+  // packet being registered in the tracker.
+  if (rtcp_packet_info.empty()) {
+    return;
+  }
+
   auto feedback = std::make_unique<rtcp::CongestionControlFeedback>(
       std::move(rtcp_packet_info), compact_ntp);
   CalculateNextPossibleSendTime(DataSize::Bytes(feedback->BlockLength()), now);

@@ -1521,10 +1521,12 @@ void Call::NotifyBweOfReceivedPacket(const RtpPacketReceived& packet,
   }
   transport_send_->OnReceivedPacket(packet_msg);
 
-  // L4S ECN immediate feedback processing
-  ProcessL4sEcnMarking(packet);
-
+  // Register packet in the feedback tracker FIRST so that the CE packet
+  // is included when ProcessL4sEcnMarking() fires immediate RTCP feedback.
   receive_side_cc_.OnReceivedPacket(packet, media_type);
+
+  // L4S ECN immediate feedback processing (runs after packet is registered)
+  ProcessL4sEcnMarking(packet);
 }
 
 void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
