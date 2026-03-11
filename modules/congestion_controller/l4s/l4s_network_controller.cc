@@ -994,6 +994,15 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
   NetworkControlUpdate update;
   
+  // Match GCC behaviour: ignore smoothed RTT updates (packet_feedback_only_ is
+  // not applicable here, but smoothed=true RTTs are RTCP-derived running
+  // averages that arrive alongside raw RTTs and would overwrite last_rtt_ with
+  // a stale filtered value, making the once-per-RTT MD gate and the dynamic
+  // recovery threshold less accurate).
+  if (msg.smoothed) {
+    return update;
+  }
+
   // Update Prague estimator with RTT
   prague_estimator_->UpdateFromRtt(msg.round_trip_time);
   
@@ -1003,11 +1012,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     last_estimated_round_trip_time_ = msg.round_trip_time;
   }
   
-  // Log RTT metrics
+  // Log RTT metrics using msg.receive_time (the event timestamp), consistent
+  // with GCC which passes msg.receive_time to bandwidth_estimation_->UpdateRtt.
+  // Previously used env_.clock().TimeInMilliseconds() (live wall-clock), which
+  // logged the RTT slightly after the event occurred.
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
-        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+        msg.receive_time, msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
   }
   
   RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms() << " ms";
@@ -1057,25 +1068,37 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstrain
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(TransportLossReport msg) {
   NetworkControlUpdate update;
-  
-  if (msg.packets_lost_delta > 0) {
-    RTC_LOG(LS_INFO) << "L4S: Transport loss report - "
-                     << "Lost: " << msg.packets_lost_delta
-                     << ", Received: " << msg.packets_received_delta;
-    
-    DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-    prague_estimator_->OnPacketLoss(current_rate, msg.receive_time);
+
+  // GCC in packet-feedback-only mode (the standard modern mode) returns
+  // immediately from OnTransportLossReport without taking any rate action.
+  // Loss is derived from per-packet TransportPacketsFeedback instead.
+  //
+  // For L4S the same applies: CE marks are the authoritative congestion signal.
+  // Firing a 50% multiplicative decrease on every RTCP RR that reports even a
+  // single lost packet is far too aggressive — RTCP RR loss can reflect
+  // reordering or transient bursts, not sustained congestion.
+  //
+  // We still track last_loss_fraction_ for the ShouldProbeNow() guard, but
+  // mirror GCC's accumulation behaviour: only update the fraction once a
+  // minimum number of total packets have been seen (kLimitNumPackets = 20),
+  // to avoid reacting to very small samples.
+  constexpr int64_t kLimitNumPackets = 20;
+  int64_t total_packets = static_cast<int64_t>(msg.packets_lost_delta) +
+                          static_cast<int64_t>(msg.packets_received_delta);
+  if (total_packets >= kLimitNumPackets) {
+    last_loss_fraction_ = total_packets > 0
+        ? static_cast<double>(msg.packets_lost_delta) / total_packets
+        : 0.0;
+    last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+
+    if (last_loss_fraction_ > 0.0) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Loss report - lost=" << msg.packets_lost_delta
+                          << " total=" << total_packets
+                          << " fraction=" << last_loss_fraction_
+                          << " (no rate action, CE marks govern rate)";
+    }
   }
-  
-  // Update loss metrics
-  int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
-  if (total_packets > 0) {
-    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets;
-  } else {
-    last_loss_fraction_ = 0.0;
-  }
-  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
-  
+
   return update;
 }
 
@@ -1712,18 +1735,27 @@ bool webrtc::L4SNetworkController::IsRttStable() const {
 
 void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
   constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
-  Timestamp now = feedback.feedback_time;
   
-  // Add new packets to the window
+  // Add new packets to the window using receive_time (receiver clock),
+  // consistent with GCC's AcknowledgedBitrateEstimator which also uses
+  // receive_time as the timing base.
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
       throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
     }
   }
   
-  // Remove old packets outside the window
-  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
-    throughput_window_.pop_front();
+  // Evict using the latest receive_time in the window as reference so the
+  // subtraction stays within the receiver clock domain.
+  // Previously used feedback_time (sender clock) here, which crossed clock
+  // domains and caused the window to grow unbounded when the receiver NTP
+  // clock was ahead of the sender clock.
+  if (!throughput_window_.empty()) {
+    Timestamp latest_receive_time = throughput_window_.back().first;
+    while (!throughput_window_.empty() &&
+           latest_receive_time - throughput_window_.front().first > kThroughputWindow) {
+      throughput_window_.pop_front();
+    }
   }
   
   // Calculate throughput over the window
