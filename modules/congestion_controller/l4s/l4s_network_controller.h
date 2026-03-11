@@ -72,6 +72,8 @@ public:
   void OnTimeUpdate(Timestamp current_time);
 
   DataRate GetCurrentEstimate() const;
+  // Directly seed the internal estimate (used by the actual-rate floor guard).
+  void SetCurrentEstimate(DataRate rate);
   double GetAlpha() const { return alpha_; }
   int GetDirectionFlag() const { return direction_flag_; }
   int GetNonCePacketCount() const { return non_ce_packet_count_; }
@@ -102,7 +104,13 @@ private:
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
   static constexpr int kNonCeThreshold = 7;  // Threshold to switch to additive mode
-  
+
+  // RFC 9330 §4.3: MD must be applied at most once per RTT.
+  // last_md_time_ tracks when the most recent multiplicative decrease was
+  // applied so that subsequent CE-containing batches within the same RTT
+  // only update alpha without re-applying the rate reduction.
+  Timestamp last_md_time_ = Timestamp::MinusInfinity();
+
   // Discovery mode for fast startup
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen

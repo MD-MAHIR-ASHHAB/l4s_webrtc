@@ -95,23 +95,40 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // Enforce absolute minimum of 20 kbps to prevent pacer crashes
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
+      last_md_time_ = current_time;  // Record when this MD fired
       
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
                        << ", ce_ratio=" << ce_ratio 
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
     } else {
-      // Already in reduction mode: apply additional gentle reduction based on updated alpha
-      double additional_reduction = 1.0 - alpha_ / 4.0;  // Gentler than initial reduction
-      DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
-      // Enforce absolute minimum of 20 kbps to prevent pacer crashes
-      further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
-      congestion_based_estimate_ = further_reduced;
-      
-      RTC_LOG(LS_VERBOSE) << "Prague: Additional reduction in reduction mode (alpha=" << alpha_
-                       << ", ce_ratio=" << ce_ratio 
-                       << ", additional_reduction=" << additional_reduction
-                       << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+      // Already in reduction mode. RFC 9330 §4.3: MD is applied at most once
+      // per RTT.  Alpha keeps accumulating so sustained congestion is captured,
+      // but the rate is only reduced again when a full RTT has elapsed since
+      // the last reduction.  This prevents the cascade where 10-20 CE batches
+      // each landing within one RTT collectively push the rate to the floor.
+      TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero()
+                               ? current_rtt_
+                               : TimeDelta::Millis(100);
+      bool gate_open = last_md_time_.IsInfinite() ||
+                       (current_time - last_md_time_ >= gate_rtt);
+      if (gate_open) {
+        double additional_reduction = 1.0 - alpha_ / 4.0;  // Gentler than initial
+        DataRate further_reduced = std::max(
+            congestion_based_estimate_ * additional_reduction, min_target_rate_);
+        further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
+        congestion_based_estimate_ = further_reduced;
+        last_md_time_ = current_time;
+        RTC_LOG(LS_VERBOSE) << "Prague: Additional reduction (once-per-RTT gate open, alpha="
+                         << alpha_ << ", ce_ratio=" << ce_ratio
+                         << ", additional_reduction=" << additional_reduction
+                         << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+      } else {
+        RTC_LOG(LS_VERBOSE) << "Prague: MD gate closed - last MD "
+                         << (current_time - last_md_time_).ms()
+                         << " ms ago (rtt=" << gate_rtt.ms()
+                         << " ms), alpha accumulating to " << alpha_;
+      }
     }
     
     // Update congestion signal timestamp
@@ -257,6 +274,12 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
 
 webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
   return congestion_based_estimate_;
+}
+
+void webrtc::PragueCapacityEstimator::SetCurrentEstimate(DataRate rate) {
+  congestion_based_estimate_ = std::max(rate, min_target_rate_);
+  congestion_based_estimate_ = std::max(congestion_based_estimate_,
+                                        DataRate::KilobitsPerSec(20));
 }
 
 double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
@@ -1118,7 +1141,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   
   int new_ect_count = 0;
   int new_ce_count = 0;
-  
+  // Separate video-only counts for recovery detection.
+  // Audio CE packets are excluded from recovery logic so that lightweight
+  // audio CE marks (common on low-bandwidth audio streams) do not prevent
+  // or prematurely terminate recovery of the dominant video path.
+  // sent_packet.audio is set by TransportFeedbackAdapter from
+  // RtpPacketMediaType::kAudio at send time.
+  int new_video_ect_count = 0;
+  int new_video_ce_count = 0;
+
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
       new_ect_count++;
@@ -1129,6 +1160,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       
       RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << new_ce_count
                          << ", ECT count=" << new_ect_count;
+    }
+    // Video-only counts (audio=false covers video, padding, RTX)
+    if (!packet.sent_packet.audio) {
+      if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
+        new_video_ect_count++;
+      }
+      if (packet.ecn == EcnMarking::kCe) {
+        new_video_ce_count++;
+      }
     }
   }
   
@@ -1159,6 +1199,22 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     
     prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
     
+    // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
+    // so allow Prague to drop no lower than 50% of that observed throughput.
+    // This is a safety net for edge cases where last_rtt_ is temporarily
+    // invalid and the once-per-RTT gate cannot protect against cascading MDs.
+    if (!last_actual_bitrate_.IsZero()) {
+      DataRate floor = last_actual_bitrate_ * 0.5;
+      DataRate prague_current = prague_estimator_->GetCurrentEstimate();
+      if (prague_current < floor) {
+        RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
+                           << " bps raised to " << floor.bps()
+                           << " bps (50% of actual throughput " << last_actual_bitrate_.bps() << " bps)";
+        // Re-seed the estimator at the floor so AI resumes from a sensible base
+        prague_estimator_->SetCurrentEstimate(floor);
+      }
+    }
+    
     // Update fusion engine with ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
     
@@ -1180,8 +1236,10 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   ect_count_ = new_ect_count;
   ce_count_ = new_ce_count;
   
-  // Handle packet-based recovery detection
-  HandleRecoveryDetection(new_ect_count, new_ce_count, feedback.feedback_time);
+  // Handle packet-based recovery detection (video-only counts).
+  // Passing video-only ECT/CE ensures that CE marks on the lightweight audio
+  // stream do not prematurely terminate recovery of the video path.
+  HandleRecoveryDetection(new_video_ect_count, new_video_ce_count, feedback.feedback_time);
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
