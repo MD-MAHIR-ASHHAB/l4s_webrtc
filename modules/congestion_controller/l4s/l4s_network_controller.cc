@@ -1857,7 +1857,34 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     // and the post-convergence cooldown has expired.
     bool cooldown_expired = recovery_cooldown_until_.IsInfinite() ||
                             now >= recovery_cooldown_until_;
-    if (consecutive_clean_packets_ >= kRecoveryPacketThreshold &&
+    // Dynamic recovery threshold: the fixed count of 20 represents very
+    // different durations at different bitrates (e.g. 45 ms at 5 Mbps vs
+    // 444 ms at 500 Kbps).  Instead, compute the threshold as the number of
+    // packets that fit in 1.5 RTTs at the current rate so that recovery always
+    // waits at least 1.5 round-trips before probing, regardless of bitrate.
+    //
+    //   effective_rtt   = clamp(last_rtt_, 50 ms, 300 ms)
+    //   target_duration = 1.5 × effective_rtt
+    //   threshold       = clamp(packets/s × target_duration, 20, 500)
+    //
+    // kRecoveryPacketThreshold (20) acts as the floor so the condition is
+    // never trivially satisfied on very low-rate paths.
+    TimeDelta effective_rtt =
+        last_rtt_.IsFinite()
+            ? std::clamp(last_rtt_,
+                         TimeDelta::Millis(50),
+                         TimeDelta::Millis(300))
+            : TimeDelta::Millis(100);  // safe default until RTT is measured
+    double target_duration_s = effective_rtt.seconds<double>() * 1.5;
+    double rate_bps = target_rate_.has_value()
+                          ? static_cast<double>(target_rate_->bps())
+                          : 2'000'000.0;  // 2 Mbps safe default
+    double packets_per_sec = rate_bps / (1400.0 * 8.0);
+    int dynamic_threshold = static_cast<int>(packets_per_sec * target_duration_s);
+    int recovery_threshold = std::clamp(dynamic_threshold,
+                                        kRecoveryPacketThreshold,  // floor = 20
+                                        500);                       // cap = 500
+    if (consecutive_clean_packets_ >= recovery_threshold &&
         !recovery_mode_active_ &&
         !prague_estimator_->IsDiscoveryModeActive() &&
         cooldown_expired) {
@@ -1866,7 +1893,9 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       recovery_start_time_ = now;
 
       RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
-                       << " clean ECT packets";
+                       << " clean ECT packets (threshold=" << recovery_threshold
+                       << ", rtt=" << effective_rtt.ms() << "ms"
+                       << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
     }
   } else if (ce_count > 0) {
     // Reset clean packet count on congestion

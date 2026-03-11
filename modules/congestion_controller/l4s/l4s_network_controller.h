@@ -334,7 +334,7 @@ private:
   // prevent the rapid enter/exit oscillation seen when the network is stable.
   Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
-  static constexpr int kRecoveryPacketThreshold = 20; // ~3 RTTs worth
+  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
