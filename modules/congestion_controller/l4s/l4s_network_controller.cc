@@ -917,7 +917,7 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   }
   
   if (config_.enable_acked_estimation) {
-    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials(), nullptr);
+    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials());
   }
   
   if (config_.enable_alr_detection) {
