@@ -1488,8 +1488,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
     RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
-    // Use the same configured probe interval in recovery
-    if (since_last_probe >= config_.probe_interval) {
+    // Use a shorter fixed interval in recovery
+    if (since_last_probe >= TimeDelta::Seconds(2)) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
       InitiateRecoveryProbing(now, update);
       last_probe_time_ = now;
