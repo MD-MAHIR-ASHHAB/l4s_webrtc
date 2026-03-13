@@ -170,9 +170,9 @@ private:
 class L4SMetricsCollector {
 public:
   // Keep logging as fine-grained as possible while preserving timestamp order.
-  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(1);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(1);
-  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(50);
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 
   L4SMetricsCollector(test::MetricsLogger* logger, 
@@ -358,7 +358,7 @@ private:
   bool metrics_enabled_ = true;
   std::unique_ptr<L4SMetricsCollector> metrics_collector_;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(50);
 };
 
 }  // namespace webrtc

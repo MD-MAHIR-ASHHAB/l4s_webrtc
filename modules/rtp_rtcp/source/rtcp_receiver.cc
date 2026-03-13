@@ -639,9 +639,10 @@ void RTCPReceiver::HandleReportBlock(const ReportBlock& report_block,
     report_block_data->AddRoundTripTimeSample(rtt);
     if (report_block.source_ssrc() == local_media_ssrc()) {
       rtts_[remote_ssrc].AddRtt(rtt);
+      if (!packet_information->rtt.has_value() || rtt < *packet_information->rtt) {
+        packet_information->rtt = rtt;
+      }
     }
-
-    packet_information->rtt = rtt;
   }
 
   packet_information->report_block_datas.push_back(*report_block_data);

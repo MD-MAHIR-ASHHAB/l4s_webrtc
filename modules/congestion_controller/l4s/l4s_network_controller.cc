@@ -1042,25 +1042,30 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
   NetworkControlUpdate update;
-  
-  // Update Prague estimator with RTT
-  prague_estimator_->UpdateFromRtt(msg.round_trip_time);
-  
-  // Update local RTT tracking
+
+  // Follow GCC behavior: ignore explicitly smoothed RTT updates and consume
+  // raw RTT samples from RTCP transport reports.
+  if (msg.smoothed) {
+    return update;
+  }
+
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
+    prague_estimator_->UpdateFromRtt(msg.round_trip_time);
     last_rtt_ = msg.round_trip_time;
     last_estimated_round_trip_time_ = msg.round_trip_time;
   }
-  
+
   // Log RTT metrics
-  if (metrics_enabled_ && metrics_collector_) {
+  if (metrics_enabled_ && metrics_collector_ && msg.round_trip_time.IsFinite() &&
+      !msg.round_trip_time.IsZero()) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
         msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
   }
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms() << " ms";
-  
+
+  RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
+                      << " ms";
+
   return update;
 }
 
@@ -1176,6 +1181,24 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimat
 void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback) {
   // Update ALR detector first
   UpdateAlrDetector(feedback);
+
+  // GCC-style RTT update from transport feedback: derive RTT per received
+  // packet and use the minimum sample in this feedback batch.
+  std::vector<PacketResult> received_feedback = feedback.SortedByReceiveTime();
+  if (!received_feedback.empty()) {
+    const Timestamp max_recv_time = received_feedback.back().receive_time;
+    TimeDelta feedback_min_rtt = TimeDelta::PlusInfinity();
+    for (const auto& packet_feedback : received_feedback) {
+      TimeDelta pending_time = max_recv_time - packet_feedback.receive_time;
+      TimeDelta rtt = feedback.feedback_time - packet_feedback.sent_packet.send_time - pending_time;
+      feedback_min_rtt = std::min(feedback_min_rtt, rtt);
+    }
+    if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
+      prague_estimator_->UpdateFromRtt(feedback_min_rtt);
+      last_rtt_ = feedback_min_rtt;
+      last_estimated_round_trip_time_ = feedback_min_rtt;
+    }
+  }
   
   // 1. Update non-ECN estimators first (delay, acked, probe)
   if (delay_estimator_) {
