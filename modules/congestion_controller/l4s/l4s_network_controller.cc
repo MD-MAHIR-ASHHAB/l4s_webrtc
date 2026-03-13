@@ -936,15 +936,16 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability
   if (probe_controller_) {
     auto avail_probes = probe_controller_->OnNetworkAvailability(msg);
     // Global probe-rate limiter: never emit probes more frequently than
-    // config_.probe_interval, regardless of source.
+    // config_.probe_interval, regardless of source. NetworkAvailability
+    // has no timestamp, so use the current env_ clock.
+    Timestamp now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
     for (const auto& probe : avail_probes) {
       TimeDelta since_last_probe =
           last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
-                                        : (Timestamp::Millis(msg.time.ms()) -
-                                           last_probe_time_);
+                                        : (now - last_probe_time_);
       if (since_last_probe >= config_.probe_interval) {
         update.probe_cluster_configs.push_back(probe);
-        last_probe_time_ = Timestamp::Millis(msg.time.ms());
+        last_probe_time_ = now;
       } else {
         RTC_LOG(LS_VERBOSE)
             << "L4S: Dropping availability probe due to global interval gate";
