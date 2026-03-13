@@ -934,7 +934,22 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
   NetworkControlUpdate update;
   if (probe_controller_) {
-    update.probe_cluster_configs = probe_controller_->OnNetworkAvailability(msg);
+    auto avail_probes = probe_controller_->OnNetworkAvailability(msg);
+    // Global probe-rate limiter: never emit probes more frequently than
+    // config_.probe_interval, regardless of source.
+    for (const auto& probe : avail_probes) {
+      TimeDelta since_last_probe =
+          last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
+                                        : (Timestamp::Millis(msg.time.ms()) -
+                                           last_probe_time_);
+      if (since_last_probe >= config_.probe_interval) {
+        update.probe_cluster_configs.push_back(probe);
+        last_probe_time_ = Timestamp::Millis(msg.time.ms());
+      } else {
+        RTC_LOG(LS_VERBOSE)
+            << "L4S: Dropping availability probe due to global interval gate";
+      }
+    }
   }
   return update;
 }
@@ -1013,9 +1028,18 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
     // Let ProbeController emit any time-driven probes (ALR periodic, network
     // state probes, etc.).
     auto periodic_probes = probe_controller_->Process(msg.at_time);
-    update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-                                        periodic_probes.begin(),
-                                        periodic_probes.end());
+    for (const auto& probe : periodic_probes) {
+      TimeDelta since_last_probe =
+          last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
+                                        : (msg.at_time - last_probe_time_);
+      if (since_last_probe >= config_.probe_interval) {
+        update.probe_cluster_configs.push_back(probe);
+        last_probe_time_ = msg.at_time;
+      } else {
+        RTC_LOG(LS_VERBOSE)
+            << "L4S: Dropping periodic ProbeController probe due to global interval gate";
+      }
+    }
   }
   // --- end ProbeController integration ---
 
@@ -1463,8 +1487,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
     RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
-    // More frequent probing during recovery (every 2 seconds vs 5 seconds)
-    if (since_last_probe >= TimeDelta::Seconds(2)) {
+    // Use the same configured probe interval in recovery
+    if (since_last_probe >= config_.probe_interval) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
       InitiateRecoveryProbing(now, update);
       last_probe_time_ = now;
@@ -1764,12 +1788,18 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
             target_bitrate, cause, at_time);
         last_reported_bitrate_to_probe_controller_ = target_bitrate;
         if (!probes.empty()) {
-          update->probe_cluster_configs.insert(
-              update->probe_cluster_configs.end(),
-              probes.begin(), probes.end());
-          RTC_LOG(LS_INFO) << "L4S: ProbeController created " << probes.size()
-                           << " probes due to bitrate change to "
-                           << target_bitrate.bps() << " bps";
+          for (const auto& probe : probes) {
+            TimeDelta since_last_probe =
+                last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
+                                              : (at_time - last_probe_time_);
+            if (since_last_probe >= config_.probe_interval) {
+              update->probe_cluster_configs.push_back(probe);
+              last_probe_time_ = at_time;
+            } else {
+              RTC_LOG(LS_VERBOSE)
+                  << "L4S: Dropping bitrate-change probe due to global interval gate";
+            }
+          }
         }
       }
     }

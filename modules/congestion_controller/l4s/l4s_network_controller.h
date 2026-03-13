@@ -46,7 +46,7 @@ struct L4SControllerConfig {
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
   bool enable_alr_detection = true;
-  TimeDelta probe_interval = TimeDelta::Seconds(50);
+  TimeDelta probe_interval = TimeDelta::Seconds(60);
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;

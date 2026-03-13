@@ -36,7 +36,7 @@ struct L4SPragueConfig {
   bool enable_probing = true;
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
-  TimeDelta probe_interval = TimeDelta::Seconds(5);
+  TimeDelta probe_interval = TimeDelta::Seconds(60);
   double ecn_confidence_threshold = 0.8;
   double probe_confidence_threshold = 0.7;
   double delay_confidence_threshold = 0.6;
