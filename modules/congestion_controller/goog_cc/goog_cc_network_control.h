@@ -63,8 +63,7 @@ class GCCMetricsCollector {
                       Clock* clock);
   
   // Time-series metrics logging
-  void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
-                          DataRate actual_bitrate);
+  void LogAckedRateMetrics(Timestamp at_time, DataRate acked_rate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                       TimeDelta jitter = TimeDelta::Zero());
    void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
@@ -74,8 +73,8 @@ class GCCMetricsCollector {
   void LogPeriodicSummary(Timestamp at_time);
   
   // Utility methods for stats tracking
-  void UpdateThroughputStats(DataRate actual_bitrate);
-  void UpdateDelayStats(TimeDelta rtt);
+  void UpdateAckedRateStats(DataRate acked_rate);
+  void UpdateDelayStats(TimeDelta rtt, TimeDelta one_way_delay);
   void UpdateLossStats(double loss_fraction);
   void ExportToJsonFile(const std::string& filename);
 
@@ -86,12 +85,13 @@ class GCCMetricsCollector {
   Clock* clock_;
   
   // Statistics tracking
-  SamplesStatsCounter throughput_stats_;
+  SamplesStatsCounter acked_rate_stats_;
+  SamplesStatsCounter rtt_stats_;
   SamplesStatsCounter delay_stats_;
   SamplesStatsCounter loss_stats_;
   
   // Last logged values to prevent spam
-  Timestamp last_bandwidth_log_ = Timestamp::MinusInfinity();
+  Timestamp last_acked_rate_log_ = Timestamp::MinusInfinity();
   Timestamp last_delay_log_ = Timestamp::MinusInfinity();
   Timestamp last_loss_log_ = Timestamp::MinusInfinity();
   Timestamp last_summary_log_ = Timestamp::MinusInfinity();
@@ -99,10 +99,10 @@ class GCCMetricsCollector {
 
   
   // Minimum intervals between logs
-  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(500);
-  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
+  static constexpr TimeDelta kAckedRateLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 };
 
 
@@ -217,7 +217,7 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   std::unique_ptr<GCCMetricsCollector> metrics_collector_;
   bool metrics_enabled_ = true;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(1);
   
   std::deque<std::pair<Timestamp, int>> throughput_window_;
 
