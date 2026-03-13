@@ -473,7 +473,7 @@ void L4SPragueNetworkController::InitializeBandwidthEstimators() {
   }
   
   if (config_.enable_acked_estimation) {
-    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials(), nullptr);
+    acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials());
   }
   
   RTC_LOG(LS_INFO) << "L4S Prague: Initialized bandwidth estimators - "
