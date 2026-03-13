@@ -169,17 +169,21 @@ private:
 // L4S Metrics Collector
 class L4SMetricsCollector {
 public:
-  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(500);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1000);
-  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
+  // Keep logging as fine-grained as possible while preserving timestamp order.
+  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 
   L4SMetricsCollector(test::MetricsLogger* logger, 
                            const std::string& test_case_name,
                            Clock* clock);
   ~L4SMetricsCollector();
 
-  void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, DataRate actual_bitrate);
+  void LogBandwidthMetrics(Timestamp at_time,
+                           DataRate target_bitrate,
+                           DataRate actual_bitrate,
+                           std::optional<DataRate> acked_bitrate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);
@@ -190,7 +194,7 @@ public:
 
 private:
   void UpdateThroughputStats(DataRate actual_bitrate);
-  void UpdateDelayStats(TimeDelta rtt);
+  void UpdateDelayStats(TimeDelta rtt, TimeDelta one_way_delay);
   void UpdateLossStats(double loss_fraction);
 
   test::MetricsLogger* logger_;
@@ -205,6 +209,7 @@ private:
 
   // Statistics tracking
   webrtc::SamplesStatsCounter throughput_stats_;
+  webrtc::SamplesStatsCounter rtt_stats_;
   webrtc::SamplesStatsCounter delay_stats_;
   webrtc::SamplesStatsCounter loss_stats_;
 };
@@ -347,12 +352,13 @@ private:
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
+  std::optional<DataRate> last_acked_bitrate_;
 
   // Metrics
   bool metrics_enabled_ = true;
   std::unique_ptr<L4SMetricsCollector> metrics_collector_;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(500);
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(1);
 };
 
 }  // namespace webrtc

@@ -666,21 +666,28 @@ webrtc::L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
 
 webrtc::L4SMetricsCollector::~L4SMetricsCollector() = default;
 
-void webrtc::L4SMetricsCollector::LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, DataRate actual_bitrate) {
+void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
+    Timestamp at_time,
+    DataRate target_bitrate,
+    DataRate actual_bitrate,
+    std::optional<DataRate> acked_bitrate) {
   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
     return;
   }
   
   last_bandwidth_log_ = at_time;
-  UpdateThroughputStats(actual_bitrate);
-  
-  logger_->LogSingleValueMetric("target_sending_rate_mbps", test_case_name_, target_bitrate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+  // Shared GCC/L4S contract: throughput for comparison is acked rate.
+  DataRate rate_to_log = acked_bitrate.value_or(DataRate::Zero());
+  UpdateThroughputStats(rate_to_log);
+
+  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
+                                rate_to_log.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
-  
-  logger_->LogSingleValueMetric("actual_throughput_mbps", test_case_name_, actual_bitrate.bps() / 1e6, 
-                                webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  (void)target_bitrate;
+  (void)actual_bitrate;
 }
 
 void webrtc::L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter) {
@@ -689,15 +696,15 @@ void webrtc::L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta r
   }
   
   last_delay_log_ = at_time;
-  UpdateDelayStats(rtt);
+  UpdateDelayStats(rtt, one_way_delay);
   
-  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
-                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(),
+                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
   
   if (one_way_delay.IsFinite()) {
-    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
-                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(),
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
 }
@@ -709,8 +716,12 @@ void webrtc::L4SMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_
   
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
+
+  logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction,
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
   
-  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost, 
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost,
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
@@ -751,15 +762,49 @@ void webrtc::L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   last_summary_log_ = at_time;
   
   if (throughput_stats_.NumSamples() > 0) {
-    logger_->LogSingleValueMetric("throughput_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6, 
-                                  webrtc::test::Unit::kKilobitsPerSecond, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "throughput"}});
+    logger_->LogSingleValueMetric("acked_rate_avg_mbps", test_case_name_,
+                                  throughput_stats_.GetAverage() / 1e6,
+                                  webrtc::test::Unit::kUnitless,
+                                  webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "acked_rate"}});
+    logger_->LogSingleValueMetric("acked_rate_std_mbps", test_case_name_,
+                                  throughput_stats_.GetStandardDeviation() / 1e6,
+                                  webrtc::test::Unit::kUnitless,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "acked_rate"}});
+  }
+
+  if (rtt_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("rtt_avg_ms", test_case_name_, rtt_stats_.GetAverage(),
+                                  webrtc::test::Unit::kMilliseconds,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "rtt"}});
+    logger_->LogSingleValueMetric("rtt_std_ms", test_case_name_, rtt_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kMilliseconds,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "rtt"}});
   }
   
   if (delay_stats_.NumSamples() > 0) {
-    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(), 
+    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "average"}, {"metric", "delay"}});
+    logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kMilliseconds,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
+  }
+
+  if (loss_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("packet_loss_avg_fraction", test_case_name_,
+                                  loss_stats_.GetAverage(),
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "packet_loss"}});
+    logger_->LogSingleValueMetric("packet_loss_std_fraction", test_case_name_,
+                                  loss_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kUnitless,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
 
   ExportToJsonFile("l4s_test_1.json");
@@ -779,8 +824,8 @@ void webrtc::L4SMetricsCollector::ExportToJsonFile(const std::string& filename) 
     fprintf(f, "    \"samples\": [");
     for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
       const auto& s = m.time_series.samples[j];
-      fprintf(f, "%s{\"timestamp\": %lld, \"value\": %f}",
-        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.us()), s.value);
+      fprintf(f, "%s{\"timestamp_ms\": %lld, \"value\": %f}",
+        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.ms()), s.value);
     }
     fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
   }
@@ -792,9 +837,13 @@ void webrtc::L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate)
   throughput_stats_.AddSample(actual_bitrate.bps());
 }
 
-void webrtc::L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt) {
+void webrtc::L4SMetricsCollector::UpdateDelayStats(TimeDelta rtt,
+                                                   TimeDelta one_way_delay) {
   if (rtt.IsFinite()) {
-    delay_stats_.AddSample(rtt.ms());
+    rtt_stats_.AddSample(rtt.ms());
+  }
+  if (one_way_delay.IsFinite()) {
+    delay_stats_.AddSample(one_way_delay.ms());
   }
 }
 
@@ -1020,6 +1069,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPack
   // Feed ALR detector so it can track application-limited periods.
   if (alr_detector_) {
     alr_detector_->OnBytesSent(msg.size.bytes(), msg.send_time.ms());
+    if (acked_estimator_) {
+      acked_estimator_->SetAlr(
+          alr_detector_->GetApplicationLimitedRegionStartTime().has_value());
+    }
   }
   return update;
 }
@@ -1081,6 +1134,20 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
   NetworkControlUpdate update;
+
+  // Track packet loss count from per-packet feedback for logging only.
+  // CE remains the primary congestion-control signal.
+  int packets_with_feedback = 0;
+  int lost_packets_in_feedback = 0;
+  for (const auto& packet_feedback : msg.PacketsWithFeedback()) {
+    ++packets_with_feedback;
+    if (!packet_feedback.IsReceived()) {
+      ++lost_packets_in_feedback;
+    }
+  }
+  if (packets_with_feedback > 0) {
+    last_packets_lost_ = lost_packets_in_feedback;
+  }
   
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
@@ -1294,16 +1361,21 @@ void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPack
 }
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
-  // Update acknowledged bitrate estimator
-  // This is a simplified implementation - actual implementation would need
-  // proper packet acknowledgment processing
-  
-  if (!feedback.packet_feedbacks.empty()) {
-    // Calculate acknowledged bitrate from feedback
-    DataRate acked_estimate = last_actual_bitrate_;  // Use calculated throughput as proxy
-    double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
-    bandwidth_fusion_->UpdateAckedEstimate(acked_estimate, acked_confidence, feedback.feedback_time);
+  if (feedback.packet_feedbacks.empty() || !acked_estimator_) {
+    return;
   }
+
+  // Match GCC behavior: compute delivery-rate signal from per-packet feedback.
+  acked_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
+  std::optional<DataRate> acked_bitrate = acked_estimator_->bitrate();
+  if (!acked_bitrate.has_value()) {
+    return;
+  }
+
+  last_acked_bitrate_ = acked_bitrate;
+  double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
+  bandwidth_fusion_->UpdateAckedEstimate(*acked_bitrate, acked_confidence,
+                                         feedback.feedback_time);
 }
 
 void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
@@ -1766,7 +1838,9 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   
   // Log bandwidth metrics
   DataRate target_rate = target_rate_.value_or(DataRate::Zero());
-  metrics_collector_->LogBandwidthMetrics(at_time, target_rate, last_actual_bitrate_);
+  metrics_collector_->LogBandwidthMetrics(at_time, target_rate,
+                                          last_actual_bitrate_,
+                                          last_acked_bitrate_);
   
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
@@ -1796,6 +1870,9 @@ void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedb
     if (previously_in_alr_ && !alr_start_time.has_value()) {
       // ALR just ended – tell ProbeController so it can trigger an ALR probe.
       probe_controller_->SetAlrEndedTimeMs(feedback.feedback_time.ms());
+      if (acked_estimator_) {
+        acked_estimator_->SetAlrEndedTime(feedback.feedback_time);
+      }
       RTC_LOG(LS_INFO) << "L4S: ALR ended, notifying ProbeController at "
                        << feedback.feedback_time.ms() << " ms";
     }
