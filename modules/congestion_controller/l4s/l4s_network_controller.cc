@@ -1426,12 +1426,13 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // If acked rate exists and is much lower than fused rate, constrain fused estimate
   // This prevents the optimistic ECN estimate from overshooting when actual network
   // capacity is lower (e.g., due to packet loss or asymmetric congestion)
+  // With dualpi2 AQM, use tighter 1.2x multiplier to respect fairness enforcement
   if (last_acked_bitrate_.has_value()) {
-    // Allow fused_rate to be 1.5x the acked rate (headroom for growth)
-    DataRate acked_ceiling = last_acked_bitrate_.value() * 1.5;
+    // Allow fused_rate to be 1.2x the acked rate (tighter for dualpi2 fairness)
+    DataRate acked_ceiling = last_acked_bitrate_.value() * 1.2;
     if (fused_rate > acked_ceiling) {
       RTC_LOG(LS_VERBOSE) << "L4S: ACKED RATE SANITY CHECK - Fused: " << (fused_rate.bps() / 1e6) 
-                          << " Mbps exceeds 1.5x acked rate (" << (last_acked_bitrate_.value().bps() / 1e6) 
+                          << " Mbps exceeds 1.2x acked rate (" << (last_acked_bitrate_.value().bps() / 1e6) 
                           << " Mbps) - capping to " << (acked_ceiling.bps() / 1e6) << " Mbps";
       fused_rate = acked_ceiling;
     }
