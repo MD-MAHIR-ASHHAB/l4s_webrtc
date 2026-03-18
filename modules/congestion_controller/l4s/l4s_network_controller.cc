@@ -1749,6 +1749,25 @@ void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
 
   DataRate acked_rate = *last_acked_bitrate_;
 
+  // Check for sudden growth spike during plateau
+  if (previous_acked_rate_.has_value() && in_acked_plateau_) {
+    DataRate prev_rate = *previous_acked_rate_;
+    if (!prev_rate.IsZero()) {
+      double growth = (acked_rate.bps() - prev_rate.bps()) / prev_rate.bps();
+      if (growth > kAckedGrowthSpikeThreshold) {
+        // Significant growth spike detected during plateau - enable re-discovery
+        RTC_LOG(LS_VERBOSE) << "L4S: ACK GROWTH SPIKE DETECTED - " 
+                            << (prev_rate.bps() / 1e6) << " Mbps → "
+                            << (acked_rate.bps() / 1e6) << " Mbps ("
+                            << (growth * 100) << "% growth). Resetting plateau for re-discovery.";
+        ResetAckedPlateau();
+      }
+    }
+  }
+
+  // Track previous rate for next check
+  previous_acked_rate_ = acked_rate;
+
   // Add to history
   acked_rate_history_.push_back(acked_rate);
   if (acked_rate_history_.size() > kAckedRateHistorySize) {
@@ -1841,6 +1860,7 @@ void webrtc::L4SNetworkController::ResetAckedPlateau() {
   in_acked_plateau_ = false;
   plateau_consecutive_updates_ = 0;
   plateau_detected_at_acked_rate_ = std::nullopt;
+  // Note: previous_acked_rate_ is NOT cleared - it's used for continuous growth detection
 }
 
 }  // namespace webrtc
