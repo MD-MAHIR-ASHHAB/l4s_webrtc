@@ -1649,10 +1649,12 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
     return true;
   }
 
-  // Fallback: Exit at higher rate threshold (10 Mbps instead of 5 Mbps)
+  // Fallback: Exit at high rate threshold (90 Mbps) - allow discovery to reach near-capacity before exiting
+  // This ensures Prague actually discovers bottleneck via CE marks instead of artificial threshold
   DataRate current_rate = prague_estimator_->GetCurrentEstimate();
-  if (current_rate.bps() >= 10000000) {
-    RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - fallback rate threshold (10 Mbps) reached";
+  if (current_rate.bps() >= 90000000) {  // 90 Mbps
+    RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - fallback rate threshold (90 Mbps) reached. "
+                     << "Final discovered rate: " << (current_rate.bps() / 1e6) << " Mbps";
     return true;
   }
 
