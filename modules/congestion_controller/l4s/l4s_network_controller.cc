@@ -1471,43 +1471,9 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
 }
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
-  // DISABLED: Probing is disabled in L4S to prevent bandwidth overshooting during discovery
-  // All probe requests are blocked to allow Prague to converge naturally to bottleneck capacity
+  // DISABLED: Probing is disabled in L4S to prevent bandwidth overshooting during discovery.
+  // All probe requests are blocked to allow Prague to converge naturally to bottleneck capacity.
   RTC_LOG(LS_VERBOSE) << "L4S: Probing is disabled (all probes blocked)";
-  return;
-  
-  // Recovery probing has higher priority and frequency
-  if (recovery_mode_active_) {
-    TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-    int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
-    RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
-    // Use a shorter fixed interval in recovery
-    if (since_last_probe >= TimeDelta::Seconds(2)) {
-      RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
-      InitiateRecoveryProbing(now, update);
-      last_probe_time_ = now;
-    }
-    return;
-  }
-  
-  // Regular periodic probing
-  bool interval_ok = last_probe_time_.IsInfinite() || (now - last_probe_time_) >= config_.probe_interval;
-  bool probe_allowed = ShouldProbeNow(now);
-  bool should_probe = interval_ok && probe_allowed;
-  
-  // More detailed debug logging with INFO level (safe timestamp handling)
-  int64_t time_since_last_ms = last_probe_time_.IsInfinite() ? -1 : (now - last_probe_time_).ms();
-  RTC_LOG(LS_VERBOSE) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
-                   << "ms, interval_req=" << config_.probe_interval.ms() 
-                   << "ms, interval_ok=" << interval_ok 
-                   << ", probe_allowed=" << probe_allowed 
-                   << ", final_decision=" << should_probe;
-  
-  if (should_probe) {
-    RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe!";
-    InitiateProbing(now, update);
-    last_probe_time_ = now;
-  }
 }
 
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
