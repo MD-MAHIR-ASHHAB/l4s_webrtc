@@ -1155,9 +1155,16 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     if (packet.ecn == EcnMarking::kCe) {
       new_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
-      
-      RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << new_ce_count
-                         << ", ECT count=" << new_ect_count;
+    }
+  }
+  
+  // Log ECN feedback summary
+  if (new_ect_count > 0) {
+    double ce_ratio = new_ce_count > 0 ? static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count) : 0.0;
+    RTC_LOG(LS_INFO) << "L4S: ECN FEEDBACK - ECT: " << new_ect_count << ", CE: " << new_ce_count 
+                     << ", Ratio: " << (ce_ratio * 100) << "%, "
+                     << "Current rate: " << (current_fused_rate.bps() / 1e6) << " Mbps";
+  }
     }
   }
   
@@ -1187,6 +1194,13 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
     
     prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
+    
+    // Log Prague's response after processing CE feedback
+    DataRate prague_estimate_after_update = prague_estimator_->GetCurrentEstimate();
+    RTC_LOG(LS_INFO) << "L4S: PRAGUE RESPONSE - CE_ratio=" << (ce_ratio * 100) << "%, "
+                     << "Input: " << (prague_input_rate.bps() / 1e6) << " Mbps, "
+                     << "Output: " << (prague_estimate_after_update.bps() / 1e6) << " Mbps, "
+                     << "Direction: " << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC" : "REDUC");
     
     // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
     // so allow Prague to drop no lower than 50% of that observed throughput.
@@ -1345,6 +1359,9 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   
   // Check if we should exit discovery mode based on convergence
   if (discovery_active && ShouldExitDiscoveryMode(now)) {
+    DataRate prague_at_exit = prague_estimator_->GetCurrentEstimate();
+    RTC_LOG(LS_INFO) << "L4S: EXIT DISCOVERY MODE - ECN-based convergence at rate: " 
+                     << (prague_at_exit.bps() / 1e6) << " Mbps";
     prague_estimator_->ExitDiscoveryMode("ECN-based convergence");
     discovery_active = false;
   }
@@ -1355,19 +1372,39 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // During discovery mode, use Prague's estimate directly
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
-                     << " bps, Fused rate: " << fused_rate.bps() << " bps";
+    int dir_flag = prague_estimator_->GetDirectionFlag();
+    double alpha = prague_estimator_->GetAlpha();
+    RTC_LOG(LS_INFO) << "L4S: DISCOVERY MODE - Prague: " << (prague_rate.bps() / 1e6) << " Mbps, "
+                     << "Mode: " << (dir_flag == 1 ? "ADD_INC" : "REDUC"), 
+                     << " Alpha: " << alpha;
     fused_rate = prague_rate;
+  } else {
+    // Not in discovery - log the fused rate and its sources
+    auto sources = bandwidth_fusion_->GetCurrentSources();
+    RTC_LOG(LS_VERBOSE) << "L4S: STEADY STATE - Fused: " << (fused_rate.bps() / 1e6) << " Mbps, "
+                        << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
+                        << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
+                        << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
   }
   
   // Apply rate constraints
+  DataRate original_fused = fused_rate;
   if (min_target_rate_ && fused_rate < *min_target_rate_) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Applying min constraint: " << (fused_rate.bps() / 1e6) 
+                        << " -> " << (min_target_rate_->bps() / 1e6) << " Mbps";
     fused_rate = *min_target_rate_;
   }
   // Final safety: enforce absolute minimum of 20 kbps to prevent pacer crashes
   fused_rate = std::max(fused_rate, DataRate::KilobitsPerSec(20));
   if (max_target_rate_ && fused_rate > *max_target_rate_) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Applying max constraint: " << (fused_rate.bps() / 1e6) 
+                        << " -> " << (max_target_rate_->bps() / 1e6) << " Mbps";
     fused_rate = *max_target_rate_;
+  }
+  
+  if (fused_rate.bps() != original_fused.bps()) {
+    RTC_LOG(LS_INFO) << "L4S: RATE UPDATE - Before constraints: " << (original_fused.bps() / 1e6) 
+                     << " Mbps, After: " << (fused_rate.bps() / 1e6) << " Mbps";
   }
   
   return fused_rate;
