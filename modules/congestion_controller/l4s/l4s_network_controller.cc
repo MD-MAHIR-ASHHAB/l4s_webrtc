@@ -1165,8 +1165,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
                      << ", Ratio: " << (ce_ratio * 100) << "%, "
                      << "Current rate: " << (current_fused_rate.bps() / 1e6) << " Mbps";
   }
-    }
-  }
   
   // Update ECN support detection
   if (new_ect_count > 0 || new_ce_count > 0) {
@@ -1313,7 +1311,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
   // Probing disabled - no probe processing
 }
 
-std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
+std::optional<webrtc::DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
   // Probing disabled
   return std::nullopt;
 }
@@ -1375,8 +1373,8 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     int dir_flag = prague_estimator_->GetDirectionFlag();
     double alpha = prague_estimator_->GetAlpha();
     RTC_LOG(LS_INFO) << "L4S: DISCOVERY MODE - Prague: " << (prague_rate.bps() / 1e6) << " Mbps, "
-                     << "Mode: " << (dir_flag == 1 ? "ADD_INC" : "REDUC"), 
-                     << " Alpha: " << alpha;
+                     << "Mode: " << (dir_flag == 1 ? "ADD_INC" : "REDUC")
+                     << ", Alpha: " << alpha;
     fused_rate = prague_rate;
   } else {
     // Not in discovery - log the fused rate and its sources
