@@ -80,7 +80,6 @@ void L4sImmediateFeedbackController::FlushBatchAndSwitchToImmediate() {
   
   // Switch to immediate mode
   current_mode_ = FeedbackMode::kImmediateMode;
-  ce_packets_in_immediate_mode_ = 1; // Count the current CE packet
 }
 
 void L4sImmediateFeedbackController::SendCeBatchAndSwitchToBatch() {
@@ -104,7 +103,6 @@ void L4sImmediateFeedbackController::SwitchToBatchMode() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   
   current_mode_ = FeedbackMode::kBatchMode;
-  ce_packets_in_immediate_mode_ = 0;
   
   RTC_LOG(LS_INFO) << "L4S: Switched to BATCH mode after " << batch_flushes_ << " batch flushes";
 }
