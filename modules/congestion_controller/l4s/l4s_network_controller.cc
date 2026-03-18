@@ -1127,9 +1127,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     UpdateAckedBitrateEstimator(feedback);
   }
   
-  if (probe_controller_) {
-    ProcessRealProbeResults(feedback);
-  }
+  // Probe controller removed - using pure ECN-based discovery
   
   // 2. Get initial fused estimate (without ECN input)
   DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
@@ -1149,14 +1147,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   
   int new_ect_count = 0;
   int new_ce_count = 0;
-  // Separate video-only counts for recovery detection.
-  // Audio CE packets are excluded from recovery logic so that lightweight
-  // audio CE marks (common on low-bandwidth audio streams) do not prevent
-  // or prematurely terminate recovery of the dominant video path.
-  // sent_packet.audio is set by TransportFeedbackAdapter from
-  // RtpPacketMediaType::kAudio at send time.
-  int new_video_ect_count = 0;
-  int new_video_ce_count = 0;
 
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
@@ -1168,15 +1158,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       
       RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << new_ce_count
                          << ", ECT count=" << new_ect_count;
-    }
-    // Video-only counts (audio=false covers video, padding, RTX)
-    if (!packet.sent_packet.audio) {
-      if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
-        new_video_ect_count++;
-      }
-      if (packet.ecn == EcnMarking::kCe) {
-        new_video_ce_count++;
-      }
     }
   }
   
@@ -1355,13 +1336,8 @@ double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) con
 }
 
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
-  TimeDelta since_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-  if (since_probe < TimeDelta::Seconds(1)) {
-    return 0.95;  // Very high confidence in fresh probe results
-  } else if (since_probe < TimeDelta::Seconds(10)) {
-    return 0.8;   // Good confidence in recent probes
-  }
-  return 0.2;   // Low confidence in old probe results
+  // Probing disabled - return 0 confidence
+  return 0.0;
 }
 
 double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) const {
@@ -1507,46 +1483,7 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   if (rate_update.target_rate) {
     update->target_rate = rate_update.target_rate;
 
-    // Notify ProbeController of a meaningful bitrate change (>5% shift).
-    // Calling SetEstimatedBitrate on every feedback batch would flood
-    // probe_controller.cc's "Measured bitrate" log because that log fires
-    // unconditionally while state == kWaitingForProbingResult.
-    if (probe_controller_) {
-      DataRate target_bitrate = rate_update.target_rate->target_rate;
-      bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
-      bool changed_significantly =
-          is_first_report ||
-          (std::abs(static_cast<int64_t>(target_bitrate.bps()) -
-                    static_cast<int64_t>(
-                        last_reported_bitrate_to_probe_controller_.bps())) >
-           static_cast<int64_t>(
-               0.05 * last_reported_bitrate_to_probe_controller_.bps()));
-      if (changed_significantly) {
-        // Use kLossLimitedBweIncreasing during recovery so ProbeController
-        // records the cause correctly for future RequestProbe decisions.
-        BandwidthLimitedCause cause =
-            recovery_mode_active_
-                ? BandwidthLimitedCause::kLossLimitedBweIncreasing
-                : BandwidthLimitedCause::kDelayBasedLimited;
-        auto probes = probe_controller_->SetEstimatedBitrate(
-            target_bitrate, cause, at_time);
-        last_reported_bitrate_to_probe_controller_ = target_bitrate;
-        if (!probes.empty()) {
-          for (const auto& probe : probes) {
-            TimeDelta since_last_probe =
-                last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
-                                              : (at_time - last_probe_time_);
-            if (since_last_probe >= config_.probe_interval) {
-              update->probe_cluster_configs.push_back(probe);
-              last_probe_time_ = at_time;
-            } else {
-              RTC_LOG(LS_VERBOSE)
-                  << "L4S: Dropping bitrate-change probe due to global interval gate";
-            }
-          }
-        }
-      }
-    }
+    // Probe controller removed - using pure ECN-based discovery
   }
 }
 
