@@ -901,15 +901,6 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
     delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr, nullptr);
   }
   
-  if (config_.enable_probing) {
-    probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), &env_.event_log());
-    probe_bitrate_estimator_ = std::make_unique<ProbeBitrateEstimator>(&env_.event_log());
-    // SetBitrates is intentionally deferred to the first OnProcessInterval call
-    // so we have a valid network timestamp and can return probe clusters to the
-    // caller.  Calling it here would (a) use a stale clock timestamp and (b)
-    // silently discard the returned ProbeClusterConfig vector.
-  }
-  
   if (config_.enable_acked_estimation) {
     acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials());
   }
@@ -920,32 +911,13 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   
   RTC_LOG(LS_INFO) << "L4S: Initialized bandwidth estimators - "
                    << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
-                   << ", Probe: " << (probe_controller_ ? "enabled" : "disabled")
                    << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled")
                    << ", ALR: " << (alr_detector_ ? "enabled" : "disabled");
 }
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability(NetworkAvailability msg) {
   NetworkControlUpdate update;
-  if (probe_controller_) {
-    auto avail_probes = probe_controller_->OnNetworkAvailability(msg);
-    // Global probe-rate limiter: never emit probes more frequently than
-    // config_.probe_interval, regardless of source. NetworkAvailability
-    // has no timestamp, so use the current env_ clock.
-    Timestamp now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
-    for (const auto& probe : avail_probes) {
-      TimeDelta since_last_probe =
-          last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
-                                        : (now - last_probe_time_);
-      if (since_last_probe >= config_.probe_interval) {
-        update.probe_cluster_configs.push_back(probe);
-        last_probe_time_ = now;
-      } else {
-        RTC_LOG(LS_VERBOSE)
-            << "L4S: Dropping availability probe due to global interval gate";
-      }
-    }
-  }
+  // Probing disabled - return empty update
   return update;
 }
 
@@ -978,69 +950,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   // Log periodic metrics
   LogPeriodicMetrics(msg.at_time);
 
-  // --- ProbeController integration (GCC-compatible) ---
-  if (probe_controller_) {
-    // First call: initialise ProbeController with properly clamped bitrates and
-    // the real network timestamp.  We defer this from the constructor so that
-    // (a) the at_time is valid and (b) we can return probe clusters to the
-    // transport.
-    if (!initial_probes_sent_) {
-      initial_probes_sent_ = true;
-      DataRate clamped_min =
-          min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-      DataRate clamped_start =
-          starting_rate_.value_or(DataRate::KilobitsPerSec(300));
-      // Guard against PlusInfinity being passed to ProbeController – that
-      // causes internal probe targets to overflow to infinity.
-      DataRate clamped_max =
-          max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
-      if (!clamped_max.IsFinite()) {
-        clamped_max = DataRate::KilobitsPerSec(100000);  // 100 Mbps ceiling
-      }
-      // Ensure ordering invariant: min <= start <= max
-      clamped_start = std::max(clamped_min, clamped_start);
-      clamped_max   = std::max(clamped_start, clamped_max);
-
-      auto init_probes = probe_controller_->SetBitrates(
-          clamped_min, clamped_start, clamped_max, msg.at_time);
-      update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-                                          init_probes.begin(), init_probes.end());
-      probe_controller_->EnablePeriodicAlrProbing(true);
-      RTC_LOG(LS_INFO) << "L4S: ProbeController initialised - "
-                       << "min=" << clamped_min.bps() << " bps, "
-                       << "start=" << clamped_start.bps() << " bps, "
-                       << "max=" << clamped_max.bps() << " bps, "
-                       << "initial_probes=" << init_probes.size();
-    }
-
-    // Every interval: feed ALR state so the probe controller can trigger ALR
-    // probes at the right time.
-    if (alr_detector_) {
-      probe_controller_->SetAlrStartTimeMs(
-          alr_detector_->GetApplicationLimitedRegionStartTime());
-    }
-
-    // Let ProbeController emit any time-driven probes (ALR periodic, network
-    // state probes, etc.).
-    auto periodic_probes = probe_controller_->Process(msg.at_time);
-    for (const auto& probe : periodic_probes) {
-      TimeDelta since_last_probe =
-          last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
-                                        : (msg.at_time - last_probe_time_);
-      if (since_last_probe >= config_.probe_interval) {
-        update.probe_cluster_configs.push_back(probe);
-        last_probe_time_ = msg.at_time;
-      } else {
-        RTC_LOG(LS_VERBOSE)
-            << "L4S: Dropping periodic ProbeController probe due to global interval gate";
-      }
-    }
-  }
-  // --- end ProbeController integration ---
-
-  // Handle periodic probing
-  HandlePeriodicProbing(msg.at_time, &update);
-  
   // Update time-based decay in Prague estimator
   prague_estimator_->OnTimeUpdate(msg.at_time);
   
@@ -1108,17 +1017,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnReceivedPacket(Rece
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(StreamsConfig msg) {
   NetworkControlUpdate update;
-  if (probe_controller_) {
-    if (msg.requests_alr_probing) {
-      probe_controller_->EnablePeriodicAlrProbing(*msg.requests_alr_probing);
-    }
-    if (msg.max_total_allocated_bitrate) {
-      auto probes = probe_controller_->OnMaxTotalAllocatedBitrate(
-          *msg.max_total_allocated_bitrate, msg.at_time);
-      update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
-                                          probes.begin(), probes.end());
-    }
-  }
+  // Probing disabled - return empty update
   return update;
 }
 
@@ -1344,11 +1243,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   // Update counters
   ect_count_ = new_ect_count;
   ce_count_ = new_ce_count;
-  
-  // Handle packet-based recovery detection (video-only counts).
-  // Passing video-only ECT/CE ensures that CE marks on the lightweight audio
-  // stream do not prematurely terminate recovery of the video path.
-  HandleRecoveryDetection(new_video_ect_count, new_video_ce_count, feedback.feedback_time);
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
@@ -1421,53 +1315,12 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
 }
 
 void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
-  if (!probe_bitrate_estimator_) {
-    return;
-  }
-
-  // Process each packet to detect probe clusters and measure real throughput
-  for (const auto& packet_feedback : feedback.SortedByReceiveTime()) {
-    if (packet_feedback.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
-      // This is a real probe packet - let ProbeBitrateEstimator measure it
-      probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_feedback);
-      
-      RTC_LOG(LS_VERBOSE) << "L4S: Processing probe packet from cluster " 
-                         << packet_feedback.sent_packet.pacing_info.probe_cluster_id
-                         << ", size: " << packet_feedback.sent_packet.size.bytes() << " bytes";
-    }
-  }
-
-  // Get the real measured probe result (if any)
-  std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
-  if (measured_probe_rate) {
-    // Layer 1 sanity guard: discard probe results that are physically impossible.
-    // If the link is already delivering more actual throughput than the probe measured,
-    // the probe result is an artifact (e.g. DualPI2 scheduling spreading the burst
-    // across a long receive window at uncongested rates) and must not be used to cap
-    // the rate. A real capacity measurement can never be below the already-observed
-    // delivery rate.
-    if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
-      double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
-      bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
-
-      RTC_LOG(LS_VERBOSE) << "L4S: Real probe result accepted: " << measured_probe_rate->bps()
-                          << " bps (actual throughput: " << last_actual_bitrate_.bps()
-                          << " bps) with confidence " << probe_confidence;
-    } else {
-      RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
-                       << measured_probe_rate->bps() << " bps < actual throughput "
-                       << last_actual_bitrate_.bps() << " bps - likely AQM scheduling artifact";
-    }
-  }
+  // Probing disabled - no probe processing
 }
 
 std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
-  if (!probe_bitrate_estimator_) {
-    return std::nullopt;
-  }
-  
-  // Fetch the latest real probe measurement from the estimator
-  return probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
+  // Probing disabled
+  return std::nullopt;
 }
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
@@ -1477,66 +1330,12 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
 }
 
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
-  // Don't probe if we're experiencing heavy congestion
-  if (HasRecentCongestionSignals(now)) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to recent congestion signals";
-    return false;
-  }
-  
-  // Don't probe if ECN feedback is very fresh and confident (more permissive for discovery)
-  double ecn_confidence = prague_estimator_->GetConfidence(now);
-  bool is_discovery_mode = prague_estimator_->IsDiscoveryModeActive();
-  double confidence_threshold = is_discovery_mode ? 0.99 : 0.95;  // More permissive in discovery
-  
-  if (IsEcnFeedbackFresh(now) && ecn_confidence > confidence_threshold) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to high ECN confidence: " << ecn_confidence 
-                        << " > " << confidence_threshold << " (mode: " << (is_discovery_mode ? "discovery" : "recovery") << ")";
-    return false;
-  }
-  
-  // Don't probe during high loss periods
-  if (last_loss_fraction_ > 0.02) {  // 2% loss threshold
-    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to high loss: " << last_loss_fraction_;
-    return false;
-  }
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: Probe allowed - ECN confidence: " << ecn_confidence 
-                      << ", loss: " << last_loss_fraction_;
-  return true;
+  // Probing disabled
+  return false;
 }
 
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
-  if (!probe_controller_) {
-    return;
-  }
-
-  // Get current best estimate for probe rate calculation
-  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  
-  // Be more aggressive during ALR periods
-  double probe_multiplier = 1.5;  // Default
-  if (IsApplicationLimited()) {
-    probe_multiplier = 2.0;  // More aggressive when application limited
-    RTC_LOG(LS_VERBOSE) << "L4S: Using aggressive probing during ALR period";
-  }
-  
-  // Calculate probe rate
-  DataRate probe_rate = current_estimate * probe_multiplier;
-  if (max_target_rate_) {
-    probe_rate = std::min(probe_rate, *max_target_rate_);
-  }
-
-  // RequestProbe handles the ALR-end + large-drop case.  Periodic ALR
-  // probing is already driven by Process() in OnProcessInterval, so there is
-  // nothing else to do here for the normal (non-ALR) steady-state path.
-  auto probes = probe_controller_->RequestProbe(now);
-  if (!probes.empty()) {
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
-                                         probes.begin(), probes.end());
-    RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << probes.size()
-                        << " probe clusters";
-  }
-  (void)probe_rate;  // calculated above, kept for ALR multiplier logic
+  // Probing disabled
 }
 
 double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
@@ -1579,28 +1378,19 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   
   // Check if we should exit discovery mode based on convergence
   if (discovery_active && ShouldExitDiscoveryMode(now)) {
-    prague_estimator_->ExitDiscoveryMode("probe-Prague convergence or fallback threshold");
+    prague_estimator_->ExitDiscoveryMode("ECN-based convergence");
     discovery_active = false;
   }
   
-  // Update Prague with probe constraints during discovery
-  if (discovery_active) {
-    auto sources = bandwidth_fusion_->GetCurrentSources();
-    if (sources.probe_confidence > 0.7) {
-      prague_estimator_->SetProbeConstraint(sources.probe_estimate, sources.probe_confidence);
-    }
-  }
+  // Use Prague ECN-based fusion (no probe constraints, no recovery mode boost)
+  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active, false);
   
-  // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
-  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active, recovery_mode_active_);
-  
-  // During discovery mode, still use Prague's estimate as it incorporates probe constraints
+  // During discovery mode, use Prague's estimate directly
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
     RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
                      << " bps, Fused rate: " << fused_rate.bps() << " bps";
-    // Use Prague rate if it's lower (respecting probe constraints)
-    fused_rate = std::min(prague_rate, fused_rate);
+    fused_rate = prague_rate;
   }
   
   // Apply rate constraints
@@ -1612,12 +1402,6 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   if (max_target_rate_ && fused_rate > *max_target_rate_) {
     fused_rate = *max_target_rate_;
   }
-  
-  // Log fusion metrics
-  // if (metrics_enabled_ && metrics_collector_) {
-  //   auto sources = bandwidth_fusion_->GetCurrentSources();
-  //   metrics_collector_->LogFusionMetrics(now, sources, fused_rate);
-  // }
   
   return fused_rate;
 }
@@ -1952,144 +1736,10 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 }
 
 void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
-  if (!probe_controller_) {
-    return;
-  }
-
-  // Get current best estimate for probe rate calculation
-  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-
-  // More aggressive than normal probing during recovery testing
-  double recovery_multiplier = 2.5;  // vs 1.5 normal
-  if (IsApplicationLimited()) {
-    recovery_multiplier = 3.0;  // Even more aggressive when application limited
-  }
-
-  // Calculate target probe rate
-  DataRate probe_rate = current_estimate * recovery_multiplier;
-  if (max_target_rate_) {
-    probe_rate = std::min(probe_rate, *max_target_rate_);
-  }
-
-  // Reset ProbeController back to kInit so SetBitrates triggers a fresh
-  // exponential probe sequence from current_estimate.  Reset() preserves
-  // network_available_, enable_periodic_alr_probing_, and
-  // max_total_allocated_bitrate_ per the ProbeController contract.
-  DataRate clamped_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-  DataRate clamped_max = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
-  if (!clamped_max.IsFinite()) {
-    clamped_max = DataRate::KilobitsPerSec(100000);
-  }
-  // Ensure max >= current so the probe target is meaningful.
-  clamped_max = std::max(clamped_max, current_estimate);
-
-  probe_controller_->Reset(now);
-  auto probes = probe_controller_->SetBitrates(
-      clamped_min, current_estimate, clamped_max, now);
-  last_reported_bitrate_to_probe_controller_ = current_estimate;
-
-  if (!probes.empty()) {
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
-                                         probes.begin(), probes.end());
-    RTC_LOG(LS_INFO) << "L4S: Recovery probe initiated - "
-                     << probes.size() << " clusters from "
-                     << current_estimate.bps() << " bps "
-                     << "(max=" << clamped_max.bps() << " bps)";
-  } else {
-    // Network not yet available inside ProbeController; probe will fire once
-    // OnNetworkAvailability is forwarded.
-    RTC_LOG(LS_VERBOSE) << "L4S: Recovery probe deferred - network not available";
-  }
-  (void)probe_rate;         // computed above for max clamping
-  (void)recovery_multiplier;
+  // Probing disabled
 }
 
-void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
-  // Handle recovery mode detection based on clean ECT1 packets
-  if (ce_count == 0 && ect_count > 0) {
-    consecutive_clean_packets_ += ect_count;
-    
-    // Trigger recovery mode if enough clean packets seen, not already in discovery,
-    // and the post-convergence cooldown has expired.
-    bool cooldown_expired = recovery_cooldown_until_.IsInfinite() ||
-                            now >= recovery_cooldown_until_;
-    // Dynamic recovery threshold: the fixed count of 20 represents very
-    // different durations at different bitrates (e.g. 45 ms at 5 Mbps vs
-    // 444 ms at 500 Kbps).  Instead, compute the threshold as the number of
-    // packets that fit in 1.5 RTTs at the current rate so that recovery always
-    // waits at least 1.5 round-trips before probing, regardless of bitrate.
-    //
-    //   effective_rtt   = clamp(last_rtt_, 50 ms, 300 ms)
-    //   target_duration = 1.5 × effective_rtt
-    //   threshold       = clamp(packets/s × target_duration, 20, 500)
-    //
-    // kRecoveryPacketThreshold (20) acts as the floor so the condition is
-    // never trivially satisfied on very low-rate paths.
-    TimeDelta effective_rtt =
-        last_rtt_.IsFinite()
-            ? std::clamp(last_rtt_,
-                         TimeDelta::Millis(50),
-                         TimeDelta::Millis(300))
-            : TimeDelta::Millis(100);  // safe default until RTT is measured
-    double target_duration_s = effective_rtt.seconds<double>() * 1.5;
-    double rate_bps = target_rate_.has_value()
-                          ? static_cast<double>(target_rate_->bps())
-                          : 2'000'000.0;  // 2 Mbps safe default
-    double packets_per_sec = rate_bps / (1400.0 * 8.0);
-    int dynamic_threshold = static_cast<int>(packets_per_sec * target_duration_s);
-    int recovery_threshold = std::clamp(dynamic_threshold,
-                                        kRecoveryPacketThreshold,  // floor = 20
-                                        500);                       // cap = 500
-    if (consecutive_clean_packets_ >= recovery_threshold &&
-        !recovery_mode_active_ &&
-        !prague_estimator_->IsDiscoveryModeActive() &&
-        cooldown_expired) {
-
-      recovery_mode_active_ = true;
-      recovery_start_time_ = now;
-
-      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
-                       << " clean ECT packets (threshold=" << recovery_threshold
-                       << ", rtt=" << effective_rtt.ms() << "ms"
-                       << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
-    }
-  } else if (ce_count > 0) {
-    // Reset clean packet count on congestion
-    consecutive_clean_packets_ = 0;
-    
-    // Exit recovery mode on congestion
-    if (recovery_mode_active_) {
-      recovery_mode_active_ = false;
-      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
-    }
-  }
-  
-  // Check recovery mode exit conditions
-  if (recovery_mode_active_) {
-    TimeDelta recovery_duration = now - recovery_start_time_;
-    
-    // Exit conditions:
-    // 1. Maximum recovery duration exceeded (10 seconds)
-    // 2. Prague and probe converged at higher capacity
-    if (recovery_duration > TimeDelta::Seconds(10) || 
-        CheckProbeAndPragueConvergence(now)) {
-      
-      bool by_convergence = !( recovery_duration > TimeDelta::Seconds(10) );
-      recovery_mode_active_ = false;
-      consecutive_clean_packets_ = 0;
-
-      if (by_convergence) {
-        // Impose a cooldown so the controller doesn't oscillate back into
-        // recovery immediately on a stable, low-congestion network.
-        recovery_cooldown_until_ = now + kRecoveryCooldown;
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - convergence achieved, "
-                         << "cooldown until +" << kRecoveryCooldown.seconds<int>() << "s";
-      } else {
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - timeout";
-      }
-    }
-  }
-}
+// Recovery detection disabled - Prague uses ECN marks only
 
 bool webrtc::L4SNetworkController::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
   // Check both timestamps for infinity before arithmetic to prevent crash

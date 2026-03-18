@@ -18,8 +18,6 @@
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
 #include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
-#include "modules/congestion_controller/goog_cc/probe_controller.h"
-#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "system_wrappers/include/clock.h"
 
@@ -252,19 +250,15 @@ private:
   // Bandwidth fusion methods
   DataRate GetBaseFusedEstimate(Timestamp now);
 
-  // Probing logic
+  // Probing logic - DISABLED
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
-  bool ShouldProbeNow(Timestamp now) const;
-  void InitiateProbing(Timestamp now, NetworkControlUpdate* update);
-  void InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update);
   
   // Convergence detection
   bool CheckProbeAndPragueConvergence(Timestamp now) const;
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
-  // Recovery detection
-  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
+
 
   // ALR detection
   bool IsApplicationLimited() const;
@@ -301,8 +295,6 @@ private:
   // Bandwidth estimation components
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
   std::unique_ptr<DelayBasedBwe> delay_estimator_;
-  std::unique_ptr<ProbeController> probe_controller_;
-  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
   std::unique_ptr<AlrDetector> alr_detector_;
   std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
@@ -328,26 +320,8 @@ private:
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
 
-  // Probing state
-  Timestamp last_probe_time_ = Timestamp::MinusInfinity();
-  bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
-  // Last bitrate reported to ProbeController via SetEstimatedBitrate.  Used to
-  // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
-  // don't flood probe_controller.cc's "Measured bitrate" log.
-  DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
-
-  // ALR state tracking for probe controller
+  // ALR state tracking
   bool previously_in_alr_ = false;
-
-  // Recovery state tracking
-  bool recovery_mode_active_ = false;
-  int consecutive_clean_packets_ = 0;  // ECT1 without CE
-  Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
-  // After a successful convergence exit, block re-entry for this duration to
-  // prevent the rapid enter/exit oscillation seen when the network is stable.
-  Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
-  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
