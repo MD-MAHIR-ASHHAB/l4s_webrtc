@@ -1749,23 +1749,8 @@ void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
 
   DataRate acked_rate = *last_acked_bitrate_;
 
-  // Check for sudden growth spike during plateau
-  if (previous_acked_rate_.has_value() && in_acked_plateau_) {
-    DataRate prev_rate = *previous_acked_rate_;
-    if (!prev_rate.IsZero()) {
-      double growth = (acked_rate.bps() - prev_rate.bps()) / prev_rate.bps();
-      if (growth > kAckedGrowthSpikeThreshold) {
-        // Significant growth spike detected during plateau - enable re-discovery
-        RTC_LOG(LS_VERBOSE) << "L4S: ACK GROWTH SPIKE DETECTED - " 
-                            << (prev_rate.bps() / 1e6) << " Mbps → "
-                            << (acked_rate.bps() / 1e6) << " Mbps ("
-                            << (growth * 100) << "% growth). Resetting plateau for re-discovery.";
-        ResetAckedPlateau();
-      }
-    }
-  }
-
-  // Track previous rate for next check
+  // Track previous rate for next check (disabled for now - caused instability)
+  // TODO: Fix growth spike detection to track median plateau rate, not single samples
   previous_acked_rate_ = acked_rate;
 
   // Add to history
