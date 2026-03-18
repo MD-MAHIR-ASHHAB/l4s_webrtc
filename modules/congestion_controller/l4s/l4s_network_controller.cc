@@ -1804,11 +1804,25 @@ void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
       HandleAckedPlateau(now);
     }
   } else {
-    // Acked rate is growing - plateau broken
+    // Acked rate is no longer flat - check if it's increasing (recovery) or just noisy/decreasing
     if (in_acked_plateau_) {
-      RTC_LOG(LS_VERBOSE) << "L4S: Acked rate plateau broken - rate increasing from " 
-                          << (median_acked.bps() / 1e6) << " Mbps";
-      ResetAckedPlateau();
+      DataRate plateau_rate = plateau_detected_at_acked_rate_.value_or(DataRate::Zero());
+      // Only reset plateau if acked rate is sustainably INCREASING (recovery)
+      // Decreases are likely due to Prague's estimate instability - keep constraint locked
+      if (median_acked > plateau_rate * 1.05) {  // >5% increase = recovery
+        RTC_LOG(LS_VERBOSE) << "L4S: Acked rate plateau broken by recovery - increasing from " 
+                            << (plateau_rate.bps() / 1e6) << " to " 
+                            << (median_acked.bps() / 1e6) << " Mbps";
+        ResetAckedPlateau();
+      } else if (median_acked < plateau_rate) {
+        // Acked rate decreased - stay in plateau, keep constraint ceiling anchored
+        RTC_LOG(LS_VERBOSE) << "L4S: Acked rate dropped to " 
+                            << (median_acked.bps() / 1e6) << " Mbps during plateau - "
+                            << "keeping constraint locked at ceiling";
+        plateau_consecutive_updates_ = 0;  // Reset counter but stay in plateau state
+        // Still apply constraint brake during recovery
+        HandleAckedPlateau(now);
+      }
     }
   }
 }
