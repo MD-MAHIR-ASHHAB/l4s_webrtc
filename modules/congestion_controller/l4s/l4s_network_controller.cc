@@ -1747,7 +1747,6 @@ void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
   }
 
   DataRate acked_rate = *last_acked_bitrate_;
-  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
 
   // Add to history
   acked_rate_history_.push_back(acked_rate);
