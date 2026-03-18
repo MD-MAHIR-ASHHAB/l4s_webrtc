@@ -1179,16 +1179,16 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
-    // During discovery mode, use Prague's own estimate to create positive feedback loop
-    DataRate prague_input_rate;
+    // Always use Prague's own estimate as the input rate.
+    // This prevents feedback loops where low fused estimates (from other estimators)
+    // feed back and collapse Prague's rate. CE ratio will still apply congestion control.
+    DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
     if (prague_estimator_->IsDiscoveryModeActive()) {
-      prague_input_rate = prague_estimator_->GetCurrentEstimate();
-      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
-                       << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
+      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate: " << prague_input_rate.bps() 
+                       << " bps (ce_ratio=" << ce_ratio << ")";
     } else {
-      prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
-      RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
-                       << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
+      RTC_LOG(LS_VERBOSE) << "L4S: Steady state - using Prague's own estimate as baseline: " << prague_input_rate.bps() 
+                       << " bps (fused rate was: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
     }
     
     prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
@@ -1305,6 +1305,18 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
   bandwidth_fusion_->UpdateAckedEstimate(*acked_bitrate, acked_confidence,
                                          feedback.feedback_time);
+  
+  // Diagnostic: compare acked rate against Prague estimate to detect delivery issues
+  if (prague_estimator_) {
+    DataRate prague_est = prague_estimator_->GetCurrentEstimate();
+    double ratio = prague_est.IsZero() ? 0.0 : acked_bitrate->bps() / prague_est.bps();
+    if (ratio < 0.5) {
+      // Acked rate is less than 50% of Prague estimate - significant mismatch
+      RTC_LOG(LS_INFO) << "L4S: EFFICIENCY ALERT - Acked rate " << (acked_bitrate->bps() / 1e6) 
+                       << " Mbps is only " << (ratio * 100) << "% of Prague estimate " 
+                       << (prague_est.bps() / 1e6) << " Mbps (Possible packet loss or asymmetric congestion)";
+    }
+  }
 }
 
 void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
@@ -1398,6 +1410,21 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     RTC_LOG(LS_VERBOSE) << "L4S: Applying max constraint: " << (fused_rate.bps() / 1e6) 
                         << " -> " << (max_target_rate_->bps() / 1e6) << " Mbps";
     fused_rate = *max_target_rate_;
+  }
+  
+  // IMPORTANT: Sanity check - don't let estimate exceed actual delivery by too much
+  // If acked rate exists and is much lower than fused rate, constrain fused estimate
+  // This prevents the optimistic ECN estimate from overshooting when actual network
+  // capacity is lower (e.g., due to packet loss or asymmetric congestion)
+  if (!last_acked_bitrate_.IsZero()) {
+    // Allow fused_rate to be 1.5x the acked rate (headroom for growth)
+    DataRate acked_ceiling = last_acked_bitrate_ * 1.5;
+    if (fused_rate > acked_ceiling) {
+      RTC_LOG(LS_INFO) << "L4S: ACKED RATE SANITY CHECK - Fused: " << (fused_rate.bps() / 1e6) 
+                       << " Mbps exceeds 1.5x acked rate (" << (last_acked_bitrate_.bps() / 1e6) 
+                       << " Mbps) - capping to " << (acked_ceiling.bps() / 1e6) << " Mbps";
+      fused_rate = acked_ceiling;
+    }
   }
   
   if (fused_rate.bps() != original_fused.bps()) {
