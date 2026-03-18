@@ -32,15 +32,27 @@ void L4sImmediateFeedbackController::OnCePacketReceived(
                    << " mode=" << (current_mode_ == FeedbackMode::kBatchMode ? "BATCH" : "IMMEDIATE");
 
   if (current_mode_ == FeedbackMode::kBatchMode) {
-    // First CE packet: flush current batch and switch to immediate mode
-    RTC_LOG(LS_INFO) << "L4S: Switching from BATCH to IMMEDIATE mode - flushing accumulated batch";
+    // First CE packet: flush current batch, switch to immediate mode, and start accumulating CE packets
+    RTC_LOG(LS_INFO) << "L4S: RFC 8888 COMPLIANT - Switching from BATCH to IMMEDIATE mode. "
+                     << "Flushing accumulated batch, then collecting CE packets for batched RTCP.";
     FlushBatchAndSwitchToImmediate();
     ++batch_flushes_;
+    
+    // Start accumulating CE packets
+    first_ce_sequence_ = sequence_number;
+    ce_packet_count_ = 1;
+    
+    RTC_LOG(LS_INFO) << "L4S: RFC 8888 - Started CE accumulation: seq=" << first_ce_sequence_ 
+                     << ", count=" << ce_packet_count_;
   } else {
-    // Already in immediate mode: send immediate feedback for this packet
-    RTC_LOG(LS_INFO) << "L4S: Sending immediate feedback for CE packet in IMMEDIATE mode";
-    SendImmediateFeedbackForPacket();
-    ++ce_packets_in_immediate_mode_;
+    // Already in immediate mode: accumulate this CE packet (don't send yet!)
+    if (ce_packet_count_ == 0) {
+      first_ce_sequence_ = sequence_number;
+    }
+    ce_packet_count_++;
+    
+    RTC_LOG(LS_VERBOSE) << "L4S: RFC 8888 - Accumulated CE packet: seq=" << sequence_number 
+                        << ", total_count=" << ce_packet_count_;
   }
 
   last_mode_switch_ = timestamp;
@@ -51,14 +63,13 @@ void L4sImmediateFeedbackController::OnNonCePacketReceived(
   RTC_DCHECK_RUN_ON(&sequence_checker_);
 
   if (current_mode_ == FeedbackMode::kImmediateMode) {
-    RTC_LOG(LS_INFO) << "L4S: Non-CE packet received - switching back to BATCH mode"
-                     << " (handled " << ce_packets_in_immediate_mode_ << " CE packets in immediate mode)";
-    SwitchToBatchMode();
+    RTC_LOG(LS_INFO) << "L4S: RFC 8888 - Non-CE packet received. Sending batch of " 
+                     << ce_packet_count_ << " accumulated CE packets and switching back to BATCH mode";
+    SendCeBatchAndSwitchToBatch();
     last_mode_switch_ = timestamp;
   }
   
-  // In batch mode, we don't need to do anything special for non-CE packets
-  // The normal batching mechanism will handle them
+  // In batch mode, normal batching mechanism handles non-CE packets
 }
 
 void L4sImmediateFeedbackController::FlushBatchAndSwitchToImmediate() {
@@ -72,11 +83,21 @@ void L4sImmediateFeedbackController::FlushBatchAndSwitchToImmediate() {
   ce_packets_in_immediate_mode_ = 1; // Count the current CE packet
 }
 
-void L4sImmediateFeedbackController::SendImmediateFeedbackForPacket() {
+void L4sImmediateFeedbackController::SendCeBatchAndSwitchToBatch() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   
-  // Send immediate feedback for just this packet
-  feedback_generator_->SendImmediateFeedback();
+  if (ce_packet_count_ > 0) {
+    RTC_LOG(LS_INFO) << "L4S: RFC 8888 COMPLIANT - Sending ONE RTCP batch for " 
+                     << ce_packet_count_ << " CE packets (seq " << first_ce_sequence_ 
+                     << " + " << (ce_packet_count_ - 1) << " more)";
+    // Send immediate feedback once with all accumulated CE packets
+    feedback_generator_->SendImmediateFeedback();
+    ++ce_batches_sent_;
+  }
+  
+  ce_packet_count_ = 0;
+  first_ce_sequence_ = 0;
+  SwitchToBatchMode();
 }
 
 void L4sImmediateFeedbackController::SwitchToBatchMode() {

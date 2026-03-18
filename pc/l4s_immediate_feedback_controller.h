@@ -66,13 +66,15 @@ class L4sImmediateFeedbackController {
   }
 
  private:
-  // Flush current batch and switch to immediate mode
+  // Flush current batch and switch to immediate CE collection mode
+  // This sends ONE batch RTCP with accumulated packets
   void FlushBatchAndSwitchToImmediate() RTC_NO_THREAD_SAFETY_ANALYSIS;
 
-  // Send immediate feedback for single packet
-  void SendImmediateFeedbackForPacket() RTC_NO_THREAD_SAFETY_ANALYSIS;
+  // Send batch of collected CE packets and switch back to batch mode
+  // This sends ONE batch RTCP with all accumulated CE packets
+  void SendCeBatchAndSwitchToBatch() RTC_NO_THREAD_SAFETY_ANALYSIS;
 
-  // Switch back to batch mode
+  // Switch back to batch mode without sending (for non-CE recovery)
   void SwitchToBatchMode();
 
   SequenceChecker sequence_checker_;
@@ -80,8 +82,13 @@ class L4sImmediateFeedbackController {
   
   FeedbackMode current_mode_ RTC_GUARDED_BY(sequence_checker_) = FeedbackMode::kBatchMode;
   
+  // CE packet accumulation (RFC 8888 compliant batching)
+  // Collect all CE packets during immediate mode, send as one batch
+  uint16_t first_ce_sequence_ RTC_GUARDED_BY(sequence_checker_) = 0;
+  int ce_packet_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
+  
   // Statistics
-  int ce_packets_in_immediate_mode_ RTC_GUARDED_BY(sequence_checker_) = 0;
+  int ce_batches_sent_ RTC_GUARDED_BY(sequence_checker_) = 0;
   int batch_flushes_ RTC_GUARDED_BY(sequence_checker_) = 0;
   Timestamp last_mode_switch_ RTC_GUARDED_BY(sequence_checker_) = Timestamp::MinusInfinity();
 };

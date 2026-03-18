@@ -193,8 +193,10 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         increased = std::min(increased, max_target_rate_);
     }
     
-    // Apply probe constraint during discovery mode
-    if (discovery_mode_active_ && probe_constraint_ > DataRate::Zero() && probe_constraint_confidence_ > 0.7) {
+    // DISABLED: Probe constraint is disabled in L4S to prevent rate limiting during discovery
+    // The probe ceiling was causing convergence failures and excessive rate dips
+    // Comment: This code is kept for future use but is bypassed
+    if (false && discovery_mode_active_ && probe_constraint_ > DataRate::Zero() && probe_constraint_confidence_ > 0.7) {
       DataRate max_allowed = probe_constraint_ * 0.95;  // 95% of probe estimate
       if (increased > max_allowed) {
         increased = max_allowed;
@@ -1477,6 +1479,11 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
 }
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
+  // DISABLED: Probing is disabled in L4S to prevent bandwidth overshooting during discovery
+  RTC_LOG(LS_VERBOSE) << "L4S: Probing is disabled (all probes blocked)";
+  return;
+  
+  // Unreachable code below
   if (!config_.enable_probing || !probe_controller_) {
     RTC_LOG(LS_WARNING) << "L4S: Probing disabled - enable_probing=" << config_.enable_probing 
                         << ", probe_controller=" << (probe_controller_ ? "available" : "null");
