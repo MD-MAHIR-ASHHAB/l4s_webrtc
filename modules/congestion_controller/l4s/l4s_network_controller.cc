@@ -1379,10 +1379,10 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   } else {
     // Not in discovery - log the fused rate and its sources
     auto sources = bandwidth_fusion_->GetCurrentSources();
-    RTC_LOG(LS_VERBOSE) << "L4S: STEADY STATE - Fused: " << (fused_rate.bps() / 1e6) << " Mbps, "
-                        << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
-                        << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
-                        << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
+    RTC_LOG(LS_INFO) << "L4S: STEADY STATE - Fused: " << (fused_rate.bps() / 1e6) << " Mbps, "
+                     << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
+                     << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
+                     << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
   }
   
   // Apply rate constraints
