@@ -335,8 +335,8 @@ private:
 
   // Acked rate plateau detection (brake for when app stops sending more)
   std::deque<DataRate> acked_rate_history_;  // Track recent acked rates to detect plateau
-  static constexpr size_t kAckedRateHistorySize = 15;  // 15 samples = ~15 RTTs
-  static constexpr double kAckedRatePlateauThreshold = 0.02;  // 2% change = plateau
+  static constexpr size_t kAckedRateHistorySize = 50;  // 50 samples = ~50 RTTs for smooth detection
+  static constexpr double kAckedRatePlateauThreshold = 0.05;  // 5% change = plateau (tolerates bursty ACKs)
   Timestamp last_acked_plateau_check_ = Timestamp::MinusInfinity();
   bool in_acked_plateau_ = false;
   int plateau_consecutive_updates_ = 0;
