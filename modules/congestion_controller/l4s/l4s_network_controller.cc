@@ -1,6 +1,7 @@
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <numeric>
 #include <utility>
@@ -1179,6 +1180,12 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
+    // When CE marks appear after plateau, reset plateau to allow dynamic re-discovery
+    if (new_ce_count > 0 && in_acked_plateau_) {
+      RTC_LOG(LS_VERBOSE) << "L4S: CE marks detected during acked plateau - enabling re-discovery";
+      ResetAckedPlateau();
+    }
+    
     // Always use Prague's own estimate as the input rate.
     // This prevents feedback loops where low fused estimates (from other estimators)
     // feed back and collapse Prague's rate. CE ratio will still apply congestion control.
@@ -1305,6 +1312,9 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
   bandwidth_fusion_->UpdateAckedEstimate(*acked_bitrate, acked_confidence,
                                          feedback.feedback_time);
+  
+  // Detect if acked rate is plateauing while Prague continues to climb
+  DetectAckedRatePlateau(feedback.feedback_time);
   
   // Diagnostic: compare acked rate against Prague estimate to detect delivery issues
   if (prague_estimator_) {
@@ -1729,6 +1739,108 @@ bool webrtc::L4SNetworkController::IsRecentlyUpdated(Timestamp last_update, Time
     return false;
   }
   return (now - last_update) < TimeDelta::Seconds(10);
+}
+
+void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
+  if (!last_acked_bitrate_.has_value() || !prague_estimator_) {
+    return;
+  }
+
+  DataRate acked_rate = *last_acked_bitrate_;
+  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+
+  // Add to history
+  acked_rate_history_.push_back(acked_rate);
+  if (acked_rate_history_.size() > kAckedRateHistorySize) {
+    acked_rate_history_.pop_front();
+  }
+
+  // Need enough history to detect trend
+  if (acked_rate_history_.size() < 3) {
+    ResetAckedPlateau();
+    return;
+  }
+
+  // Check if acked rate has plateaued
+  // Plateau = all recent samples within 2% of median
+  std::vector<DataRate> sorted_history(acked_rate_history_.begin(), acked_rate_history_.end());
+  std::sort(sorted_history.begin(), sorted_history.end(), 
+            [](const DataRate& a, const DataRate& b) { return a.bps() < b.bps(); });
+  
+  DataRate median_acked = sorted_history[sorted_history.size() / 2];
+  if (median_acked.IsZero()) {
+    ResetAckedPlateau();
+    return;
+  }
+
+  // Check if all recent samples are within threshold of median
+  bool all_flat = true;
+  for (const auto& sample : acked_rate_history_) {
+    double variation = std::abs(sample.bps() - median_acked.bps()) / median_acked.bps();
+    if (variation > kAckedRatePlateauThreshold) {
+      all_flat = false;
+      break;
+    }
+  }
+
+  if (all_flat) {
+    // Acked rate is flat
+    plateau_consecutive_updates_++;
+    
+    if (plateau_consecutive_updates_ >= kPlateauThresholdUpdates) {
+      // Plateau confirmed
+      if (!in_acked_plateau_) {
+        in_acked_plateau_ = true;
+        plateau_detected_at_acked_rate_ = median_acked;
+        RTC_LOG(LS_VERBOSE) << "L4S: ACKED RATE PLATEAU DETECTED - Rate: " 
+                            << (median_acked.bps() / 1e6) << " Mbps (stable "
+                            << plateau_consecutive_updates_ << " updates)";
+      }
+      // Now check if Prague is climbing while acked is flatlined
+      HandleAckedPlateau(now);
+    }
+  } else {
+    // Acked rate is growing - plateau broken
+    if (in_acked_plateau_) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Acked rate plateau broken - rate increasing from " 
+                          << (median_acked.bps() / 1e6) << " Mbps";
+      ResetAckedPlateau();
+    }
+  }
+}
+
+void webrtc::L4SNetworkController::HandleAckedPlateau(Timestamp now) {
+  if (!in_acked_plateau_ || !prague_estimator_) {
+    return;
+  }
+
+  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+  DataRate plateau_acked = plateau_detected_at_acked_rate_.value_or(DataRate::Zero());
+
+  if (plateau_acked.IsZero()) {
+    return;
+  }
+
+  // If Prague is climbing above the plateau rate, apply brake
+  DataRate ceiling = plateau_acked * 1.2;  // Allow 20% headroom for temporary growth
+  
+  if (prague_rate > ceiling && prague_estimator_->GetDirectionFlag() == 1) {
+    // Prague is in additive mode and climbing above acked ceiling
+    // Force it to stop or reduce to respect acked rate limit
+    RTC_LOG(LS_VERBOSE) << "L4S: PLATEAU BRAKE - Prague climbing to " 
+                        << (prague_rate.bps() / 1e6) << " Mbps while acked capped at "
+                        << (plateau_acked.bps() / 1e6) << " Mbps. Freezing Prague at "
+                        << (ceiling.bps() / 1e6) << " Mbps";
+    
+    // Freeze Prague's internal rate at ceiling to prevent further growth during plateau
+    prague_estimator_->SetCurrentEstimate(ceiling);
+  }
+}
+
+void webrtc::L4SNetworkController::ResetAckedPlateau() {
+  in_acked_plateau_ = false;
+  plateau_consecutive_updates_ = 0;
+  plateau_detected_at_acked_rate_ = std::nullopt;
 }
 
 }  // namespace webrtc

@@ -258,6 +258,11 @@ private:
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
+  // Acked rate plateau detection and handling
+  void DetectAckedRatePlateau(Timestamp now);
+  void HandleAckedPlateau(Timestamp now);
+  void ResetAckedPlateau();
+  
 
 
   // ALR detection
@@ -327,6 +332,16 @@ private:
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
+
+  // Acked rate plateau detection (brake for when app stops sending more)
+  std::deque<DataRate> acked_rate_history_;  // Track recent acked rates to detect plateau
+  static constexpr size_t kAckedRateHistorySize = 15;  // 15 samples = ~15 RTTs
+  static constexpr double kAckedRatePlateauThreshold = 0.02;  // 2% change = plateau
+  Timestamp last_acked_plateau_check_ = Timestamp::MinusInfinity();
+  bool in_acked_plateau_ = false;
+  int plateau_consecutive_updates_ = 0;
+  static constexpr int kPlateauThresholdUpdates = 10;  // 10 consecutive flat updates = brake
+  std::optional<DataRate> plateau_detected_at_acked_rate_;  // Rate where plateau was detected
 
   // Metrics
   bool metrics_enabled_ = true;
