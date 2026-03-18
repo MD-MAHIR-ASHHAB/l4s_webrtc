@@ -1813,7 +1813,8 @@ void webrtc::L4SNetworkController::DetectAckedRatePlateau(Timestamp now) {
       if (!in_acked_plateau_) {
         in_acked_plateau_ = true;
         plateau_detected_at_acked_rate_ = median_acked;
-        RTC_LOG(LS_VERBOSE) << "L4S: ACKED RATE PLATEAU DETECTED - Rate: " 
+        plateau_detected_time_ = now;  // Track when plateau was confirmed
+        RTC_LOG(LS_INFO) << "L4S: ACKED RATE PLATEAU DETECTED - Rate: " 
                             << (median_acked.bps() / 1e6) << " Mbps (stable "
                             << plateau_consecutive_updates_ << " updates)";
       }
@@ -1842,8 +1843,23 @@ void webrtc::L4SNetworkController::HandleAckedPlateau(Timestamp now) {
     return;
   }
 
+  // Check if plateau has timed out - if flat at low rate for >15 seconds, reset and retry
+  TimeDelta plateau_duration = now - plateau_detected_time_;
+  if (plateau_duration > TimeDelta::Seconds(kPlateauTimeoutSeconds) && plateau_acked.bps() < 1000000) {  // <1 Mbps
+    RTC_LOG(LS_INFO) << "L4S: Plateau timeout - locked at low rate (" 
+                     << (plateau_acked.bps() / 1e6) << " Mbps) for " 
+                     << plateau_duration.ms() << "ms. Resetting plateau to attempt recovery";
+    ResetAckedPlateau();
+    return;
+  }
+
+  // Don't apply constraint during discovery mode - let Prague grow freely
+  if (prague_estimator_->IsDiscoveryModeActive()) {
+    return;
+  }
+
   // If Prague is climbing above the plateau rate, apply brake
-  DataRate ceiling = plateau_acked * 1.2;  // Allow 20% headroom for temporary growth
+  DataRate ceiling = plateau_acked * 2.0;  // Allow 2.0x headroom for recovery (was 1.2x)
   
   if (prague_rate > ceiling && prague_estimator_->GetDirectionFlag() == 1) {
     // Prague is in additive mode and climbing above acked ceiling
@@ -1862,6 +1878,7 @@ void webrtc::L4SNetworkController::ResetAckedPlateau() {
   in_acked_plateau_ = false;
   plateau_consecutive_updates_ = 0;
   plateau_detected_at_acked_rate_ = std::nullopt;
+  plateau_detected_time_ = Timestamp::MinusInfinity();  // Clear timeout timer
   // Note: previous_acked_rate_ is NOT cleared - it's used for continuous growth detection
 }
 

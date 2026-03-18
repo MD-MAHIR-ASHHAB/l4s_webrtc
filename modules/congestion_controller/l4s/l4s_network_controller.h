@@ -342,6 +342,8 @@ private:
   int plateau_consecutive_updates_ = 0;
   static constexpr int kPlateauThresholdUpdates = 10;  // 10 consecutive flat updates = brake
   std::optional<DataRate> plateau_detected_at_acked_rate_;  // Rate where plateau was detected
+  Timestamp plateau_detected_time_ = Timestamp::MinusInfinity();  // When plateau was first confirmed
+  static constexpr int kPlateauTimeoutSeconds = 15;  // Reset plateau after 15s if still locked low
   std::optional<DataRate> previous_acked_rate_;  // For detecting growth spikes during plateau
   static constexpr double kAckedGrowthSpikeThreshold = 0.10;  // 10% jump = growth spike (enable re-discovery)
 
