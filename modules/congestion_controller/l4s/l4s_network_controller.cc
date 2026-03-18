@@ -1310,15 +1310,6 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   RTC_LOG(LS_VERBOSE) << "L4S: Probing is disabled (all probes blocked)";
 }
 
-bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
-  // Probing disabled
-  return false;
-}
-
-void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
-  // Probing disabled
-}
-
 double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
   return prague_estimator_->GetConfidence(now);
 }
@@ -1596,19 +1587,15 @@ bool webrtc::L4SNetworkController::IsApplicationLimited() const {
 }
 
 void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& feedback) {
-  // Track ALR state end so the probe controller can fire an ALR-end probe.
-  // Note: OnBytesSent is fed from OnSentPacket, which drives the ALR detector.
-  if (alr_detector_ && probe_controller_) {
+  // Track ALR state for logging/metrics only (probing disabled in L4S)
+  if (alr_detector_) {
     std::optional<int64_t> alr_start_time =
         alr_detector_->GetApplicationLimitedRegionStartTime();
     if (previously_in_alr_ && !alr_start_time.has_value()) {
-      // ALR just ended – tell ProbeController so it can trigger an ALR probe.
-      probe_controller_->SetAlrEndedTimeMs(feedback.feedback_time.ms());
       if (acked_estimator_) {
         acked_estimator_->SetAlrEndedTime(feedback.feedback_time);
       }
-      RTC_LOG(LS_INFO) << "L4S: ALR ended, notifying ProbeController at "
-                       << feedback.feedback_time.ms() << " ms";
+      RTC_LOG(LS_VERBOSE) << "L4S: ALR ended at " << feedback.feedback_time.ms() << " ms";
     }
     previously_in_alr_ = alr_start_time.has_value();
   }
@@ -1671,12 +1658,6 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 
   return false;
 }
-
-void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
-  // Probing disabled
-}
-
-// Recovery detection disabled - Prague uses ECN marks only
 
 bool webrtc::L4SNetworkController::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
   // Check both timestamps for infinity before arithmetic to prevent crash
