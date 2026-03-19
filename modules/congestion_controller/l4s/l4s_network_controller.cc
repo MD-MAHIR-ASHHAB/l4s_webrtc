@@ -1133,6 +1133,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
                         << " acked_rate=" << (acked_rate.bps() / 1e6) << " Mbps"
                         << " deficit=" << ((current_rate - acked_rate).bps() / 1e6) << " Mbps";
     prague_estimator_->OnPacketLoss(current_rate, msg.receive_time);
+    last_loss_signal_time_ = msg.receive_time;
   }
   
   // Update loss metrics
@@ -1850,6 +1851,30 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     recent_ce_for_floor = since_last_ce < recency_window;
   }
 
+  bool recent_loss_for_acked = false;
+  if (!last_loss_signal_time_.IsInfinite()) {
+    TimeDelta since_last_loss = feedback.feedback_time - last_loss_signal_time_;
+    TimeDelta loss_recency_window = kLossRecencyWindowMin;
+    if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      loss_recency_window = std::max(loss_recency_window, last_rtt_ * 3);
+    }
+    recent_loss_for_acked = since_last_loss < loss_recency_window;
+  }
+
+  // Policy lock: in clean periods (no CE, no loss), ACKed can only move upward.
+  if (last_acked_bitrate_.has_value() &&
+      smoothed_acked_rate < *last_acked_bitrate_ &&
+      !has_ce_in_batch_for_floor && !recent_ce_for_floor &&
+      !recent_loss_for_acked) {
+    RTC_LOG(LS_VERBOSE) << "L4S: ACKED_UP_ONLY_GUARD - holding acked at "
+                        << (last_acked_bitrate_->bps() / 1e6)
+                        << " Mbps (candidate "
+                        << (smoothed_acked_rate.bps() / 1e6)
+                        << " Mbps) in no-CE/no-loss period";
+    smoothed_acked_rate = *last_acked_bitrate_;
+    consecutive_hysteresis_applications_ = 0;
+  }
+
   // Track a sticky delivered-rate anchor so the floor does not ratchet down
   // rapidly when older window samples age out.
   if (window_max_acked_rate_ > no_ce_floor_anchor_rate_) {
@@ -2132,6 +2157,38 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   if (fused_rate.bps() != original_fused.bps()) {
     RTC_LOG(LS_INFO) << "L4S: RATE UPDATE - Before constraints: " << (original_fused.bps() / 1e6) 
                      << " Mbps, After: " << (fused_rate.bps() / 1e6) << " Mbps";
+  }
+
+  // Policy lock: MD only from CE or packet loss. In clean periods, don't allow
+  // target rate to step down from the previously published rate.
+  if (target_rate_.has_value() && fused_rate < *target_rate_) {
+    bool recent_ce = false;
+    if (!last_ce_mark_time_.IsInfinite()) {
+      TimeDelta since_last_ce = now - last_ce_mark_time_;
+      TimeDelta ce_recency_window = kNoCeRecencyWindowMin;
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+        ce_recency_window = std::max(ce_recency_window, last_rtt_ * 3);
+      }
+      recent_ce = since_last_ce < ce_recency_window;
+    }
+
+    bool recent_loss = false;
+    if (!last_loss_signal_time_.IsInfinite()) {
+      TimeDelta since_last_loss = now - last_loss_signal_time_;
+      TimeDelta loss_recency_window = kLossRecencyWindowMin;
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+        loss_recency_window = std::max(loss_recency_window, last_rtt_ * 3);
+      }
+      recent_loss = since_last_loss < loss_recency_window;
+    }
+
+    if (!recent_ce && !recent_loss) {
+      RTC_LOG(LS_VERBOSE) << "L4S: NO_CE_LOSS_MD_GUARD - blocking downward target step "
+                          << (fused_rate.bps() / 1e6) << " -> "
+                          << (target_rate_->bps() / 1e6)
+                          << " Mbps (clean period)";
+      fused_rate = *target_rate_;
+    }
   }
   
   // Log final rate decision with all sources for debugging rate collapses

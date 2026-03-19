@@ -365,6 +365,7 @@ private:
   // Loss tracking
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
+  Timestamp last_loss_signal_time_ = Timestamp::MinusInfinity();
 
   // ALR state tracking
   bool previously_in_alr_ = false;
@@ -395,6 +396,7 @@ private:
   static constexpr double kBootstrapMaxDownStepFraction = 0.005;
   static constexpr double kNoCeAckedFloorFraction = 0.35;
   static constexpr TimeDelta kNoCeRecencyWindowMin = TimeDelta::Millis(500);
+  static constexpr TimeDelta kLossRecencyWindowMin = TimeDelta::Millis(500);
   static constexpr double kNoCeFloorAnchorDecayPerSecond = 0.01;
   static constexpr TimeDelta kNoCeFloorGuardLogInterval = TimeDelta::Seconds(1);
 
