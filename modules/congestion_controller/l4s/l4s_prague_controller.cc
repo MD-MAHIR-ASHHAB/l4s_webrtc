@@ -82,7 +82,15 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     int64_t bits_per_rtt = kDefaultMssBytes * 8;
     double ai_factor = 1.0;  // 1.0 MSS per RTT
     int64_t increase_bps = rtt_seconds > 0 ? static_cast<int64_t>((bits_per_rtt * ai_factor) / rtt_seconds) : 0;
-    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), max_target_rate_);
+    
+    // Enforce growth bounds: must respect L4S bounds if set
+    DataRate ceiling = max_target_rate_;
+    if (growth_max_bound_ > DataRate::Zero()) {
+      ceiling = std::min(ceiling, growth_max_bound_);
+      RTC_LOG(LS_VERBOSE) << "Prague: AI bounded by growth_max_bound (" << (growth_max_bound_.bps() / 1e6)
+                          << " Mbps) vs max_target (" << (max_target_rate_.bps() / 1e6) << " Mbps)";
+    }
+    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), ceiling);
     
     congestion_based_estimate_ = increased;
     

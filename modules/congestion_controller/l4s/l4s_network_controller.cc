@@ -1426,17 +1426,21 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   // Log: window_max=" << window_max_acked_rate_, window_size=" << acked_rate_window_.size()
   
   // === UPDATE PRAGUE'S GROWTH BOUNDS ===
-  // Constrain Prague's autonomous growth to [window_max, 2.0 × window_max]
-  if (window_max_acked_rate_ > DataRate::Zero()) {
-    DataRate growth_ceiling = window_max_acked_rate_ * kDiscoveryMaxMultiplier;
-    prague_estimator_->SetGrowthBounds(window_max_acked_rate_, growth_ceiling);
-    RTC_LOG(LS_VERBOSE) << "L4S: Prague growth bounds updated - min=" << (window_max_acked_rate_.bps() / 1e6)
-                        << " Mbps, max=" << (growth_ceiling.bps() / 1e6) << " Mbps";
+  // OPTION A: Use CURRENT acked_rate instead of historical window_max to prevent slow recovery
+  // Current acked rate = what network is actually delivering right now
+  // This allows Prague to adapt quickly when capacity changes, rather than being stuck 
+  // to 9-second-old peak capacity estimates
+  if (effective_acked_rate > DataRate::Zero()) {
+    DataRate growth_floor = effective_acked_rate;  // Current reality
+    DataRate growth_ceiling = effective_acked_rate * 1.5;  // 50% room for exploration
+    prague_estimator_->SetGrowthBounds(growth_floor, growth_ceiling);
+    RTC_LOG(LS_INFO) << "L4S: OPTION_A_BOUNDS - Using current acked_rate for bounds"
+                     << " floor=" << (growth_floor.bps() / 1e6) << " Mbps (current delivery)"
+                     << " ceiling=" << (growth_ceiling.bps() / 1e6) << " Mbps (current + 50%)";
     RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_WINDOW - "
-                     << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps "
-                     << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps "
-                     << "window_size=" << acked_rate_window_.size() << " samples "
-                     << "prague_bounds=[" << (window_max_acked_rate_.bps() / 1e6) << ", " << (growth_ceiling.bps() / 1e6) << "]";
+                     << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps (THIS IS NOW THE BOUND) "
+                     << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps (deprecated)"
+                     << " window_size=" << acked_rate_window_.size() << " samples ";
   }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
