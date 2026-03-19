@@ -383,7 +383,9 @@ private:
   static constexpr int kMaxConsecutiveHysteresisApplications = 6;
   static constexpr double kGrowthBoundsMaxDownSlewPerSecond = 0.25;
   static constexpr double kBootstrapLargeDropThresholdPercent = 20.0;
-  static constexpr double kBootstrapMaxDownStepFraction = 0.02;
+  static constexpr double kBootstrapMaxDownStepFraction = 0.005;
+  static constexpr double kNoCeAckedFloorFraction = 0.35;
+  static constexpr TimeDelta kNoCeRecencyWindowMin = TimeDelta::Millis(500);
 
   // Metrics
   bool metrics_enabled_ = true;

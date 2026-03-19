@@ -1751,6 +1751,40 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     smoothed_acked_rate = DataRate::Zero();
   }
 
+  // If this controller instance has not seen CE recently, avoid collapsing the
+  // acked estimate far below recent delivered throughput due estimator noise or
+  // app-limited artifacts.
+  bool has_ce_in_batch_for_floor = false;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kCe) {
+      has_ce_in_batch_for_floor = true;
+      break;
+    }
+  }
+  bool recent_ce_for_floor = false;
+  if (!last_ce_mark_time_.IsInfinite()) {
+    TimeDelta since_last_ce = feedback.feedback_time - last_ce_mark_time_;
+    TimeDelta recency_window = kNoCeRecencyWindowMin;
+    if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      recency_window = std::max(recency_window, last_rtt_ * 3);
+    }
+    recent_ce_for_floor = since_last_ce < recency_window;
+  }
+
+  if (!has_ce_in_batch_for_floor && !recent_ce_for_floor &&
+      window_max_acked_rate_ > DataRate::Zero()) {
+    DataRate no_ce_floor = window_max_acked_rate_ * kNoCeAckedFloorFraction;
+    if (smoothed_acked_rate < no_ce_floor) {
+      RTC_LOG(LS_INFO) << "L4S: ACKED_NO_CE_FLOOR_GUARD - raising acked from "
+                       << (smoothed_acked_rate.bps() / 1e6) << " Mbps to "
+                       << (no_ce_floor.bps() / 1e6)
+                       << " Mbps (window_max="
+                       << (window_max_acked_rate_.bps() / 1e6) << " Mbps)";
+      smoothed_acked_rate = no_ce_floor;
+      consecutive_hysteresis_applications_ = 0;
+    }
+  }
+
   last_acked_bitrate_ = smoothed_acked_rate;
   
   // === SLIDING WINDOW DISCOVERY: Maintain 50-RTT rolling window of acked rates ===
