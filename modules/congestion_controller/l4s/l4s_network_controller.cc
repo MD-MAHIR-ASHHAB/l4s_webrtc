@@ -1172,7 +1172,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     // Detect RTT growth patterns
     if (last_rtt_.IsFinite() && feedback_min_rtt > last_rtt_ + TimeDelta::Millis(10)) {
       double growth_percent = ((feedback_min_rtt.ms() - last_rtt_.ms()) * 100.0) / last_rtt_.ms();
-      RTC_LOG(LS_WARNING) << "L4S: RTT_GROWTH_DETECTED - "
+      RTC_LOG(LS_VERBOSE) << "L4S: RTT_GROWTH_DETECTED - "
                           << "delta=+" << (feedback_min_rtt - last_rtt_).ms()
                           << "ms (" << growth_percent << "%) "
                           << "spread=" << (feedback_max_rtt - feedback_min_rtt).ms() << "ms";
@@ -1630,6 +1630,17 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   if (fused_rate.bps() != original_fused.bps()) {
     RTC_LOG(LS_INFO) << "L4S: RATE UPDATE - Before constraints: " << (original_fused.bps() / 1e6) 
                      << " Mbps, After: " << (fused_rate.bps() / 1e6) << " Mbps";
+  }
+  
+  // Log final rate decision with all sources for debugging rate collapses
+  {
+    auto sources = bandwidth_fusion_->GetCurrentSources();
+    DataRate prague_est = prague_estimator_->GetCurrentEstimate();
+    RTC_LOG(LS_INFO) << "L4S: RATE_DECISION - Final: " << (fused_rate.bps() / 1e6) << " Mbps, "
+                     << "Prague: " << (prague_est.bps() / 1e6) << " Mbps, "
+                     << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
+                     << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
+                     << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
   }
   
   return fused_rate;
