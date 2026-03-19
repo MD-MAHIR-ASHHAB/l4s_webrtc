@@ -1279,6 +1279,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     // invalid and the once-per-RTT gate cannot protect against cascading MDs.
     if (!last_actual_bitrate_.IsZero()) {
       DataRate floor = last_actual_bitrate_ * 0.5;
+      if (growth_max_bound_ > DataRate::Zero()) {
+        floor = std::min(floor, growth_max_bound_);
+      }
       DataRate prague_current = prague_estimator_->GetCurrentEstimate();
       if (prague_current < floor) {
         RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
@@ -1525,13 +1528,17 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     if (window_max_acked_rate_.bps() > 0) {
       // Initialize or continue growth phase
       if (discovery_growth_start_time_.IsInfinite()) {
-        // Start new growth phase from window max
+        // Start new growth phase from current acked rate, respecting bounds
+        DataRate start_rate = effective_acked_rate;  // Use CURRENT delivery
+        if (growth_max_bound_ > DataRate::Zero()) {
+          start_rate = std::min(start_rate, growth_max_bound_);
+        }
         discovery_growth_start_time_ = now;
         discovery_packets_at_growth_start_ = packets_sent_since_controller_init_;
-        prague_estimator_->SetCurrentEstimate(window_max_acked_rate_);
-        RTC_LOG(LS_INFO) << "L4S: DISCOVERY GROWTH STARTED - Base rate: " << (window_max_acked_rate_.bps() / 1e6)
-                         << " Mbps (max in 9s window), will grow to " 
-                         << (window_max_acked_rate_.bps() * kDiscoveryMaxMultiplier / 1e6) << " Mbps";
+        prague_estimator_->SetCurrentEstimate(start_rate);
+        RTC_LOG(LS_INFO) << "L4S: DISCOVERY GROWTH STARTED - Base rate: " << (start_rate.bps() / 1e6)
+                         << " Mbps (current delivery), will grow to "
+                         << (start_rate.bps() * 1.5 / 1e6) << " Mbps (current + 50%)";
       }
       
       // Calculate growth progress: time elapsed OR packets sent, whichever reaches threshold first
