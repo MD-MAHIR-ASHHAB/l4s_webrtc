@@ -1407,9 +1407,19 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     bool should_reset_ce_counters = false;
     std::string reset_reason = "";
     
-    // Condition 1: 21+ clean packets since last CE
+    // Condition 1: enough clean packets and at least ~1 RTT of clean time since
+    // last CE. This prevents immediate resets from tiny post-CE clean bursts.
+    TimeDelta time_since_last_ce = TimeDelta::Zero();
+    if (!last_ce_mark_time_.IsInfinite()) {
+      time_since_last_ce = feedback.feedback_time - last_ce_mark_time_;
+    }
+    TimeDelta min_clean_time = TimeDelta::Millis(500);
+    if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      min_clean_time = std::max(min_clean_time, last_rtt_ * 3);
+    }
     if (clean_packets_since_last_ce_ >= config_.ce_episode_clean_packets &&
-        !last_ce_mark_time_.IsInfinite()) {
+        !last_ce_mark_time_.IsInfinite() &&
+        time_since_last_ce >= min_clean_time) {
       should_reset_ce_counters = true;
       reset_reason = "clean_packets";
     }
@@ -1454,8 +1464,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       clean_packets_since_last_ce_ = 0;
       last_ce_reset_time_ = feedback.feedback_time;
       ce_episode_active_ = false;
-      // Mark end-of-episode to prevent repeated time-based resets each batch.
-      last_ce_mark_time_ = Timestamp::MinusInfinity();
+      // Keep last_ce_mark_time_ so recency guards can still suppress
+      // post-CE hysteresis for a short window.
       
       RTC_LOG(LS_INFO) << "L4S: CUMULATIVE_CE_RESET - Reason: " << reset_reason 
                        << " Previous_CE=" << previous_ce_count
@@ -1606,6 +1616,7 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   // Match GCC behavior: compute delivery-rate signal from per-packet feedback.
   acked_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
   std::optional<DataRate> acked_bitrate = acked_estimator_->bitrate();
+  const bool using_bootstrap = !acked_bitrate.has_value();
   
   // === BOOTSTRAP FALLBACK: Use measured throughput until estimator converges ===
   DataRate effective_acked_rate;
@@ -1648,41 +1659,72 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   // This prevents cascade collapse when sliding window ages out old high-rate samples
   // Applied only when no CE marks in recent feedback (uses last-known ce_count_)
   DataRate smoothed_acked_rate = effective_acked_rate;
+  bool bootstrap_drop_guard_applied = false;
   if (last_acked_bitrate_.has_value() && last_acked_bitrate_->IsFinite() && 
       last_acked_bitrate_->bps() > 0 && effective_acked_rate < *last_acked_bitrate_) {
     
     double drop_percent = ((last_acked_bitrate_->bps() - effective_acked_rate.bps()) * 100.0) / last_acked_bitrate_->bps();
-    
-    // Apply hysteresis only when no congestion signal detected recently (ce_count_ == 0)
-    // This prevents measurement window artifacts from causing cascading drops
-    if (drop_percent > 5.0 && ce_count_ == 0) {
-      bool recent_ce = false;
-      if (!last_ce_mark_time_.IsInfinite()) {
-        TimeDelta since_last_ce = feedback.feedback_time - last_ce_mark_time_;
-        TimeDelta ce_recency_window = TimeDelta::Millis(300);
-        if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
-          ce_recency_window = std::max(ce_recency_window, last_rtt_ * 3);
-        }
-        recent_ce = since_last_ce < ce_recency_window;
-      }
 
-      if (recent_ce ||
-          consecutive_hysteresis_applications_ <
-              kMaxConsecutiveHysteresisApplications) {
+    if (using_bootstrap && drop_percent > kBootstrapLargeDropThresholdPercent) {
+      double guarded_bps = std::max(
+          effective_acked_rate.bps(),
+          last_acked_bitrate_->bps() * (1.0 - kBootstrapMaxDownStepFraction));
+      smoothed_acked_rate = webrtc::DataRate::BitsPerSec(
+          static_cast<int64_t>(guarded_bps));
+      bootstrap_drop_guard_applied = true;
+      consecutive_hysteresis_applications_ = 0;
+      RTC_LOG(LS_INFO) << "L4S: ACKED_BOOTSTRAP_DROP_GUARD - measured_drop="
+                       << drop_percent << "% (from "
+                       << (last_acked_bitrate_->bps() / 1e6) << " to "
+                       << (effective_acked_rate.bps() / 1e6) << " Mbps), "
+                       << "limited_step_to=" << (guarded_bps / 1e6)
+                       << " Mbps";
+    }
+    
+    // Detect CE in THIS feedback batch because acked update runs before
+    // ProcessEcnFeedback updates ce_count_.
+    bool has_ce_in_batch = false;
+    for (const auto& packet : feedback.packet_feedbacks) {
+      if (packet.ecn == EcnMarking::kCe) {
+        has_ce_in_batch = true;
+        break;
+      }
+    }
+
+    bool recent_ce = false;
+    if (!last_ce_mark_time_.IsInfinite()) {
+      TimeDelta since_last_ce = feedback.feedback_time - last_ce_mark_time_;
+      TimeDelta ce_recency_window = TimeDelta::Millis(300);
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+        ce_recency_window = std::max(ce_recency_window, last_rtt_ * 3);
+      }
+      recent_ce = since_last_ce < ce_recency_window;
+    }
+
+    // Apply hysteresis only for clean/non-congestion periods to avoid
+    // post-CE staircase artifacts.
+    if (!bootstrap_drop_guard_applied && drop_percent > 5.0 &&
+      !has_ce_in_batch && !recent_ce && ce_count_ == 0) {
+      if (consecutive_hysteresis_applications_ <
+          kMaxConsecutiveHysteresisApplications) {
         // Cap drop to 5%: new_rate = old_rate * 0.95
         double max_allowed_rate_bps =
           std::max(0.0, last_acked_bitrate_->bps() * 0.95);
         smoothed_acked_rate =
             webrtc::DataRate::BitsPerSec(static_cast<int64_t>(max_allowed_rate_bps));
         consecutive_hysteresis_applications_++;
-        RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_HYSTERESIS - "
-                         << "measured_drop=" << drop_percent << "% (from "
-                         << (last_acked_bitrate_->bps() / 1e6) << " to "
-                         << (effective_acked_rate.bps() / 1e6) << " Mbps), "
-                         << "smoothed_to_5% = " << (max_allowed_rate_bps / 1e6)
-                         << " Mbps, streak="
-                         << consecutive_hysteresis_applications_ << ", ce_count="
-                         << ce_count_ << " (no congestion signal)";
+        RTC_LOG(LS_VERBOSE) << "L4S: ACKED_RATE_HYSTERESIS - "
+                            << "measured_drop=" << drop_percent << "% (from "
+                            << (last_acked_bitrate_->bps() / 1e6) << " to "
+                            << (effective_acked_rate.bps() / 1e6) << " Mbps), "
+                            << "smoothed_to_5% = "
+                            << (max_allowed_rate_bps / 1e6)
+                            << " Mbps, streak="
+                            << consecutive_hysteresis_applications_
+                            << ", ce_count=" << ce_count_
+                            << ", has_ce_in_batch=" << (has_ce_in_batch ? 1 : 0)
+                            << ", recent_ce=" << (recent_ce ? 1 : 0)
+                            << " (clean-period smoothing)";
       } else {
         // Anti-ratchet fallback: blend instead of endless fixed 5% steps.
         double blended_bps = std::max(
@@ -1691,7 +1733,7 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
         smoothed_acked_rate = webrtc::DataRate::BitsPerSec(
             static_cast<int64_t>(blended_bps));
         consecutive_hysteresis_applications_ = 0;
-        RTC_LOG(LS_INFO)
+        RTC_LOG(LS_VERBOSE)
             << "L4S: ACKED_RATE_ANTI_RATCHET - measured_drop=" << drop_percent
             << "% using blended smoothing to " << (blended_bps / 1e6)
             << " Mbps after prolonged hysteresis streak";

@@ -382,6 +382,8 @@ private:
   Timestamp last_growth_bound_update_time_ = Timestamp::MinusInfinity();
   static constexpr int kMaxConsecutiveHysteresisApplications = 6;
   static constexpr double kGrowthBoundsMaxDownSlewPerSecond = 0.25;
+  static constexpr double kBootstrapLargeDropThresholdPercent = 20.0;
+  static constexpr double kBootstrapMaxDownStepFraction = 0.02;
 
   // Metrics
   bool metrics_enabled_ = true;
