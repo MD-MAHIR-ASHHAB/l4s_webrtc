@@ -1475,12 +1475,24 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                         << ", Alpha: " << alpha;
     fused_rate = prague_rate;
     
-    // PRE-RTCP DISCOVERY SAFETY: Apply ceiling if we haven't seen RTCP yet
+    // DISCOVERY CEILING: Cap unconstrained Prague growth to prevent hallucination
+    // Before RTCP: use 3 Mbps ceiling (kPreRtcpDiscoveryCeiling)
+    // After RTCP: use 2.0x acked_rate ceiling (allow growth above acked but bounded)
     if (!seen_first_rtcp_ && fused_rate > kPreRtcpDiscoveryCeiling) {
       RTC_LOG(LS_INFO) << "L4S: PRE-RTCP SAFETY CAP - Prague " << (fused_rate.bps() / 1e6) 
                        << " Mbps exceeded ceiling of " << (kPreRtcpDiscoveryCeiling.bps() / 1e6) 
                        << " Mbps (no RTCP yet) - applying cap";
       fused_rate = kPreRtcpDiscoveryCeiling;
+    } else if (seen_first_rtcp_ && last_acked_bitrate_.has_value()) {
+      // After first RTCP, use acked-rate proportional ceiling: 2.0x acked_rate
+      // This allows discovery to explore but prevents unlimited growth to 100+ Mbps
+      DataRate discovery_ceiling = last_acked_bitrate_.value() * 2.0;
+      if (fused_rate > discovery_ceiling) {
+        RTC_LOG(LS_INFO) << "L4S: DISCOVERY CEILING - Prague " << (fused_rate.bps() / 1e6) 
+                         << " Mbps capped to 2.0x acked (" << discovery_ceiling.bps() / 1e6 
+                         << " Mbps, acked=" << (last_acked_bitrate_.value().bps() / 1e6) << " Mbps)";
+        fused_rate = discovery_ceiling;
+      }
     }
     
     // Time-based fallback: if discovery has been running too long without RTCP, exit force-fully
