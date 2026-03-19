@@ -1389,11 +1389,11 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   }
 
   // Detect significant acked rate changes
-  if (last_acked_bitrate_.IsFinite() && last_acked_bitrate_.bps() > 0) {
-    double rate_change_percent = ((effective_acked_rate.bps() - last_acked_bitrate_.bps()) * 100.0) / last_acked_bitrate_.bps();
+  if (last_acked_bitrate_.has_value() && last_acked_bitrate_->IsFinite() && last_acked_bitrate_->bps() > 0) {
+    double rate_change_percent = ((effective_acked_rate.bps() - last_acked_bitrate_->bps()) * 100.0) / last_acked_bitrate_->bps();
     if (std::abs(rate_change_percent) > 30) {
       RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_SHIFT - "
-                       << "prev=" << (last_acked_bitrate_.bps() / 1e6) << " Mbps "
+                       << "prev=" << (last_acked_bitrate_->bps() / 1e6) << " Mbps "
                        << "curr=" << (effective_acked_rate.bps() / 1e6) << " Mbps "
                        << "change=" << rate_change_percent << "% "
                        << "(source=" << (acked_bitrate.has_value() ? "estimator" : "bootstrap") << ")";
