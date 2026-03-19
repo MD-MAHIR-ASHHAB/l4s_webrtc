@@ -1357,48 +1357,62 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   acked_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
   std::optional<DataRate> acked_bitrate = acked_estimator_->bitrate();
   
-  // DIAGNOSTIC: Log every call to see if acked_bitrate arrives
-  if (!acked_bitrate.has_value()) {
-    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate is EMPTY (estimator still gathering data)";
+  // === BOOTSTRAP FALLBACK: Use measured throughput until estimator converges ===
+  DataRate effective_acked_rate;
+  bool using_bootstrap = false;
+  
+  if (acked_bitrate.has_value()) {
+    // Official estimate available - use it
+    effective_acked_rate = *acked_bitrate;
+    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (effective_acked_rate.bps() / 1e6) << " Mbps (official)";
+  } else if (!last_actual_bitrate_.IsZero()) {
+    // Estimator not converged yet - bootstrap with measured throughput
+    effective_acked_rate = last_actual_bitrate_;
+    using_bootstrap = true;
+    RTC_LOG(LS_INFO) << "L4S: BOOTSTRAP - Using measured throughput = " << (effective_acked_rate.bps() / 1e6) 
+                     << " Mbps (official acked_bitrate not ready yet)";
+  } else {
+    // No data at all
+    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - NO DATA (no acked_bitrate, no measured throughput)";
     return;
   }
-  
-  RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (acked_bitrate->bps() / 1e6) << " Mbps";
 
-  last_acked_bitrate_ = acked_bitrate;
+  last_acked_bitrate_ = effective_acked_rate;
   
   // === STEPPED DISCOVERY: Anchor Prague to RTCP-validated acked rate ===
   if (!seen_first_rtcp_) {
-    // First RTCP received - anchor and step up to 1.5x
+    // First estimate received (official or bootstrapped) - anchor and step up to 1.5x
     seen_first_rtcp_ = true;
     discovery_start_time_ = Timestamp::MinusInfinity();  // Clear pre-RTCP ceiling tracking
-    last_rtcp_acked_rate_ = *acked_bitrate;
-    DataRate stepped_target = *acked_bitrate * 1.5;
+    last_rtcp_acked_rate_ = effective_acked_rate;
+    DataRate stepped_target = effective_acked_rate * 1.5;
     prague_estimator_->SetCurrentEstimate(stepped_target);
-    RTC_LOG(LS_INFO) << "L4S STEPPED: First RTCP - acked=" << (acked_bitrate->bps() / 1e6) 
-                     << " Mbps, stepped Prague to " << (stepped_target.bps() / 1e6) << " Mbps (1.5x)";
-  } else if (acked_bitrate->bps() > last_rtcp_acked_rate_->bps() * 1.05) {
+    RTC_LOG(LS_INFO) << "L4S STEPPED: First estimate - acked=" << (effective_acked_rate.bps() / 1e6) 
+                     << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
+                     << ", stepped Prague to " << (stepped_target.bps() / 1e6) << " Mbps (1.5x)";
+  } else if (effective_acked_rate.bps() > last_rtcp_acked_rate_->bps() * 1.05) {
     // Acked rate grew >5% - apply new discovery step
-    DataRate new_stepped_target = *acked_bitrate * 1.5;
+    DataRate new_stepped_target = effective_acked_rate * 1.5;
     if (new_stepped_target > prague_estimator_->GetCurrentEstimate()) {
-      RTC_LOG(LS_INFO) << "L4S STEPPED: RTCP growth - acked=" << (acked_bitrate->bps() / 1e6) 
-                       << " Mbps, stepped Prague to " << (new_stepped_target.bps() / 1e6) << " Mbps (1.5x)";
+      RTC_LOG(LS_INFO) << "L4S STEPPED: Growth - acked=" << (effective_acked_rate.bps() / 1e6) 
+                       << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
+                       << ", stepped Prague to " << (new_stepped_target.bps() / 1e6) << " Mbps (1.5x)";
       prague_estimator_->SetCurrentEstimate(new_stepped_target);
     }
-    last_rtcp_acked_rate_ = *acked_bitrate;
+    last_rtcp_acked_rate_ = effective_acked_rate;
   }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
-  bandwidth_fusion_->UpdateAckedEstimate(*acked_bitrate, acked_confidence,
+  bandwidth_fusion_->UpdateAckedEstimate(effective_acked_rate, acked_confidence,
                                          feedback.feedback_time);
   
   // Diagnostic: compare acked rate against Prague estimate to detect delivery issues
   if (prague_estimator_) {
     DataRate prague_est = prague_estimator_->GetCurrentEstimate();
-    double ratio = prague_est.IsZero() ? 0.0 : acked_bitrate->bps() / prague_est.bps();
+    double ratio = prague_est.IsZero() ? 0.0 : effective_acked_rate.bps() / prague_est.bps();
     if (ratio < 0.5) {
       // Acked rate is less than 50% of Prague estimate - significant mismatch
-      RTC_LOG(LS_VERBOSE) << "L4S: EFFICIENCY ALERT - Acked rate " << (acked_bitrate->bps() / 1e6) 
+      RTC_LOG(LS_VERBOSE) << "L4S: EFFICIENCY ALERT - Acked rate " << (effective_acked_rate.bps() / 1e6) 
                           << " Mbps is only " << (ratio * 100) << "% of Prague estimate " 
                           << (prague_est.bps() / 1e6) << " Mbps (Possible packet loss or asymmetric congestion)";
     }
