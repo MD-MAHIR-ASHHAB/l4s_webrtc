@@ -1346,7 +1346,10 @@ void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPack
 }
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
+  RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator ENTRY - packets=" << feedback.packet_feedbacks.size();
+  
   if (feedback.packet_feedbacks.empty() || !acked_estimator_) {
+    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator EARLY_EXIT - empty or no estimator";
     return;
   }
 
@@ -1356,7 +1359,7 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   
   // DIAGNOSTIC: Log every call to see if acked_bitrate arrives
   if (!acked_bitrate.has_value()) {
-    RTC_LOG(LS_VERBOSE) << "L4S: UpdateAckedBitrateEstimator called but acked_bitrate is EMPTY (estimator still gathering data)";
+    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate is EMPTY (estimator still gathering data)";
     return;
   }
   
