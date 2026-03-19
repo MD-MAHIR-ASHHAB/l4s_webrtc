@@ -455,8 +455,8 @@ void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reaso
 void webrtc::PragueCapacityEstimator::SetGrowthBounds(DataRate min_bound, DataRate max_bound) {
   growth_min_bound_ = min_bound;
   growth_max_bound_ = max_bound;
-  RTC_LOG(LS_VERBOSE) << "Prague: Growth bounds set - min=" << min_bound.bps() 
-                     << " bps, max=" << max_bound.bps() << " bps";
+  RTC_LOG(LS_INFO) << "Prague: Growth bounds SET - min=" << (min_bound.bps() / 1e6) 
+                   << " Mbps, max=" << (max_bound.bps() / 1e6) << " Mbps";
 }
 
 // =============================================================================
