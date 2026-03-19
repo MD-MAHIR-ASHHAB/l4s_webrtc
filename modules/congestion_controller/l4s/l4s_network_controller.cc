@@ -1753,7 +1753,7 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
           static_cast<int64_t>(guarded_bps));
       bootstrap_drop_guard_applied = true;
       consecutive_hysteresis_applications_ = 0;
-      RTC_LOG(LS_INFO) << "L4S: ACKED_BOOTSTRAP_DROP_GUARD - measured_drop="
+      RTC_LOG(LS_VERBOSE) << "L4S: ACKED_BOOTSTRAP_DROP_GUARD - measured_drop="
                        << drop_percent << "% (from "
                        << (last_acked_bitrate_->bps() / 1e6) << " to "
                        << (effective_acked_rate.bps() / 1e6) << " Mbps), "
