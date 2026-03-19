@@ -316,6 +316,12 @@ private:
   int ce_count_ = 0;
   Timestamp last_congestion_signal_ = Timestamp::MinusInfinity();
 
+  // Cumulative ECN feedback tracking (RFC 8888 cumulative approach)
+  // Prevents wild oscillations when feedback mode switches between batch/immediate
+  int64_t cumulative_ce_count_ = 0;      // Total CE packets since last reset
+  int64_t cumulative_ect_count_ = 0;     // Total ECT packets since last reset
+  Timestamp last_ce_reset_time_ = Timestamp::MinusInfinity();  // When counters were reset
+
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);

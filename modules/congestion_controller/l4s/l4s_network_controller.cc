@@ -1230,11 +1230,23 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
   
-  // Log ECN feedback summary
+  // Accumulate into cumulative counters for RFC 8888 cumulative feedback approach
+  // This prevents wild swings when feedback mode switches between batch/immediate
+  cumulative_ce_count_ += new_ce_count;
+  cumulative_ect_count_ += new_ect_count;
+  
+  // Calculate cumulative CE ratio (stable across feedback mode switches)
+  double cumulative_ce_ratio = 0.0;
+  if (cumulative_ect_count_ + cumulative_ce_count_ > 0) {
+    cumulative_ce_ratio = static_cast<double>(cumulative_ce_count_) / (cumulative_ect_count_ + cumulative_ce_count_);
+  }
+  
+  // Log batch-based ratio (for immediate feedback clarity) and cumulative ratio (for stability)
   if (new_ect_count > 0) {
-    double ce_ratio = new_ce_count > 0 ? static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count) : 0.0;
+    double batch_ce_ratio = new_ce_count > 0 ? static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count) : 0.0;
     RTC_LOG(LS_VERBOSE) << "L4S: ECN FEEDBACK - ECT: " << new_ect_count << ", CE: " << new_ce_count 
-                        << ", Ratio: " << (ce_ratio * 100) << "%, "
+                        << ", Batch_Ratio: " << (batch_ce_ratio * 100) << "%, "
+                        << "Cumulative_Ratio: " << (cumulative_ce_ratio * 100) << "%, "
                         << "Current rate: " << (current_fused_rate.bps() / 1e6) << " Mbps";
   }
   
@@ -1247,9 +1259,10 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
   
-  // Update Prague estimator with CE ratio using intelligent bottleneck detection
+  // Update Prague estimator with cumulative CE ratio using intelligent bottleneck detection
   if (new_ect_count + new_ce_count > 0) {
-    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
+    // Use batch ratio for immediate detection logging (shows what just arrived)
+    double batch_ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
     // When CE marks appear, reset discovery growth timer
     if (new_ce_count > 0) {
@@ -1260,7 +1273,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
                           << "CE_packets=" << new_ce_count
                           << " ECT_packets=" << new_ect_count
-                          << " ce_ratio=" << (ce_ratio * 100) << "%"
+                          << " batch_ratio=" << (batch_ce_ratio * 100) << "%"
+                          << " cumulative_ratio=" << (cumulative_ce_ratio * 100) << "%"
                           << " | sending_rate=" << (current_rate.bps() / 1e6) << " Mbps"
                           << " acked_rate=" << (acked_rate.bps() / 1e6) << " Mbps"
                           << " rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A") << "ms";
@@ -1272,20 +1286,43 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
     if (prague_estimator_->IsDiscoveryModeActive()) {
       RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate: " << prague_input_rate.bps() 
-                       << " bps (ce_ratio=" << ce_ratio << ")";
+                       << " bps (cumulative_ce_ratio=" << cumulative_ce_ratio << ")";
     } else {
       RTC_LOG(LS_VERBOSE) << "L4S: Steady state - using Prague's own estimate as baseline: " << prague_input_rate.bps() 
-                       << " bps (fused rate was: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
+                       << " bps (fused rate was: " << current_fused_rate.bps() << ", cumulative_ce_ratio=" << cumulative_ce_ratio << ")";
     }
     
-    prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
+    // Pass cumulative CE ratio to Prague (stable across feedback mode switches)
+    prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, cumulative_ce_ratio, feedback.feedback_time);
     
     // Log Prague's response after processing CE feedback
     DataRate prague_estimate_after_update = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_VERBOSE) << "L4S: PRAGUE RESPONSE - CE_ratio=" << (ce_ratio * 100) << "%, "
+    RTC_LOG(LS_VERBOSE) << "L4S: PRAGUE RESPONSE - CE_ratio=" << (cumulative_ce_ratio * 100) << "%, "
                         << "Input: " << (prague_input_rate.bps() / 1e6) << " Mbps, "
                         << "Output: " << (prague_estimate_after_update.bps() / 1e6) << " Mbps, "
                         << "Direction: " << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC" : "REDUC");
+    
+    // RESET CUMULATIVE CE COUNTERS when transitioning to additive increase mode
+    // This implements congestion recovery boundary: once we start recovering (AI phase),
+    // we reset the ECN history to reflect that congestion has cleared.
+    // This aligns with RFC 8888 cumulative feedback semantics: counters track current
+    // congestion episode, reset on recovery.
+    if (prague_estimator_->GetDirectionFlag() == 1) {
+      int64_t previous_ce_count = cumulative_ce_count_;
+      int64_t previous_ect_count = cumulative_ect_count_;
+      
+      cumulative_ce_count_ = 0;
+      cumulative_ect_count_ = 0;
+      last_ce_reset_time_ = feedback.feedback_time;
+      
+      if (previous_ce_count > 0 || previous_ect_count > 0) {
+        RTC_LOG(LS_INFO) << "L4S: CUMULATIVE_CE_RESET - Recovery detected (entering AI mode). "
+                         << "Previous_CE=" << previous_ce_count
+                         << " Previous_Total=" << previous_ect_count
+                         << " Previous_Ratio=" << (previous_ect_count + previous_ce_count > 0 ? 
+                            (100.0 * previous_ce_count / (previous_ect_count + previous_ce_count)) : 0.0) << "%";
+      }
+    }
     
     // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
     // so allow Prague to drop no lower than 50% of that observed throughput.
