@@ -38,6 +38,8 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
     : congestion_based_estimate_(starting_rate),
       min_target_rate_(min_rate),
       max_target_rate_(max_rate),
+      growth_min_bound_(DataRate::Zero()),
+      growth_max_bound_(DataRate::Zero()),
       current_rtt_(TimeDelta::Millis(50)),
       last_update_time_(Timestamp::MinusInfinity()),
       last_congestion_signal_(Timestamp::MinusInfinity()),
@@ -188,6 +190,25 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     }
     
     DataRate increased = current_rate + DataRate::BitsPerSec(ai_step_bps);
+    
+    // Apply L4S discovery growth bounds (if set)
+    if (growth_max_bound_ > DataRate::Zero()) {
+      if (increased > growth_max_bound_) {
+        RTC_LOG(LS_VERBOSE) << "Prague: AI increase clamped to growth_max_bound - "
+                           << "attempted=" << increased.bps() << " bps, "
+                           << "max_bound=" << growth_max_bound_.bps() << " bps";
+        increased = growth_max_bound_;
+      }
+    }
+    
+    if (growth_min_bound_ > DataRate::Zero()) {
+      if (increased < growth_min_bound_) {
+        RTC_LOG(LS_VERBOSE) << "Prague: AI increase raised to growth_min_bound - "
+                           << "attempted=" << increased.bps() << " bps, "
+                           << "min_bound=" << growth_min_bound_.bps() << " bps";
+        increased = growth_min_bound_;
+      }
+    }
     
     // Don't exceed maximum rate
     if (max_target_rate_ > DataRate::Zero()) {
@@ -429,6 +450,13 @@ void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reaso
     ClearProbeConstraint();  // Clear any probe constraints when exiting discovery
     RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - " << reason;
   }
+}
+
+void webrtc::PragueCapacityEstimator::SetGrowthBounds(DataRate min_bound, DataRate max_bound) {
+  growth_min_bound_ = min_bound;
+  growth_max_bound_ = max_bound;
+  RTC_LOG(LS_VERBOSE) << "Prague: Growth bounds set - min=" << min_bound.bps() 
+                     << " bps, max=" << max_bound.bps() << " bps";
 }
 
 // =============================================================================
@@ -1358,6 +1386,15 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
                    << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)")
                    << ", window_max=" << (window_max_acked_rate_.bps() / 1e6) 
                    << " Mbps, window_size=" << acked_rate_window_.size();
+  
+  // === UPDATE PRAGUE'S GROWTH BOUNDS ===
+  // Constrain Prague's autonomous growth to [window_max, 2.0 × window_max]
+  if (window_max_acked_rate_ > DataRate::Zero()) {
+    DataRate growth_ceiling = window_max_acked_rate_ * kDiscoveryMaxMultiplier;
+    prague_estimator_->SetGrowthBounds(window_max_acked_rate_, growth_ceiling);
+    RTC_LOG(LS_VERBOSE) << "L4S: Prague growth bounds updated - min=" << (window_max_acked_rate_.bps() / 1e6)
+                        << " Mbps, max=" << (growth_ceiling.bps() / 1e6) << " Mbps";
+  }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
   bandwidth_fusion_->UpdateAckedEstimate(effective_acked_rate, acked_confidence,

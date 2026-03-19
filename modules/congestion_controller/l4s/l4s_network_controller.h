@@ -84,6 +84,9 @@ public:
   
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
+  
+  // Growth bounds control (set by L4S to constrain Prague's autonomous growth)
+  void SetGrowthBounds(DataRate min_bound, DataRate max_bound);
 
 private:
   // Context-aware AI step calculation
@@ -92,6 +95,8 @@ private:
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
   DataRate max_target_rate_;
+  DataRate growth_min_bound_ = DataRate::Zero();  // L4S: Min bound for Prague's growth
+  DataRate growth_max_bound_ = DataRate::Zero();  // L4S: Max bound for Prague's growth
   TimeDelta current_rtt_;
   double alpha_ = 0.0;  // DCTCP alpha parameter
   Timestamp last_update_time_;
