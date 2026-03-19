@@ -470,7 +470,10 @@ webrtc::L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   DataRate clamped_estimate = std::max(estimate, DataRate::KilobitsPerSec(20));
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_INFO) << "L4S: ECN_ESTIMATE_UPDATE - "
+                   << "new_estimate=" << (clamped_estimate.bps() / 1e6) << " Mbps, "
+                   << "confidence=" << confidence
+                   << " (prev=" << (sources_.ecn_estimate.bps() / 1e6) << " Mbps)";
   sources_.ecn_estimate = clamped_estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
@@ -1301,15 +1304,30 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
     
     // Update fusion engine with ECN estimate
+    // CRITICAL: Only update ECN when actual CE marks are present (ce_ratio > 0)
+    // If ce_ratio == 0 (clean ECN packets), don't boost ECN confidence
+    // This prevents unbounded additive increase from being treated as a valid ECN estimate
     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
     
-    // Boost ECN confidence when Prague is in reduction mode to prevent other estimators from overriding
-    if (prague_estimator_->GetDirectionFlag() == -1) {
-      ecn_confidence = std::max(ecn_confidence, 0.95);  // Very high confidence during reduction
-      RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
+    if (new_ce_count > 0) {
+      // Real congestion detected - update with high confidence
+      // Boost ECN confidence when Prague is in reduction mode to prevent other estimators from overriding
+      if (prague_estimator_->GetDirectionFlag() == -1) {
+        ecn_confidence = std::max(ecn_confidence, 0.95);  // Very high confidence during reduction
+        RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
+      }
+      bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
+      RTC_LOG(LS_INFO) << "L4S: ECN_UPDATE_WITHCE - Prague rate=" << (prague_estimator_->GetCurrentEstimate().bps() / 1e6) 
+                       << " Mbps, confidence=" << ecn_confidence << " (CE marks present)";
+    } else if (new_ect_count > 0) {
+      // Only clean ECN packets, no congestion - let ECN confidence decay naturally
+      // Don't artificially boost ECN with the unconstrained Prague rate
+      ecn_confidence = ecn_confidence * 0.5;  // Decay confidence when no CE present
+      RTC_LOG(LS_INFO) << "L4S: CLEAN_ECN_BATCH - Decaying ECN confidence to " << ecn_confidence 
+                       << " (no CE marks, Prague would explode in AI phase)";
+      // Still update but with LOW confidence so other estimators win
+      bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
     }
-    
-    bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
     
     // Log congestion metrics
     if (metrics_enabled_ && metrics_collector_) {
