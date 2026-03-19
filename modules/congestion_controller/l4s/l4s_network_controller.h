@@ -338,7 +338,7 @@ private:
   int clean_packets_since_ce_ = 0;  // Count of packets without CE marks during recovery
   static constexpr int kRecoveryCleanPacketThreshold = 25;  // 20-30 packets without CE = safe to grow
   static constexpr TimeDelta kRecoveryWindowMinTime = TimeDelta::Millis(100);  // ~2-5 RTTs
-  static constexpr DataRate kPreRtcpDiscoveryCeiling = DataRate::MilobitsPerSec(3);  // 3 Mbps max before RTCP
+  static constexpr DataRate kPreRtcpDiscoveryCeiling = DataRate::KilobitsPerSec(3000);  // 3 Mbps max before RTCP
   static constexpr TimeDelta kPreRtcpDiscoveryTimeout = TimeDelta::Seconds(2);  // Exit discovery after 2s if no RTCP
 
   // Metrics
