@@ -87,6 +87,9 @@ public:
   
   // Growth bounds control (set by L4S to constrain Prague's autonomous growth)
   void SetGrowthBounds(DataRate min_bound, DataRate max_bound);
+  std::pair<DataRate, DataRate> GetGrowthBounds() const {
+    return {growth_min_bound_, growth_max_bound_};
+  }
 
 private:
   // Context-aware AI step calculation
@@ -321,6 +324,8 @@ private:
   int64_t cumulative_ce_count_ = 0;      // Total CE packets since last reset
   int64_t cumulative_ect_count_ = 0;     // Total ECT packets since last reset
   Timestamp last_ce_reset_time_ = Timestamp::MinusInfinity();  // When counters were reset
+  int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
+  Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();

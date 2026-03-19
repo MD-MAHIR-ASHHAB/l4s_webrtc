@@ -294,6 +294,26 @@ webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
 
 void webrtc::PragueCapacityEstimator::SetCurrentEstimate(DataRate rate) {
   congestion_based_estimate_ = std::max(rate, min_target_rate_);
+  
+  // CRITICAL FIX: Respect growth bounds to prevent floor bypass
+  // Growth bounds are set by L4S to constrain autonomous growth
+  // The actual-rate floor guard should not circumvent this constraint
+  if (growth_max_bound_ > DataRate::Zero() && 
+      congestion_based_estimate_ > growth_max_bound_) {
+    RTC_LOG(LS_VERBOSE) << "Prague: SetCurrentEstimate clamped by growth_max_bound - "
+                        << "attempted=" << congestion_based_estimate_.bps() << " bps, "
+                        << "max_bound=" << growth_max_bound_.bps() << " bps";
+    congestion_based_estimate_ = growth_max_bound_;
+  }
+  
+  if (growth_min_bound_ > DataRate::Zero() && 
+      congestion_based_estimate_ < growth_min_bound_) {
+    RTC_LOG(LS_VERBOSE) << "Prague: SetCurrentEstimate raised by growth_min_bound - "
+                        << "attempted=" << congestion_based_estimate_.bps() << " bps, "
+                        << "min_bound=" << growth_min_bound_.bps() << " bps";
+    congestion_based_estimate_ = growth_min_bound_;
+  }
+  
   congestion_based_estimate_ = std::max(congestion_based_estimate_,
                                         DataRate::KilobitsPerSec(20));
 }
@@ -1268,6 +1288,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     if (new_ce_count > 0) {
       discovery_growth_start_time_ = Timestamp::MinusInfinity();  // Reset growth phase
       discovery_packets_at_growth_start_ = 0;
+      last_ce_mark_time_ = feedback.feedback_time;  // Track when last CE arrived
+      clean_packets_since_last_ce_ = 0;  // Reset clean packet counter
       DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
       DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
       RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
@@ -1278,6 +1300,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
                           << " | sending_rate=" << (current_rate.bps() / 1e6) << " Mbps"
                           << " acked_rate=" << (acked_rate.bps() / 1e6) << " Mbps"
                           << " rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A") << "ms";
+    } else {
+      // No CE marks in this batch - increment clean packet counter
+      clean_packets_since_last_ce_ += new_ect_count;
     }
     
     // Always use Prague's own estimate as the input rate.
@@ -1302,39 +1327,77 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
                         << "Output: " << (prague_estimate_after_update.bps() / 1e6) << " Mbps, "
                         << "Direction: " << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC" : "REDUC");
     
-    // RESET CUMULATIVE CE COUNTERS when transitioning to additive increase mode
-    // This implements congestion recovery boundary: once we start recovering (AI phase),
-    // we reset the ECN history to reflect that congestion has cleared.
-    // This aligns with RFC 8888 cumulative feedback semantics: counters track current
-    // congestion episode, reset on recovery.
+    // RESET CUMULATIVE CE COUNTERS on recovery OR after extended clean period
+    // RFC 8888 semantics: counters track current congestion episode
+    // Reset on three conditions:
+    // 1. Transition to additive increase mode (recovery signal)
+    // 2. 21+ clean packets since last CE mark (congestion truly resolved)
+    // 3. 5+ RTTs since last CE mark (time-based reset for stability)
+    
+    bool should_reset_ce_counters = false;
+    std::string reset_reason = "";
+    
+    // Condition 1: Transitioning to AI mode
     if (prague_estimator_->GetDirectionFlag() == 1) {
+      should_reset_ce_counters = true;
+      reset_reason = "AI_transition";
+    }
+    
+    // Condition 2: 21+ clean packets since last CE
+    if (clean_packets_since_last_ce_ >= 21 && !last_ce_mark_time_.IsInfinite()) {
+      should_reset_ce_counters = true;
+      reset_reason = "21_clean_packets";
+    }
+    
+    // Condition 3: 5+ RTTs since last CE mark
+    if (!last_ce_mark_time_.IsInfinite() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      TimeDelta time_since_ce = feedback.feedback_time - last_ce_mark_time_;
+      TimeDelta five_rtts = last_rtt_ * 5;
+      if (time_since_ce >= five_rtts) {
+        should_reset_ce_counters = true;
+        reset_reason = "5_RTT_elapsed";
+      }
+    }
+    
+    if (should_reset_ce_counters) {
       int64_t previous_ce_count = cumulative_ce_count_;
       int64_t previous_ect_count = cumulative_ect_count_;
+      double previous_ratio = previous_ect_count + previous_ce_count > 0 ? 
+                              (100.0 * previous_ce_count / (previous_ect_count + previous_ce_count)) : 0.0;
       
       cumulative_ce_count_ = 0;
       cumulative_ect_count_ = 0;
+      clean_packets_since_last_ce_ = 0;
       last_ce_reset_time_ = feedback.feedback_time;
       
-      if (previous_ce_count > 0 || previous_ect_count > 0) {
-        RTC_LOG(LS_INFO) << "L4S: CUMULATIVE_CE_RESET - Recovery detected (entering AI mode). "
-                         << "Previous_CE=" << previous_ce_count
-                         << " Previous_Total=" << previous_ect_count
-                         << " Previous_Ratio=" << (previous_ect_count + previous_ce_count > 0 ? 
-                            (100.0 * previous_ce_count / (previous_ect_count + previous_ce_count)) : 0.0) << "%";
-      }
+      RTC_LOG(LS_INFO) << "L4S: CUMULATIVE_CE_RESET - Reason: " << reset_reason 
+                       << " Previous_CE=" << previous_ce_count
+                       << " Previous_Total=" << previous_ect_count
+                       << " Previous_Ratio=" << previous_ratio << "%"
+                       << " (clean_packets=" << clean_packets_since_last_ce_ 
+                       << ", time_since_ce=" << (last_ce_mark_time_.IsInfinite() ? -1 : 
+                          (feedback.feedback_time - last_ce_mark_time_).ms()) << "ms)";
     }
     
     // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
     // so allow Prague to drop no lower than 50% of that observed throughput.
     // This is a safety net for edge cases where last_rtt_ is temporarily
     // invalid and the once-per-RTT gate cannot protect against cascading MDs.
+    // CRITICAL: Cap floor to growth bounds to prevent bypass
     if (!last_actual_bitrate_.IsZero()) {
       DataRate floor = last_actual_bitrate_ * 0.5;
+      
+      // Defense-in-depth: cap floor to respect growth bounds
+      if (prague_estimator_->GetGrowthBounds().second > DataRate::Zero()) {
+        floor = std::min(floor, prague_estimator_->GetGrowthBounds().second);  // Don't exceed max bound
+      }
+      
       DataRate prague_current = prague_estimator_->GetCurrentEstimate();
       if (prague_current < floor) {
-        RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
-                           << " bps raised to " << floor.bps()
-                           << " bps (50% of actual throughput " << last_actual_bitrate_.bps() << " bps)";
+        RTC_LOG(LS_VERBOSE) << "L4S: Actual-rate floor applied (with bound constraint): " 
+                           << prague_current.bps() << " bps raised to " << floor.bps()
+                           << " bps (50% of actual throughput " << last_actual_bitrate_.bps() 
+                           << " bps, max_bound=" << prague_estimator_->GetGrowthBounds().second.bps() << " bps)";
         // Re-seed the estimator at the floor so AI resumes from a sensible base
         prague_estimator_->SetCurrentEstimate(floor);
       }
