@@ -52,11 +52,21 @@ PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   constexpr int kDefaultMssBytes = 1440;  // Typical Ethernet MSS
   
+  DataRate prev_estimate = congestion_based_estimate_;  // Capture for diagnostics
+  
   TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(50);
   double rtt_seconds = rtt.seconds<double>();
   if (rtt_seconds <= 0.0) {
     rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
   }
+
+  // Diagnostic: log all inputs to UpdateFromCongestionSignal
+  RTC_LOG(LS_VERBOSE) << "Prague: UpdateFromCongestionSignal INPUT - "
+                      << "prev_estimate=" << (prev_estimate.bps() / 1e6) << " Mbps, "
+                      << "current_rate=" << (current_rate.bps() / 1e6) << " Mbps, "
+                      << "ce_ratio=" << (ce_ratio * 100) << "%, "
+                      << "rtt=" << rtt.ms() << "ms, "
+                      << "growth_max_bound=" << (growth_max_bound_.bps() / 1e6) << " Mbps";
 
   // Pure Prague DCTCP-style rate adaptation (RFC 9330)
   if (ce_ratio > 0.0) {  // Prague: Respond to ANY CE marking (no threshold)
@@ -72,10 +82,11 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     // Update congestion signal timestamp
     last_congestion_signal_ = current_time;
     
-    RTC_LOG(LS_INFO) << "Prague: Proportional decrease (alpha=" << alpha_
+    RTC_LOG(LS_INFO) << "Prague: Proportional decrease (prev=" << (prev_estimate.bps() / 1e6) << " Mbps, "
+                     << "alpha=" << alpha_
                      << ", ce_ratio=" << ce_ratio 
                      << ", reduction_factor=" << reduction_factor
-                     << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+                     << "), new rate=" << (congestion_based_estimate_.bps() / 1e6) << " Mbps";
                      
   } else if (current_rate >= congestion_based_estimate_ * 0.9) {
     // More aggressive additive increase since decreases are gentler
@@ -87,15 +98,27 @@ void PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, 
     DataRate ceiling = max_target_rate_;
     if (growth_max_bound_ > DataRate::Zero()) {
       ceiling = std::min(ceiling, growth_max_bound_);
-      RTC_LOG(LS_VERBOSE) << "Prague: AI bounded by growth_max_bound (" << (growth_max_bound_.bps() / 1e6)
-                          << " Mbps) vs max_target (" << (max_target_rate_.bps() / 1e6) << " Mbps)";
     }
-    DataRate increased = std::min(congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps), ceiling);
+    
+    DataRate unconstrained_increase = congestion_based_estimate_ + DataRate::BitsPerSec(increase_bps);
+    DataRate increased = std::min(unconstrained_increase, ceiling);
+    
+    bool hit_ceiling = (unconstrained_increase.bps() > ceiling.bps());
     
     congestion_based_estimate_ = increased;
     
-    RTC_LOG(LS_INFO) << "Prague: Additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms), "
-                     << "new rate=" << congestion_based_estimate_.bps() << " bps";
+    RTC_LOG(LS_INFO) << "Prague: Additive increase (prev=" << (prev_estimate.bps() / 1e6) << " Mbps, "
+                     << "current_rate=" << (current_rate.bps() / 1e6) << " Mbps, "
+                     << "rtt=" << rtt.ms() << "ms, "
+                     << "add_per_rtt=" << (increase_bps / 1e6) << " Mbps, "
+                     << "unconstrained=" << (unconstrained_increase.bps() / 1e6) << " Mbps, "
+                     << "ceiling=" << (ceiling.bps() / 1e6) << " Mbps, "
+                     << "hit_ceiling=" << (hit_ceiling ? "YES" : "NO")
+                     << "), new rate=" << (increased.bps() / 1e6) << " Mbps";
+  } else {
+    RTC_LOG(LS_VERBOSE) << "Prague: NO UPDATE - current_rate=" << (current_rate.bps() / 1e6) 
+                        << " Mbps < " << (congestion_based_estimate_.bps() * 0.9 / 1e6) 
+                        << " Mbps (estimate*0.9), holding at=" << (congestion_based_estimate_.bps() / 1e6) << " Mbps";
   }
   
   last_update_time_ = current_time;
