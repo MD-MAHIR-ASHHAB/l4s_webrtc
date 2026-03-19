@@ -1429,7 +1429,29 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     }
   }
 
-  last_acked_bitrate_ = effective_acked_rate;
+  // === HYSTERESIS: Prevent cliff drops when no congestion signal present ===
+  // When ce_ratio == 0 (no CE marks) and rate would drop >5%, cap drop to 5% per cycle
+  // This prevents cascade collapse when sliding window ages out old high-rate samples
+  DataRate smoothed_acked_rate = effective_acked_rate;
+  if (last_acked_bitrate_.has_value() && last_acked_bitrate_->IsFinite() && 
+      last_acked_bitrate_->bps() > 0 && effective_acked_rate < *last_acked_bitrate_) {
+    
+    double drop_percent = ((last_acked_bitrate_->bps() - effective_acked_rate.bps()) * 100.0) / last_acked_bitrate_->bps();
+    
+    // Apply hysteresis only when no congestion signal (ce_ratio == 0)
+    if (drop_percent > 5.0 && ce_ratio < 0.001) {  // ce_ratio < 0.001 means effectively 0
+      DataRate max_allowed_drop = DataRate::bps(last_acked_bitrate_->bps() * 0.95);
+      smoothed_acked_rate = max_allowed_drop;
+      RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_HYSTERESIS - "
+                       << "measured_drop=" << drop_percent << "% (from " 
+                       << (last_acked_bitrate_->bps() / 1e6) << " to " 
+                       << (effective_acked_rate.bps() / 1e6) << " Mbps), "
+                       << "smoothed_to_5% = " << (max_allowed_drop.bps() / 1e6) << " Mbps, "
+                       << "ce_ratio=" << ce_ratio << " (no congestion signal)";
+    }
+  }
+
+  last_acked_bitrate_ = smoothed_acked_rate;
   
   // === SLIDING WINDOW DISCOVERY: Maintain 50-RTT rolling window of acked rates ===
   // Add current acked rate to window
