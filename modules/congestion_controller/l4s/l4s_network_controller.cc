@@ -1430,31 +1430,27 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   }
 
   // === HYSTERESIS: Prevent cliff drops when no congestion signal present ===
-  // When ce_ratio == 0 (no CE marks) and rate would drop >5%, cap drop to 5% per cycle
+  // When rate would drop >5%, cap drop to 5% per cycle
   // This prevents cascade collapse when sliding window ages out old high-rate samples
+  // Applied only when no CE marks in recent feedback (uses last-known ce_count_)
   DataRate smoothed_acked_rate = effective_acked_rate;
   if (last_acked_bitrate_.has_value() && last_acked_bitrate_->IsFinite() && 
       last_acked_bitrate_->bps() > 0 && effective_acked_rate < *last_acked_bitrate_) {
     
     double drop_percent = ((last_acked_bitrate_->bps() - effective_acked_rate.bps()) * 100.0) / last_acked_bitrate_->bps();
     
-    // Calculate current ce_ratio to check if there's real congestion
-    double current_ce_ratio = 0.0;
-    if (new_ect_count + new_ce_count > 0) {
-      current_ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
-    }
-    
-    // Apply hysteresis only when no congestion signal (ce_ratio ≈ 0)
-    if (drop_percent > 5.0 && current_ce_ratio < 0.001) {  // ce_ratio < 0.001 means effectively 0
+    // Apply hysteresis only when no congestion signal detected recently (ce_count_ == 0)
+    // This prevents measurement window artifacts from causing cascading drops
+    if (drop_percent > 5.0 && ce_count_ == 0) {
       // Cap drop to 5%: new_rate = old_rate * 0.95
       double max_allowed_rate_bps = last_acked_bitrate_->bps() * 0.95;
-      smoothed_acked_rate = webrtc::DataRate::BitsPerSecond(max_allowed_rate_bps);
+      smoothed_acked_rate = webrtc::DataRate::BitsPerSec(static_cast<int64_t>(max_allowed_rate_bps));
       RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_HYSTERESIS - "
                        << "measured_drop=" << drop_percent << "% (from " 
                        << (last_acked_bitrate_->bps() / 1e6) << " to " 
                        << (effective_acked_rate.bps() / 1e6) << " Mbps), "
                        << "smoothed_to_5% = " << (max_allowed_rate_bps / 1e6) << " Mbps, "
-                       << "ce_ratio=" << current_ce_ratio << " (no congestion signal)";
+                       << "ce_count=" << ce_count_ << " (no congestion signal)";
     }
   }
 
