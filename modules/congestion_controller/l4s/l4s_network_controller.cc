@@ -1069,11 +1069,14 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
   NetworkControlUpdate update;
   
   if (msg.packets_lost_delta > 0) {
-    RTC_LOG(LS_INFO) << "L4S: Transport loss report - "
-                     << "Lost: " << msg.packets_lost_delta
-                     << ", Received: " << msg.packets_received_delta;
-    
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+    DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
+    RTC_LOG(LS_WARNING) << "L4S: PACKET_LOSS - "
+                        << "Lost: " << msg.packets_lost_delta
+                        << ", Received: " << msg.packets_received_delta
+                        << " | sending_rate=" << (current_rate.bps() / 1e6) << " Mbps"
+                        << " acked_rate=" << (acked_rate.bps() / 1e6) << " Mbps"
+                        << " deficit=" << ((current_rate - acked_rate).bps() / 1e6) << " Mbps";
     prague_estimator_->OnPacketLoss(current_rate, msg.receive_time);
   }
   
@@ -1157,14 +1160,14 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     }
     
     // === DEBUG OUTPUT: RTT DIAGNOSIS ===
-    RTC_LOG(LS_INFO) << "L4S: FEEDBACK_BATCH - "
-                     << "packets=" << received_feedback.size()
-                     << " time_since_last=" << (time_since_last_feedback.IsFinite() ? std::to_string(time_since_last_feedback.ms()) : "N/A")
-                     << "ms rtt_min=" << feedback_min_rtt.ms()
-                     << "ms rtt_max=" << feedback_max_rtt.ms()
-                     << "ms rtt_spread=" << (feedback_max_rtt - feedback_min_rtt).ms()
-                     << "ms last_rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A")
-                     << "ms";
+    RTC_LOG(LS_VERBOSE) << "L4S: FEEDBACK_BATCH - "
+                        << "packets=" << received_feedback.size()
+                        << " time_since_last=" << (time_since_last_feedback.IsFinite() ? std::to_string(time_since_last_feedback.ms()) : "N/A")
+                        << "ms rtt_min=" << feedback_min_rtt.ms()
+                        << "ms rtt_max=" << feedback_max_rtt.ms()
+                        << "ms rtt_spread=" << (feedback_max_rtt - feedback_min_rtt).ms()
+                        << "ms last_rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A")
+                        << "ms";
     
     // Detect RTT growth patterns
     if (last_rtt_.IsFinite() && feedback_min_rtt > last_rtt_ + TimeDelta::Millis(10)) {
@@ -1179,8 +1182,8 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       prague_estimator_->UpdateFromRtt(feedback_min_rtt);
       last_rtt_ = feedback_min_rtt;
       last_estimated_round_trip_time_ = feedback_min_rtt;
-      RTC_LOG(LS_INFO) << "L4S: RTT_SOURCE_FEEDBACK_PKT - rtt=" << feedback_min_rtt.ms()
-                       << "ms (from TransportPacketsFeedback calculation)";
+      RTC_LOG(LS_VERBOSE) << "L4S: RTT_SOURCE_FEEDBACK_PKT - rtt=" << feedback_min_rtt.ms()
+                          << "ms (from TransportPacketsFeedback calculation)";
     }
   }
   
@@ -1249,7 +1252,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     if (new_ce_count > 0) {
       discovery_growth_start_time_ = Timestamp::MinusInfinity();  // Reset growth phase
       discovery_packets_at_growth_start_ = 0;
-      RTC_LOG(LS_INFO) << "L4S: CE mark detected - resetting discovery growth phase";
+      DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+      DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
+      RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
+                          << "CE_packets=" << new_ce_count
+                          << " ECT_packets=" << new_ect_count
+                          << " ce_ratio=" << (ce_ratio * 100) << "%"
+                          << " | sending_rate=" << (current_rate.bps() / 1e6) << " Mbps"
+                          << " acked_rate=" << (acked_rate.bps() / 1e6) << " Mbps"
+                          << " rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A") << "ms";
     }
     
     // Always use Prague's own estimate as the input rate.
@@ -1412,8 +1423,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
          feedback.feedback_time - acked_rate_window_.front().first > kAckedRateWindowDuration) {
     DataRate pruned_rate = acked_rate_window_.front().second;
     acked_rate_window_.pop_front();
-    RTC_LOG(LS_INFO) << "L4S: ACKED_WINDOW_PRUNE - removed old rate=" << (pruned_rate.bps() / 1e6) 
-                     << " Mbps (age > 9s) window_size=" << window_size_before << "->" << acked_rate_window_.size();
+    RTC_LOG(LS_VERBOSE) << "L4S: ACKED_WINDOW_PRUNE - removed old rate=" << (pruned_rate.bps() / 1e6) 
+                        << " Mbps (age > 9s) window_size=" << window_size_before << "->" << acked_rate_window_.size();
   }
   
   // Compute max acked rate in sliding window
@@ -1434,13 +1445,13 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     DataRate growth_floor = effective_acked_rate;  // Current reality
     DataRate growth_ceiling = effective_acked_rate * 1.5;  // 50% room for exploration
     prague_estimator_->SetGrowthBounds(growth_floor, growth_ceiling);
-    RTC_LOG(LS_INFO) << "L4S: OPTION_A_BOUNDS - Using current acked_rate for bounds"
-                     << " floor=" << (growth_floor.bps() / 1e6) << " Mbps (current delivery)"
-                     << " ceiling=" << (growth_ceiling.bps() / 1e6) << " Mbps (current + 50%)";
-    RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_WINDOW - "
-                     << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps (THIS IS NOW THE BOUND) "
-                     << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps (deprecated)"
-                     << " window_size=" << acked_rate_window_.size() << " samples ";
+    RTC_LOG(LS_VERBOSE) << "L4S: OPTION_A_BOUNDS - Using current acked_rate for bounds"
+                        << " floor=" << (growth_floor.bps() / 1e6) << " Mbps (current delivery)"
+                        << " ceiling=" << (growth_ceiling.bps() / 1e6) << " Mbps (current + 50%)";
+    RTC_LOG(LS_VERBOSE) << "L4S: ACKED_RATE_WINDOW - "
+                        << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps (THIS IS NOW THE BOUND) "
+                        << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps (deprecated)"
+                        << " window_size=" << acked_rate_window_.size() << " samples ";
   }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
