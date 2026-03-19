@@ -1018,6 +1018,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
         msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+    RTC_LOG(LS_INFO) << "L4S: RTT_SOURCE_RTCP_SR - rtt=" << msg.round_trip_time.ms()
+                     << "ms (from RTCP Sender Report)";
   }
 
   RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
@@ -1177,6 +1179,8 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       prague_estimator_->UpdateFromRtt(feedback_min_rtt);
       last_rtt_ = feedback_min_rtt;
       last_estimated_round_trip_time_ = feedback_min_rtt;
+      RTC_LOG(LS_INFO) << "L4S: RTT_SOURCE_FEEDBACK_PKT - rtt=" << feedback_min_rtt.ms()
+                       << "ms (from TransportPacketsFeedback calculation)";
     }
   }
   
@@ -1384,6 +1388,18 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     return;
   }
 
+  // Detect significant acked rate changes
+  if (last_acked_bitrate_.IsFinite() && last_acked_bitrate_.bps() > 0) {
+    double rate_change_percent = ((effective_acked_rate.bps() - last_acked_bitrate_.bps()) * 100.0) / last_acked_bitrate_.bps();
+    if (std::abs(rate_change_percent) > 30) {
+      RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_SHIFT - "
+                       << "prev=" << (last_acked_bitrate_.bps() / 1e6) << " Mbps "
+                       << "curr=" << (effective_acked_rate.bps() / 1e6) << " Mbps "
+                       << "change=" << rate_change_percent << "% "
+                       << "(source=" << (acked_bitrate.has_value() ? "estimator" : "bootstrap") << ")";
+    }
+  }
+
   last_acked_bitrate_ = effective_acked_rate;
   
   // === SLIDING WINDOW DISCOVERY: Maintain 50-RTT rolling window of acked rates ===
@@ -1391,9 +1407,13 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   acked_rate_window_.push_back({feedback.feedback_time, effective_acked_rate});
   
   // Prune rates older than 9 seconds (50 RTTs @ 180ms)
+  size_t window_size_before = acked_rate_window_.size();
   while (!acked_rate_window_.empty() && 
          feedback.feedback_time - acked_rate_window_.front().first > kAckedRateWindowDuration) {
+    DataRate pruned_rate = acked_rate_window_.front().second;
     acked_rate_window_.pop_front();
+    RTC_LOG(LS_INFO) << "L4S: ACKED_WINDOW_PRUNE - removed old rate=" << (pruned_rate.bps() / 1e6) 
+                     << " Mbps (age > 9s) window_size=" << window_size_before << "->" << acked_rate_window_.size();
   }
   
   // Compute max acked rate in sliding window
@@ -1412,6 +1432,11 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     prague_estimator_->SetGrowthBounds(window_max_acked_rate_, growth_ceiling);
     RTC_LOG(LS_VERBOSE) << "L4S: Prague growth bounds updated - min=" << (window_max_acked_rate_.bps() / 1e6)
                         << " Mbps, max=" << (growth_ceiling.bps() / 1e6) << " Mbps";
+    RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_WINDOW - "
+                     << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps "
+                     << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps "
+                     << "window_size=" << acked_rate_window_.size() << " samples "
+                     << "prague_bounds=[" << (window_max_acked_rate_.bps() / 1e6) << ", " << (growth_ceiling.bps() / 1e6) << "]";
   }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
@@ -1789,6 +1814,8 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
+    RTC_LOG(LS_INFO) << "L4S: PERIODIC_METRICS_LOG - rtt=" << last_rtt_.ms()
+                     << "ms (writing to JSON from last_rtt_)";
   }
   
   // Log loss metrics
