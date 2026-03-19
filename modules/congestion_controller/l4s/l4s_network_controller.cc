@@ -1353,9 +1353,14 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   // Match GCC behavior: compute delivery-rate signal from per-packet feedback.
   acked_estimator_->IncomingPacketFeedbackVector(feedback.SortedByReceiveTime());
   std::optional<DataRate> acked_bitrate = acked_estimator_->bitrate();
+  
+  // DIAGNOSTIC: Log every call to see if acked_bitrate arrives
   if (!acked_bitrate.has_value()) {
+    RTC_LOG(LS_VERBOSE) << "L4S: UpdateAckedBitrateEstimator called but acked_bitrate is EMPTY (estimator still gathering data)";
     return;
   }
+  
+  RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (acked_bitrate->bps() / 1e6) << " Mbps";
 
   last_acked_bitrate_ = acked_bitrate;
   
