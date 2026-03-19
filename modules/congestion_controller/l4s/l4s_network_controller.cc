@@ -1667,8 +1667,9 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
 
     if (using_bootstrap && drop_percent > kBootstrapLargeDropThresholdPercent) {
       double guarded_bps = std::max(
-          effective_acked_rate.bps(),
-          last_acked_bitrate_->bps() * (1.0 - kBootstrapMaxDownStepFraction));
+        static_cast<double>(effective_acked_rate.bps()),
+        static_cast<double>(last_acked_bitrate_->bps()) *
+          (1.0 - kBootstrapMaxDownStepFraction));
       smoothed_acked_rate = webrtc::DataRate::BitsPerSec(
           static_cast<int64_t>(guarded_bps));
       bootstrap_drop_guard_applied = true;
