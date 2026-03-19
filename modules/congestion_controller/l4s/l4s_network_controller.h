@@ -51,6 +51,12 @@ struct L4SControllerConfig {
   double probe_confidence_threshold = 0.7;
   double delay_confidence_threshold = 0.6;
   double acked_confidence_threshold = 0.5;
+
+  // ECN confidence hold/decay tuning
+  int ecn_confidence_hold_rtts = 3;
+  TimeDelta ecn_confidence_min_hold = TimeDelta::Millis(250);
+  double ecn_clean_decay_factor = 0.9;
+  double ecn_min_confidence = 0.45;
 };
 
 // Prague DCTCP-style capacity estimator with ECN feedback
@@ -327,6 +333,10 @@ private:
   int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
   Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
 
+  // ECN authority hold/decay state
+  Timestamp ecn_confidence_hold_until_ = Timestamp::MinusInfinity();
+  double ecn_clean_decay_multiplier_ = 1.0;
+
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
@@ -343,6 +353,7 @@ private:
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
+  int consecutive_hysteresis_applications_ = 0;
 
   // Sliding window discovery state (replaces RTCP-based stepping)
   // Maintains a rolling 9-second window of acked rates (50 RTTs @ 180ms avg)
@@ -357,6 +368,9 @@ private:
   static constexpr TimeDelta kDiscoveryGrowthTime = TimeDelta::Millis(1000);  // Time to grow from base to 2x max
   static constexpr int64_t kDiscoveryGrowthPacketThreshold = 25;  // OR 25 packets without CE
   static constexpr double kDiscoveryMaxMultiplier = 2.0;  // Grow to 2.0× window_max_acked_rate
+  Timestamp last_growth_bound_update_time_ = Timestamp::MinusInfinity();
+  static constexpr int kMaxConsecutiveHysteresisApplications = 6;
+  static constexpr double kGrowthBoundsMaxDownSlewPerSecond = 0.25;
 
   // Metrics
   bool metrics_enabled_ = true;

@@ -1290,6 +1290,17 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       discovery_packets_at_growth_start_ = 0;
       last_ce_mark_time_ = feedback.feedback_time;  // Track when last CE arrived
       clean_packets_since_last_ce_ = 0;  // Reset clean packet counter
+      ecn_clean_decay_multiplier_ = 1.0;  // Reset clean-batch confidence decay
+
+      // Hold ECN authority for a few RTTs after CE so one clean batch does not
+      // immediately hand control to acked-only fusion.
+      TimeDelta hold_time = config_.ecn_confidence_min_hold;
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+        hold_time = std::max(hold_time,
+                             last_rtt_ * config_.ecn_confidence_hold_rtts);
+      }
+      ecn_confidence_hold_until_ = feedback.feedback_time + hold_time;
+
       DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
       DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
       RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
@@ -1327,41 +1338,43 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
                         << "Output: " << (prague_estimate_after_update.bps() / 1e6) << " Mbps, "
                         << "Direction: " << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC" : "REDUC");
     
-    // RESET CUMULATIVE CE COUNTERS on recovery OR after extended clean period
+    // RESET CUMULATIVE CE COUNTERS only after robust clean-period evidence.
     // RFC 8888 semantics: counters track current congestion episode
-    // Reset on three conditions:
-    // 1. Transition to additive increase mode (recovery signal)
-    // 2. 21+ clean packets since last CE mark (congestion truly resolved)
-    // 3. 5+ RTTs since last CE mark (time-based reset for stability)
+    // Reset on two conditions:
+    // 1. 21+ clean packets since last CE mark (congestion truly resolved)
+    // 2. 5+ RTTs since last CE mark (time-based reset for stability)
     
     bool should_reset_ce_counters = false;
     std::string reset_reason = "";
     
-    // Condition 1: Transitioning to AI mode
-    if (prague_estimator_->GetDirectionFlag() == 1) {
-      should_reset_ce_counters = true;
-      reset_reason = "AI_transition";
-    }
-    
-    // Condition 2: 21+ clean packets since last CE
+    // Condition 1: 21+ clean packets since last CE
     if (clean_packets_since_last_ce_ >= 21 && !last_ce_mark_time_.IsInfinite()) {
       should_reset_ce_counters = true;
       reset_reason = "21_clean_packets";
     }
     
-    // Condition 3: 5+ RTTs since last CE mark
+    // Condition 2: 5+ RTTs since last CE mark
     if (!last_ce_mark_time_.IsInfinite() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
       TimeDelta time_since_ce = feedback.feedback_time - last_ce_mark_time_;
       TimeDelta five_rtts = last_rtt_ * 5;
-      if (time_since_ce >= five_rtts) {
+      bool reset_cooldown_elapsed = last_ce_reset_time_.IsInfinite() ||
+                                    (feedback.feedback_time - last_ce_reset_time_ >=
+                                     last_rtt_);
+      if (time_since_ce >= five_rtts && reset_cooldown_elapsed) {
         should_reset_ce_counters = true;
         reset_reason = "5_RTT_elapsed";
       }
     }
     
-    if (should_reset_ce_counters) {
+    if (should_reset_ce_counters &&
+        (cumulative_ce_count_ + cumulative_ect_count_ > 0)) {
       int64_t previous_ce_count = cumulative_ce_count_;
       int64_t previous_ect_count = cumulative_ect_count_;
+      int64_t previous_clean_packets = clean_packets_since_last_ce_;
+      int64_t previous_time_since_ce_ms =
+          last_ce_mark_time_.IsInfinite()
+              ? -1
+              : (feedback.feedback_time - last_ce_mark_time_).ms();
       double previous_ratio = previous_ect_count + previous_ce_count > 0 ? 
                               (100.0 * previous_ce_count / (previous_ect_count + previous_ce_count)) : 0.0;
       
@@ -1369,14 +1382,16 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       cumulative_ect_count_ = 0;
       clean_packets_since_last_ce_ = 0;
       last_ce_reset_time_ = feedback.feedback_time;
+      // Mark end-of-episode to prevent repeated time-based resets each batch.
+      last_ce_mark_time_ = Timestamp::MinusInfinity();
       
       RTC_LOG(LS_INFO) << "L4S: CUMULATIVE_CE_RESET - Reason: " << reset_reason 
                        << " Previous_CE=" << previous_ce_count
                        << " Previous_Total=" << previous_ect_count
                        << " Previous_Ratio=" << previous_ratio << "%"
-                       << " (clean_packets=" << clean_packets_since_last_ce_ 
-                       << ", time_since_ce=" << (last_ce_mark_time_.IsInfinite() ? -1 : 
-                          (feedback.feedback_time - last_ce_mark_time_).ms()) << "ms)";
+                       << " (clean_packets=" << previous_clean_packets
+                       << ", time_since_ce=" << previous_time_since_ce_ms
+                       << "ms)";
     }
     
     // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
@@ -1420,11 +1435,28 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       RTC_LOG(LS_INFO) << "L4S: ECN_UPDATE_WITHCE - Prague rate=" << (prague_estimator_->GetCurrentEstimate().bps() / 1e6) 
                        << " Mbps, confidence=" << ecn_confidence << " (CE marks present)";
     } else if (new_ect_count > 0) {
-      // Only clean ECN packets, no congestion - let ECN confidence decay naturally
-      // Don't artificially boost ECN with the unconstrained Prague rate
-      ecn_confidence = ecn_confidence * 0.5;  // Decay confidence when no CE present
-      RTC_LOG(LS_INFO) << "L4S: CLEAN_ECN_BATCH - Decaying ECN confidence to " << ecn_confidence 
-                       << " (no CE marks, Prague would explode in AI phase)";
+      // Clean ECN packets: use hold-then-decay so authority transitions are smooth.
+      bool hold_active = !ecn_confidence_hold_until_.IsInfinite() &&
+                         feedback.feedback_time < ecn_confidence_hold_until_;
+      if (hold_active) {
+        ecn_clean_decay_multiplier_ = 1.0;
+        ecn_confidence = std::max(ecn_confidence, config_.ecn_confidence_threshold);
+        RTC_LOG(LS_INFO)
+            << "L4S: CLEAN_ECN_BATCH - Holding ECN confidence at "
+            << ecn_confidence
+            << " (post-CE hold window active)";
+      } else {
+        ecn_clean_decay_multiplier_ =
+            std::max(0.0,
+                     ecn_clean_decay_multiplier_ * config_.ecn_clean_decay_factor);
+        ecn_confidence = std::max(
+            config_.ecn_min_confidence,
+            ecn_confidence * ecn_clean_decay_multiplier_);
+        RTC_LOG(LS_INFO)
+            << "L4S: CLEAN_ECN_BATCH - Decaying ECN confidence to "
+            << ecn_confidence << " (decay_multiplier="
+            << ecn_clean_decay_multiplier_ << ")";
+      }
       // Still update but with LOW confidence so other estimators win
       bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
     }
@@ -1542,16 +1574,49 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     // Apply hysteresis only when no congestion signal detected recently (ce_count_ == 0)
     // This prevents measurement window artifacts from causing cascading drops
     if (drop_percent > 5.0 && ce_count_ == 0) {
-      // Cap drop to 5%: new_rate = old_rate * 0.95
-      double max_allowed_rate_bps = last_acked_bitrate_->bps() * 0.95;
-      smoothed_acked_rate = webrtc::DataRate::BitsPerSec(static_cast<int64_t>(max_allowed_rate_bps));
-      RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_HYSTERESIS - "
-                       << "measured_drop=" << drop_percent << "% (from " 
-                       << (last_acked_bitrate_->bps() / 1e6) << " to " 
-                       << (effective_acked_rate.bps() / 1e6) << " Mbps), "
-                       << "smoothed_to_5% = " << (max_allowed_rate_bps / 1e6) << " Mbps, "
-                       << "ce_count=" << ce_count_ << " (no congestion signal)";
+      bool recent_ce = false;
+      if (!last_ce_mark_time_.IsInfinite()) {
+        TimeDelta since_last_ce = feedback.feedback_time - last_ce_mark_time_;
+        TimeDelta ce_recency_window = TimeDelta::Millis(300);
+        if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+          ce_recency_window = std::max(ce_recency_window, last_rtt_ * 3);
+        }
+        recent_ce = since_last_ce < ce_recency_window;
+      }
+
+      if (recent_ce ||
+          consecutive_hysteresis_applications_ <
+              kMaxConsecutiveHysteresisApplications) {
+        // Cap drop to 5%: new_rate = old_rate * 0.95
+        double max_allowed_rate_bps = last_acked_bitrate_->bps() * 0.95;
+        smoothed_acked_rate =
+            webrtc::DataRate::BitsPerSec(static_cast<int64_t>(max_allowed_rate_bps));
+        consecutive_hysteresis_applications_++;
+        RTC_LOG(LS_INFO) << "L4S: ACKED_RATE_HYSTERESIS - "
+                         << "measured_drop=" << drop_percent << "% (from "
+                         << (last_acked_bitrate_->bps() / 1e6) << " to "
+                         << (effective_acked_rate.bps() / 1e6) << " Mbps), "
+                         << "smoothed_to_5% = " << (max_allowed_rate_bps / 1e6)
+                         << " Mbps, streak="
+                         << consecutive_hysteresis_applications_ << ", ce_count="
+                         << ce_count_ << " (no congestion signal)";
+      } else {
+        // Anti-ratchet fallback: blend instead of endless fixed 5% steps.
+        double blended_bps = last_acked_bitrate_->bps() * 0.7 +
+                             effective_acked_rate.bps() * 0.3;
+        smoothed_acked_rate = webrtc::DataRate::BitsPerSec(
+            static_cast<int64_t>(blended_bps));
+        consecutive_hysteresis_applications_ = 0;
+        RTC_LOG(LS_INFO)
+            << "L4S: ACKED_RATE_ANTI_RATCHET - measured_drop=" << drop_percent
+            << "% using blended smoothing to " << (blended_bps / 1e6)
+            << " Mbps after prolonged hysteresis streak";
+      }
+    } else {
+      consecutive_hysteresis_applications_ = 0;
     }
+  } else {
+    consecutive_hysteresis_applications_ = 0;
   }
 
   last_acked_bitrate_ = smoothed_acked_rate;
@@ -1583,9 +1648,35 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   // OPTION A: Use CURRENT acked_rate instead of historical window_max to prevent slow recovery
   // Use SMOOTHED rate to prevent hysteresis from being bypassed
   if (smoothed_acked_rate > DataRate::Zero()) {
-    DataRate growth_floor = smoothed_acked_rate;  // Current reality (hysteresis-smoothed)
+    DataRate growth_floor = smoothed_acked_rate;          // Current reality (hysteresis-smoothed)
     DataRate growth_ceiling = smoothed_acked_rate * 1.5;  // 50% room for exploration
+
+    // Limit downward slew so short-lived delivery dips do not instantly pull
+    // Prague bounds down.
+    auto previous_growth_bounds = prague_estimator_->GetGrowthBounds();
+    if (last_growth_bound_update_time_.IsFinite() &&
+        previous_growth_bounds.first > DataRate::Zero() &&
+        previous_growth_bounds.second > DataRate::Zero()) {
+      TimeDelta elapsed = feedback.feedback_time - last_growth_bound_update_time_;
+      if (elapsed.IsFinite() && elapsed > TimeDelta::Zero()) {
+        double max_drop_fraction =
+            std::min(0.95,
+                     kGrowthBoundsMaxDownSlewPerSecond *
+                         elapsed.seconds<double>());
+        double min_allowed_ratio = std::max(0.05, 1.0 - max_drop_fraction);
+        DataRate min_floor = previous_growth_bounds.first * min_allowed_ratio;
+        DataRate min_ceiling = previous_growth_bounds.second * min_allowed_ratio;
+        growth_floor = std::max(growth_floor, min_floor);
+        growth_ceiling = std::max(growth_ceiling, min_ceiling);
+      }
+    }
+
+    if (growth_ceiling < growth_floor) {
+      growth_ceiling = growth_floor * 1.1;
+    }
+
     prague_estimator_->SetGrowthBounds(growth_floor, growth_ceiling);
+    last_growth_bound_update_time_ = feedback.feedback_time;
     RTC_LOG(LS_VERBOSE) << "L4S: OPTION_A_BOUNDS - Using current acked_rate for bounds"
                         << " floor=" << (growth_floor.bps() / 1e6) << " Mbps (current delivery)"
                         << " ceiling=" << (growth_ceiling.bps() / 1e6) << " Mbps (current + 50%)";
