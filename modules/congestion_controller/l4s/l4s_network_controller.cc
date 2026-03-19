@@ -547,6 +547,38 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp 
     RTC_LOG(LS_VERBOSE) << "L4S: Using Prague ECN estimate: " << sources_.ecn_estimate.bps() << " bps";
     return sources_.ecn_estimate;
   }
+
+  // 1b. Weighted ECN/Acked handoff path (soft transition with hysteresis)
+  bool ecn_recent = IsRecentlyUpdated(sources_.last_ecn_update, now);
+  bool acked_recent = IsRecentlyUpdated(sources_.last_acked_update, now);
+  bool ecn_has_signal = sources_.ecn_confidence > 0.0 && ecn_recent;
+  bool acked_has_signal = sources_.acked_confidence > 0.0 && acked_recent;
+  if (ecn_has_signal && acked_has_signal) {
+    bool reduction_mode = sources_.ecn_confidence >= 0.95;
+    bool recent_ce_priority = sources_.ecn_confidence >= config_.ecn_confidence_release_threshold;
+
+    double ecn_weight = config_.ecn_priority_weight_default;
+    if (reduction_mode) {
+      ecn_weight = config_.ecn_priority_weight_reduction;
+    } else if (recent_ce_priority) {
+      ecn_weight = config_.ecn_priority_weight_recent_ce;
+    }
+
+    ecn_weight = std::clamp(ecn_weight, 0.05, 0.95);
+    double acked_weight = 1.0 - ecn_weight;
+
+    DataRate weighted_estimate =
+        sources_.ecn_estimate * ecn_weight +
+        sources_.acked_estimate * acked_weight;
+
+    RTC_LOG(LS_VERBOSE) << "L4S: Weighted ECN+Acked fusion - "
+                        << "ecn=" << sources_.ecn_estimate.bps() << " bps (conf="
+                        << sources_.ecn_confidence << ", w=" << ecn_weight << "), "
+                        << "acked=" << sources_.acked_estimate.bps() << " bps (conf="
+                        << sources_.acked_confidence << ", w=" << acked_weight << "), "
+                        << "result=" << weighted_estimate.bps() << " bps";
+    return weighted_estimate;
+  }
   
   // 2. When no recent congestion, use probe results as capacity upper bound
   if (sources_.probe_confidence > config_.probe_confidence_threshold && 
@@ -1261,15 +1293,31 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
   
-  // Accumulate into cumulative counters for RFC 8888 cumulative feedback approach
-  // This prevents wild swings when feedback mode switches between batch/immediate
-  cumulative_ce_count_ += new_ce_count;
-  cumulative_ect_count_ += new_ect_count;
+  // CE episode-based accumulation:
+  // Start cumulative counters only from the first CE-containing batch in an
+  // episode and keep counting until episode end criteria are met.
+  bool has_ce = new_ce_count > 0;
+  if (has_ce && !ce_episode_active_) {
+    ce_episode_active_ = true;
+    cumulative_ce_count_ = 0;
+    cumulative_ect_count_ = 0;
+    clean_packets_since_last_ce_ = 0;
+    RTC_LOG(LS_INFO) << "L4S: CE episode START - counters reset at first CE batch";
+  }
+
+  if (ce_episode_active_) {
+    cumulative_ce_count_ += new_ce_count;
+    cumulative_ect_count_ += new_ect_count;
+  }
   
   // Calculate cumulative CE ratio (stable across feedback mode switches)
   double cumulative_ce_ratio = 0.0;
-  if (cumulative_ect_count_ + cumulative_ce_count_ > 0) {
+  if (ce_episode_active_ && cumulative_ect_count_ + cumulative_ce_count_ > 0) {
     cumulative_ce_ratio = static_cast<double>(cumulative_ce_count_) / (cumulative_ect_count_ + cumulative_ce_count_);
+  } else if (new_ect_count + new_ce_count > 0) {
+    // Outside CE episode, use per-batch ratio to avoid stale cumulative dilution.
+    cumulative_ce_ratio = static_cast<double>(new_ce_count) /
+                          (new_ect_count + new_ce_count);
   }
   
   // Log batch-based ratio (for immediate feedback clarity) and cumulative ratio (for stability)
@@ -1302,6 +1350,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       last_ce_mark_time_ = feedback.feedback_time;  // Track when last CE arrived
       clean_packets_since_last_ce_ = 0;  // Reset clean packet counter
       ecn_clean_decay_multiplier_ = 1.0;  // Reset clean-batch confidence decay
+      ce_episode_active_ = true;
 
       // Hold ECN authority for a few RTTs after CE so one clean batch does not
       // immediately hand control to acked-only fusion.
@@ -1359,9 +1408,10 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     std::string reset_reason = "";
     
     // Condition 1: 21+ clean packets since last CE
-    if (clean_packets_since_last_ce_ >= 21 && !last_ce_mark_time_.IsInfinite()) {
+    if (clean_packets_since_last_ce_ >= config_.ce_episode_clean_packets &&
+        !last_ce_mark_time_.IsInfinite()) {
       should_reset_ce_counters = true;
-      reset_reason = "21_clean_packets";
+      reset_reason = "clean_packets";
     }
     
     // Condition 2: 5+ RTTs since last CE mark
@@ -1371,7 +1421,17 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       bool reset_cooldown_elapsed = last_ce_reset_time_.IsInfinite() ||
                                     (feedback.feedback_time - last_ce_reset_time_ >=
                                      last_rtt_);
-      if (time_since_ce >= five_rtts && reset_cooldown_elapsed) {
+        TimeDelta episode_duration =
+          last_ce_mark_time_.IsInfinite()
+            ? TimeDelta::Zero()
+            : (feedback.feedback_time - last_ce_mark_time_);
+        bool episode_size_sufficient =
+          cumulative_ect_count_ >= config_.ce_episode_min_packets ||
+          cumulative_ect_count_ >= config_.ce_episode_max_packets;
+        bool episode_time_sufficient =
+          episode_duration >= config_.ce_episode_max_duration;
+        if (time_since_ce >= five_rtts && reset_cooldown_elapsed &&
+          (episode_size_sufficient || episode_time_sufficient)) {
         should_reset_ce_counters = true;
         reset_reason = "5_RTT_elapsed";
       }
@@ -1393,6 +1453,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       cumulative_ect_count_ = 0;
       clean_packets_since_last_ce_ = 0;
       last_ce_reset_time_ = feedback.feedback_time;
+      ce_episode_active_ = false;
       // Mark end-of-episode to prevent repeated time-based resets each batch.
       last_ce_mark_time_ = Timestamp::MinusInfinity();
       

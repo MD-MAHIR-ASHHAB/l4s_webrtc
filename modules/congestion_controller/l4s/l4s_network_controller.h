@@ -48,6 +48,7 @@ struct L4SControllerConfig {
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
+  double ecn_confidence_release_threshold = 0.65;
   double probe_confidence_threshold = 0.7;
   double delay_confidence_threshold = 0.6;
   double acked_confidence_threshold = 0.5;
@@ -57,6 +58,15 @@ struct L4SControllerConfig {
   TimeDelta ecn_confidence_min_hold = TimeDelta::Millis(250);
   double ecn_clean_decay_factor = 0.9;
   double ecn_min_confidence = 0.45;
+
+  // CE episode tracking and weighted handoff tuning
+  int ce_episode_clean_packets = 21;
+  int ce_episode_min_packets = 8;
+  int ce_episode_max_packets = 256;
+  TimeDelta ce_episode_max_duration = TimeDelta::Seconds(2);
+  double ecn_priority_weight_reduction = 0.9;
+  double ecn_priority_weight_recent_ce = 0.8;
+  double ecn_priority_weight_default = 0.5;
 };
 
 // Prague DCTCP-style capacity estimator with ECN feedback
@@ -332,6 +342,8 @@ private:
   Timestamp last_ce_reset_time_ = Timestamp::MinusInfinity();  // When counters were reset
   int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
   Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
+  bool ce_episode_active_ = false;
+  bool ecn_priority_mode_ = false;
 
   // ECN authority hold/decay state
   Timestamp ecn_confidence_hold_until_ = Timestamp::MinusInfinity();
