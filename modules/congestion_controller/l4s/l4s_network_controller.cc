@@ -1372,7 +1372,6 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   
   // === BOOTSTRAP FALLBACK: Use measured throughput until estimator converges ===
   DataRate effective_acked_rate;
-  bool using_bootstrap = false;
   
   if (acked_bitrate.has_value()) {
     // Official estimate available - use it
@@ -1380,7 +1379,6 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   } else if (!last_actual_bitrate_.IsZero()) {
     // Estimator not converged yet - bootstrap with measured throughput
     effective_acked_rate = last_actual_bitrate_;
-    using_bootstrap = true;
   } else {
     // No data at all
     return;
