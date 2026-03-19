@@ -1376,27 +1376,102 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       clean_packets_since_last_ce_ += new_ect_count;
     }
     
-    // Always use Prague's own estimate as the input rate.
-    // This prevents feedback loops where low fused estimates (from other estimators)
-    // feed back and collapse Prague's rate. CE ratio will still apply congestion control.
+    // Always use Prague's own estimate as input baseline.
     DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
     if (prague_estimator_->IsDiscoveryModeActive()) {
-      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate: " << prague_input_rate.bps() 
-                       << " bps (cumulative_ce_ratio=" << cumulative_ce_ratio << ")";
+      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate: "
+                          << prague_input_rate.bps()
+                          << " bps (cumulative_ce_ratio=" << cumulative_ce_ratio
+                          << ")";
     } else {
-      RTC_LOG(LS_VERBOSE) << "L4S: Steady state - using Prague's own estimate as baseline: " << prague_input_rate.bps() 
-                       << " bps (fused rate was: " << current_fused_rate.bps() << ", cumulative_ce_ratio=" << cumulative_ce_ratio << ")";
+      RTC_LOG(LS_VERBOSE)
+          << "L4S: Steady state - using Prague's own estimate as baseline: "
+          << prague_input_rate.bps() << " bps (fused rate was: "
+          << current_fused_rate.bps() << ", cumulative_ce_ratio="
+          << cumulative_ce_ratio << ")";
     }
-    
-    // Pass cumulative CE ratio to Prague (stable across feedback mode switches)
-    prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, cumulative_ce_ratio, feedback.feedback_time);
-    
-    // Log Prague's response after processing CE feedback
-    DataRate prague_estimate_after_update = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_VERBOSE) << "L4S: PRAGUE RESPONSE - CE_ratio=" << (cumulative_ce_ratio * 100) << "%, "
-                        << "Input: " << (prague_input_rate.bps() / 1e6) << " Mbps, "
-                        << "Output: " << (prague_estimate_after_update.bps() / 1e6) << " Mbps, "
-                        << "Direction: " << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC" : "REDUC");
+
+    // CE episode-bucketed reduction:
+    // Aggregate immediate CE feedback over a short bucket and apply CE-driven
+    // reduction once per bucket (and at most once per RTT interval) using only
+    // fresh CE evidence.
+    if (new_ce_count > 0) {
+      if (pending_ce_bucket_start_time_.IsInfinite()) {
+        pending_ce_bucket_start_time_ = feedback.feedback_time;
+      }
+      pending_ce_bucket_ce_count_ += new_ce_count;
+      pending_ce_bucket_ect_count_ += new_ect_count;
+      pending_ce_bucket_batches_++;
+    } else if (!pending_ce_bucket_start_time_.IsInfinite()) {
+      pending_ce_bucket_ect_count_ += new_ect_count;
+    }
+
+    double prague_ce_ratio_for_update = 0.0;
+    bool applied_ce_reduction = false;
+    bool skip_prague_update_this_batch = false;
+
+    if (!pending_ce_bucket_start_time_.IsInfinite() &&
+        (pending_ce_bucket_ce_count_ + pending_ce_bucket_ect_count_ > 0)) {
+      TimeDelta bucket_elapsed = feedback.feedback_time - pending_ce_bucket_start_time_;
+      bool bucket_ready =
+          pending_ce_bucket_batches_ >= config_.ce_reduction_min_ce_batches ||
+          pending_ce_bucket_ect_count_ >= config_.ce_reduction_min_packets ||
+          bucket_elapsed >= config_.ce_reduction_bucket_window;
+
+      TimeDelta reduction_interval = config_.ce_reduction_min_interval;
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+        reduction_interval = std::max(reduction_interval, last_rtt_);
+      }
+      bool interval_gate_open =
+          last_ce_reduction_time_.IsInfinite() ||
+          (feedback.feedback_time - last_ce_reduction_time_ >= reduction_interval);
+
+      if (bucket_ready && interval_gate_open) {
+        prague_ce_ratio_for_update =
+            static_cast<double>(pending_ce_bucket_ce_count_) /
+            (pending_ce_bucket_ce_count_ + pending_ce_bucket_ect_count_);
+        applied_ce_reduction = true;
+        last_ce_reduction_time_ = feedback.feedback_time;
+
+        RTC_LOG(LS_INFO)
+            << "L4S: CE_BUCKET_APPLY - ce=" << pending_ce_bucket_ce_count_
+            << " ect=" << pending_ce_bucket_ect_count_ << " batches="
+            << pending_ce_bucket_batches_ << " ratio="
+            << (prague_ce_ratio_for_update * 100)
+            << "% (fresh evidence, interval-gated)";
+
+        pending_ce_bucket_ce_count_ = 0;
+        pending_ce_bucket_ect_count_ = 0;
+        pending_ce_bucket_batches_ = 0;
+        pending_ce_bucket_start_time_ = Timestamp::MinusInfinity();
+      } else {
+        // Do not feed CE=0 while waiting to apply an in-progress CE bucket,
+        // otherwise non-CE counting can spuriously switch modes.
+        skip_prague_update_this_batch = true;
+        RTC_LOG(LS_VERBOSE)
+            << "L4S: CE_BUCKET_WAIT - ce=" << pending_ce_bucket_ce_count_
+            << " ect=" << pending_ce_bucket_ect_count_ << " batches="
+            << pending_ce_bucket_batches_ << " elapsed="
+            << bucket_elapsed.ms() << "ms";
+      }
+    }
+
+    if (!skip_prague_update_this_batch) {
+      prague_estimator_->UpdateFromCongestionSignal(
+          prague_input_rate, prague_ce_ratio_for_update, feedback.feedback_time);
+
+      DataRate prague_estimate_after_update =
+          prague_estimator_->GetCurrentEstimate();
+      RTC_LOG(LS_VERBOSE)
+          << "L4S: PRAGUE RESPONSE - CE_ratio="
+          << (prague_ce_ratio_for_update * 100)
+          << "%, Input: " << (prague_input_rate.bps() / 1e6)
+          << " Mbps, Output: " << (prague_estimate_after_update.bps() / 1e6)
+          << " Mbps, Direction: "
+          << (prague_estimator_->GetDirectionFlag() == 1 ? "ADD_INC"
+                                                         : "REDUC")
+          << (applied_ce_reduction ? " (bucket-applied)" : " (clean update)");
+    }
     
     // RESET CUMULATIVE CE COUNTERS only after robust clean-period evidence.
     // RFC 8888 semantics: counters track current congestion episode
@@ -1462,6 +1537,10 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       cumulative_ce_count_ = 0;
       cumulative_ect_count_ = 0;
       clean_packets_since_last_ce_ = 0;
+      pending_ce_bucket_ce_count_ = 0;
+      pending_ce_bucket_ect_count_ = 0;
+      pending_ce_bucket_batches_ = 0;
+      pending_ce_bucket_start_time_ = Timestamp::MinusInfinity();
       last_ce_reset_time_ = feedback.feedback_time;
       ce_episode_active_ = false;
       // Keep last_ce_mark_time_ so recency guards can still suppress
@@ -1771,15 +1850,40 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     recent_ce_for_floor = since_last_ce < recency_window;
   }
 
+  // Track a sticky delivered-rate anchor so the floor does not ratchet down
+  // rapidly when older window samples age out.
+  if (window_max_acked_rate_ > no_ce_floor_anchor_rate_) {
+    no_ce_floor_anchor_rate_ = window_max_acked_rate_;
+    no_ce_floor_anchor_update_time_ = feedback.feedback_time;
+  } else if (!no_ce_floor_anchor_update_time_.IsInfinite()) {
+    TimeDelta elapsed = feedback.feedback_time - no_ce_floor_anchor_update_time_;
+    if (elapsed.IsFinite() && elapsed > TimeDelta::Zero()) {
+      double decay = std::max(
+          0.85,
+          1.0 - kNoCeFloorAnchorDecayPerSecond * elapsed.seconds<double>());
+      no_ce_floor_anchor_rate_ = std::max(
+          window_max_acked_rate_, no_ce_floor_anchor_rate_ * decay);
+      no_ce_floor_anchor_update_time_ = feedback.feedback_time;
+    }
+  }
+
   if (!has_ce_in_batch_for_floor && !recent_ce_for_floor &&
-      window_max_acked_rate_ > DataRate::Zero()) {
-    DataRate no_ce_floor = window_max_acked_rate_ * kNoCeAckedFloorFraction;
+      no_ce_floor_anchor_rate_ > DataRate::Zero()) {
+    DataRate no_ce_floor = no_ce_floor_anchor_rate_ * kNoCeAckedFloorFraction;
     if (smoothed_acked_rate < no_ce_floor) {
-      RTC_LOG(LS_INFO) << "L4S: ACKED_NO_CE_FLOOR_GUARD - raising acked from "
-                       << (smoothed_acked_rate.bps() / 1e6) << " Mbps to "
-                       << (no_ce_floor.bps() / 1e6)
-                       << " Mbps (window_max="
-                       << (window_max_acked_rate_.bps() / 1e6) << " Mbps)";
+      bool should_log_info = last_no_ce_floor_guard_log_time_.IsInfinite() ||
+                             (feedback.feedback_time -
+                                  last_no_ce_floor_guard_log_time_ >=
+                              kNoCeFloorGuardLogInterval);
+      if (should_log_info) {
+        RTC_LOG(LS_INFO)
+            << "L4S: ACKED_NO_CE_FLOOR_GUARD - raising acked from "
+            << (smoothed_acked_rate.bps() / 1e6) << " Mbps to "
+            << (no_ce_floor.bps() / 1e6) << " Mbps (anchor="
+            << (no_ce_floor_anchor_rate_.bps() / 1e6) << " Mbps, window_max="
+            << (window_max_acked_rate_.bps() / 1e6) << " Mbps)";
+        last_no_ce_floor_guard_log_time_ = feedback.feedback_time;
+      }
       smoothed_acked_rate = no_ce_floor;
       consecutive_hysteresis_applications_ = 0;
     }

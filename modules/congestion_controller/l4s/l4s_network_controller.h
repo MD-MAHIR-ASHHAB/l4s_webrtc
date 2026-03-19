@@ -64,6 +64,10 @@ struct L4SControllerConfig {
   int ce_episode_min_packets = 8;
   int ce_episode_max_packets = 256;
   TimeDelta ce_episode_max_duration = TimeDelta::Seconds(2);
+  int ce_reduction_min_ce_batches = 2;
+  int ce_reduction_min_packets = 8;
+  TimeDelta ce_reduction_bucket_window = TimeDelta::Millis(200);
+  TimeDelta ce_reduction_min_interval = TimeDelta::Millis(200);
   double ecn_priority_weight_reduction = 0.9;
   double ecn_priority_weight_recent_ce = 0.8;
   double ecn_priority_weight_default = 0.5;
@@ -343,6 +347,11 @@ private:
   int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
   Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
   bool ce_episode_active_ = false;
+  int64_t pending_ce_bucket_ce_count_ = 0;
+  int64_t pending_ce_bucket_ect_count_ = 0;
+  int pending_ce_bucket_batches_ = 0;
+  Timestamp pending_ce_bucket_start_time_ = Timestamp::MinusInfinity();
+  Timestamp last_ce_reduction_time_ = Timestamp::MinusInfinity();
 
   // ECN authority hold/decay state
   Timestamp ecn_confidence_hold_until_ = Timestamp::MinusInfinity();
@@ -386,6 +395,12 @@ private:
   static constexpr double kBootstrapMaxDownStepFraction = 0.005;
   static constexpr double kNoCeAckedFloorFraction = 0.35;
   static constexpr TimeDelta kNoCeRecencyWindowMin = TimeDelta::Millis(500);
+  static constexpr double kNoCeFloorAnchorDecayPerSecond = 0.01;
+  static constexpr TimeDelta kNoCeFloorGuardLogInterval = TimeDelta::Seconds(1);
+
+  DataRate no_ce_floor_anchor_rate_ = DataRate::Zero();
+  Timestamp no_ce_floor_anchor_update_time_ = Timestamp::MinusInfinity();
+  Timestamp last_no_ce_floor_guard_log_time_ = Timestamp::MinusInfinity();
 
   // Metrics
   bool metrics_enabled_ = true;
