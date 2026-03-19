@@ -1303,7 +1303,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
       DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
       DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
-      RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
+      RTC_LOG(LS_INFO) << "L4S: CE_MARK_DETECTED - "
                           << "CE_packets=" << new_ce_count
                           << " ECT_packets=" << new_ect_count
                           << " batch_ratio=" << (batch_ce_ratio * 100) << "%"
@@ -1549,6 +1549,16 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     return;
   }
 
+  // Defensive guard: never propagate invalid rates into control logic.
+  if (!effective_acked_rate.IsFinite() || effective_acked_rate.bps() < 0) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid effective acked rate, skipping update: "
+                        << (effective_acked_rate.IsFinite()
+                                ? std::to_string(effective_acked_rate.bps())
+                                : "non-finite")
+                        << " bps";
+    return;
+  }
+
   // Detect significant acked rate changes
   if (last_acked_bitrate_.has_value() && last_acked_bitrate_->IsFinite() && last_acked_bitrate_->bps() > 0) {
     double rate_change_percent = ((effective_acked_rate.bps() - last_acked_bitrate_->bps()) * 100.0) / last_acked_bitrate_->bps();
@@ -1588,7 +1598,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
           consecutive_hysteresis_applications_ <
               kMaxConsecutiveHysteresisApplications) {
         // Cap drop to 5%: new_rate = old_rate * 0.95
-        double max_allowed_rate_bps = last_acked_bitrate_->bps() * 0.95;
+        double max_allowed_rate_bps =
+          std::max(0.0, last_acked_bitrate_->bps() * 0.95);
         smoothed_acked_rate =
             webrtc::DataRate::BitsPerSec(static_cast<int64_t>(max_allowed_rate_bps));
         consecutive_hysteresis_applications_++;
@@ -1602,8 +1613,9 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
                          << ce_count_ << " (no congestion signal)";
       } else {
         // Anti-ratchet fallback: blend instead of endless fixed 5% steps.
-        double blended_bps = last_acked_bitrate_->bps() * 0.7 +
-                             effective_acked_rate.bps() * 0.3;
+        double blended_bps = std::max(
+          0.0, last_acked_bitrate_->bps() * 0.7 +
+               effective_acked_rate.bps() * 0.3);
         smoothed_acked_rate = webrtc::DataRate::BitsPerSec(
             static_cast<int64_t>(blended_bps));
         consecutive_hysteresis_applications_ = 0;
@@ -1617,6 +1629,11 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     }
   } else {
     consecutive_hysteresis_applications_ = 0;
+  }
+
+  if (!smoothed_acked_rate.IsFinite() || smoothed_acked_rate.bps() < 0) {
+    RTC_LOG(LS_WARNING) << "L4S: Invalid smoothed acked rate, clamping to zero";
+    smoothed_acked_rate = DataRate::Zero();
   }
 
   last_acked_bitrate_ = smoothed_acked_rate;
@@ -2047,8 +2064,16 @@ void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPackets
     
     TimeDelta window_interval = window_end - window_start;
     if (window_interval > TimeDelta::Millis(1)) {
-      last_actual_bitrate_ = DataRate::BitsPerSec(
-          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+      double computed_bps =
+          (window_bytes * 8) / window_interval.seconds<double>();
+      if (!std::isfinite(computed_bps) || computed_bps < 0.0) {
+        RTC_LOG(LS_WARNING) << "L4S: Invalid computed throughput bps="
+                            << computed_bps << ", clamping to zero";
+        last_actual_bitrate_ = DataRate::Zero();
+      } else {
+        last_actual_bitrate_ = DataRate::BitsPerSec(
+            static_cast<int64_t>(computed_bps));
+      }
     } else {
       last_actual_bitrate_ = DataRate::Zero();
     }
