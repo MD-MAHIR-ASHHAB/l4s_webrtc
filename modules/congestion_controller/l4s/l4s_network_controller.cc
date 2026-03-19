@@ -1457,8 +1457,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   last_acked_bitrate_ = smoothed_acked_rate;
   
   // === SLIDING WINDOW DISCOVERY: Maintain 50-RTT rolling window of acked rates ===
-  // Add current acked rate to window
-  acked_rate_window_.push_back({feedback.feedback_time, effective_acked_rate});
+  // Add SMOOTHED acked rate to window (not raw estimator value)
+  acked_rate_window_.push_back({feedback.feedback_time, smoothed_acked_rate});
   
   // Prune rates older than 9 seconds (50 RTTs @ 180ms)
   size_t window_size_before = acked_rate_window_.size();
@@ -1481,33 +1481,31 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   
   // === UPDATE PRAGUE'S GROWTH BOUNDS ===
   // OPTION A: Use CURRENT acked_rate instead of historical window_max to prevent slow recovery
-  // Current acked rate = what network is actually delivering right now
-  // This allows Prague to adapt quickly when capacity changes, rather than being stuck 
-  // to 9-second-old peak capacity estimates
-  if (effective_acked_rate > DataRate::Zero()) {
-    DataRate growth_floor = effective_acked_rate;  // Current reality
-    DataRate growth_ceiling = effective_acked_rate * 1.5;  // 50% room for exploration
+  // Use SMOOTHED rate to prevent hysteresis from being bypassed
+  if (smoothed_acked_rate > DataRate::Zero()) {
+    DataRate growth_floor = smoothed_acked_rate;  // Current reality (hysteresis-smoothed)
+    DataRate growth_ceiling = smoothed_acked_rate * 1.5;  // 50% room for exploration
     prague_estimator_->SetGrowthBounds(growth_floor, growth_ceiling);
     RTC_LOG(LS_VERBOSE) << "L4S: OPTION_A_BOUNDS - Using current acked_rate for bounds"
                         << " floor=" << (growth_floor.bps() / 1e6) << " Mbps (current delivery)"
                         << " ceiling=" << (growth_ceiling.bps() / 1e6) << " Mbps (current + 50%)";
     RTC_LOG(LS_VERBOSE) << "L4S: ACKED_RATE_WINDOW - "
-                        << "current_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps (THIS IS NOW THE BOUND) "
+                        << "current_acked=" << (smoothed_acked_rate.bps() / 1e6) << " Mbps (hysteresis-smoothed, THIS IS NOW THE BOUND) "
                         << "window_max=" << (window_max_acked_rate_.bps() / 1e6) << " Mbps (deprecated)"
                         << " window_size=" << acked_rate_window_.size() << " samples ";
   }
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
-  bandwidth_fusion_->UpdateAckedEstimate(effective_acked_rate, acked_confidence,
+  bandwidth_fusion_->UpdateAckedEstimate(smoothed_acked_rate, acked_confidence,
                                          feedback.feedback_time);
   
   // Diagnostic: compare acked rate against Prague estimate to detect delivery issues
   if (prague_estimator_) {
     DataRate prague_est = prague_estimator_->GetCurrentEstimate();
-    double ratio = prague_est.IsZero() ? 0.0 : effective_acked_rate.bps() / prague_est.bps();
+    double ratio = prague_est.IsZero() ? 0.0 : smoothed_acked_rate.bps() / prague_est.bps();
     if (ratio < 0.5) {
       // Acked rate is less than 50% of Prague estimate - significant mismatch
-      RTC_LOG(LS_VERBOSE) << "L4S: EFFICIENCY ALERT - Acked rate " << (effective_acked_rate.bps() / 1e6) 
+      RTC_LOG(LS_VERBOSE) << "L4S: EFFICIENCY ALERT - Acked rate " << (smoothed_acked_rate.bps() / 1e6) 
                           << " Mbps is only " << (ratio * 100) << "% of Prague estimate " 
                           << (prague_est.bps() / 1e6) << " Mbps (Possible packet loss or asymmetric congestion)";
     }
