@@ -258,10 +258,7 @@ private:
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
-  // Acked rate plateau detection and handling
-  void DetectAckedRatePlateau(Timestamp now);
-  void HandleAckedPlateau(Timestamp now);
-  void ResetAckedPlateau();
+
   
 
 
@@ -333,19 +330,13 @@ private:
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
 
-  // Acked rate plateau detection (brake for when app stops sending more)
-  std::deque<DataRate> acked_rate_history_;  // Track recent acked rates to detect plateau
-  static constexpr size_t kAckedRateHistorySize = 20;  // 20 samples = ~20 RTTs (more reactive to dualpi2)
-  static constexpr double kAckedRatePlateauThreshold = 0.05;  // 5% change = plateau (tolerates bursty ACKs)
-  Timestamp last_acked_plateau_check_ = Timestamp::MinusInfinity();
-  bool in_acked_plateau_ = false;
-  int plateau_consecutive_updates_ = 0;
-  static constexpr int kPlateauThresholdUpdates = 10;  // 10 consecutive flat updates = brake
-  std::optional<DataRate> plateau_detected_at_acked_rate_;  // Rate where plateau was detected
-  Timestamp plateau_detected_time_ = Timestamp::MinusInfinity();  // When plateau was first confirmed
-  static constexpr int kPlateauTimeoutSeconds = 15;  // Reset plateau after 15s if still locked low
-  std::optional<DataRate> previous_acked_rate_;  // For detecting growth spikes during plateau
-  static constexpr double kAckedGrowthSpikeThreshold = 0.10;  // 10% jump = growth spike (enable re-discovery)
+  // Stepped discovery state tracking
+  bool seen_first_rtcp_ = false;  // Track if first RTCP feedback has arrived
+  std::optional<DataRate> last_rtcp_acked_rate_;  // Anchor from last RTCP
+  Timestamp ce_recovery_window_start_ = Timestamp::MinusInfinity();  // When CE mark triggered recovery window
+  int clean_packets_since_ce_ = 0;  // Count of packets without CE marks during recovery
+  static constexpr int kRecoveryCleanPacketThreshold = 25;  // 20-30 packets without CE = safe to grow
+  static constexpr TimeDelta kRecoveryWindowMinTime = TimeDelta::Millis(100);  // ~2-5 RTTs
 
   // Metrics
   bool metrics_enabled_ = true;
