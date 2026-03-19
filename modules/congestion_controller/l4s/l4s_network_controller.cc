@@ -1279,9 +1279,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     // invalid and the once-per-RTT gate cannot protect against cascading MDs.
     if (!last_actual_bitrate_.IsZero()) {
       DataRate floor = last_actual_bitrate_ * 0.5;
-      if (growth_max_bound_ > DataRate::Zero()) {
-        floor = std::min(floor, growth_max_bound_);
-      }
       DataRate prague_current = prague_estimator_->GetCurrentEstimate();
       if (prague_current < floor) {
         RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
@@ -1528,16 +1525,14 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     if (window_max_acked_rate_.bps() > 0) {
       // Initialize or continue growth phase
       if (discovery_growth_start_time_.IsInfinite()) {
-        // Start new growth phase from current acked rate, respecting bounds
-        DataRate start_rate = effective_acked_rate;  // Use CURRENT delivery
-        if (growth_max_bound_ > DataRate::Zero()) {
-          start_rate = std::min(start_rate, growth_max_bound_);
-        }
+        // Start new growth phase from current acked rate instead of old window_max
+        // This allows Prague to adapt quickly when capacity changes
+        DataRate start_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
         discovery_growth_start_time_ = now;
         discovery_packets_at_growth_start_ = packets_sent_since_controller_init_;
         prague_estimator_->SetCurrentEstimate(start_rate);
         RTC_LOG(LS_INFO) << "L4S: DISCOVERY GROWTH STARTED - Base rate: " << (start_rate.bps() / 1e6)
-                         << " Mbps (current delivery), will grow to "
+                         << " Mbps (current acked delivery, not 9s-old window_max), will grow to "
                          << (start_rate.bps() * 1.5 / 1e6) << " Mbps (current + 50%)";
       }
       
