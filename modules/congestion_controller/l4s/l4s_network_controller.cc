@@ -1018,8 +1018,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
         msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
-    RTC_LOG(LS_INFO) << "L4S: RTT_SOURCE_RTCP_SR - rtt=" << msg.round_trip_time.ms()
-                     << "ms (from RTCP Sender Report)";
+    RTC_LOG(LS_VERBOSE) << "L4S: RTT_SOURCE_RTCP_SR - rtt=" << msg.round_trip_time.ms()
+                        << "ms (from RTCP Sender Report)";
   }
 
   RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
@@ -1832,8 +1832,8 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
-    RTC_LOG(LS_INFO) << "L4S: PERIODIC_METRICS_LOG - rtt=" << last_rtt_.ms()
-                     << "ms (writing to JSON from last_rtt_)";
+    RTC_LOG(LS_VERBOSE) << "L4S: PERIODIC_METRICS_LOG - rtt=" << last_rtt_.ms()
+                        << "ms (writing to JSON from last_rtt_)";
   }
   
   // Log loss metrics
