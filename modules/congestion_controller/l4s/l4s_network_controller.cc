@@ -1380,8 +1380,13 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   last_acked_bitrate_ = effective_acked_rate;
   
   // === STEPPED DISCOVERY: Anchor Prague to RTCP-validated acked rate ===
+  RTC_LOG(LS_INFO) << "L4S: STEPPING DECISION POINT - seen_first_rtcp_=" << (seen_first_rtcp_ ? "TRUE" : "FALSE")
+                   << ", effective_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps"
+                   << (using_bootstrap ? " (BOOTSTRAP)" : " (OFFICIAL)");
+  
   if (!seen_first_rtcp_) {
     // First estimate received (official or bootstrapped) - anchor and step up to 1.5x
+    RTC_LOG(LS_INFO) << "L4S: ENTERING FIRST STEPPING BLOCK - Setting up linear ramping infrastructure";
     seen_first_rtcp_ = true;
     discovery_start_time_ = Timestamp::MinusInfinity();  // Clear pre-RTCP ceiling tracking
     last_rtcp_acked_rate_ = effective_acked_rate;
@@ -1395,7 +1400,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     RTC_LOG(LS_INFO) << "L4S STEPPED: First estimate - acked=" << (effective_acked_rate.bps() / 1e6) 
                      << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
                      << ", stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
-                     << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps by next RTCP";
+                     << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps by next RTCP"
+                     << ", last_stepping_time=" << last_stepping_time_.ms() << "ms";
   } else if (effective_acked_rate.bps() > last_rtcp_acked_rate_->bps() * 1.05) {
     // Acked rate grew >5% - apply new discovery step and reset ramp
     DataRate new_stepped_target = effective_acked_rate * 1.5;
@@ -1507,6 +1513,8 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     if (seen_first_rtcp_ && last_stepping_time_.IsFinite() && 
         stepped_discovery_target_.bps() > 0 && stepped_discovery_ceiling_.bps() > 0) {
       
+      RTC_LOG(LS_VERBOSE) << "L4S: RAMPING BLOCK ENTERED - Conditions: seen_first_rtcp=TRUE, stepping_time valid, targets set";
+      
       // Calculate how much time has elapsed since last stepping event (RTCP)
       TimeDelta elapsed = now - last_stepping_time_;
       
@@ -1528,10 +1536,13 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                           << "ms, Progress: " << (progress * 100.0) << "%, "
                           << "Target: " << (stepped_discovery_target_.bps() / 1e6) 
                           << " Mbps, Ceiling: " << (stepped_discovery_ceiling_.bps() / 1e6) 
-                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) << " Mbps";
+                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) << " Mbps, "
+                          << "Prague before: " << (fused_rate.bps() / 1e6) << " Mbps";
       
       // Apply ramped constraint: actual rate cannot exceed ramped ceiling
       fused_rate = std::min(fused_rate, ramped_rate);
+      
+      RTC_LOG(LS_VERBOSE) << "L4S: LINEAR RAMP APPLIED - Prague after: " << (fused_rate.bps() / 1e6) << " Mbps";
       
     } else if (!seen_first_rtcp_) {
       // PRE-RTCP PHASE: No stepping data yet, use simple safety ceiling
