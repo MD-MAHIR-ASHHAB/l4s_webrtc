@@ -1561,14 +1561,15 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                             << "Packets: " << (packet_progress * 100) << "% (progress=" << (progress * 100) << "%)";
       }
       
-      // Linearly interpolate between window_max and 2x window_max
-      DataRate growth_base = window_max_acked_rate_;
-      DataRate growth_ceiling = window_max_acked_rate_ * kDiscoveryMaxMultiplier;
+      // Linearly interpolate between current acked rate and 1.5x current (Option A)
+      DataRate current_acked = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
+      DataRate growth_base = current_acked;  // Use CURRENT delivery, not 9s-old window_max
+      DataRate growth_ceiling = current_acked * 1.5;  // 50% exploration room
       DataRate ramped_rate = growth_base + (progress * (growth_ceiling - growth_base));
       
       RTC_LOG(LS_VERBOSE) << "L4S: SLIDING WINDOW RAMP - Base: " << (growth_base.bps() / 1e6)
-                          << " Mbps, Ceiling: " << (growth_ceiling.bps() / 1e6)
-                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) 
+                          << " Mbps (current acked), Ceiling: " << (growth_ceiling.bps() / 1e6)
+                          << " Mbps (current + 50%), Ramped: " << (ramped_rate.bps() / 1e6) 
                           << " Mbps, Prague before: " << (fused_rate.bps() / 1e6) << " Mbps";
       
       // Apply ramped constraint: don't let Prague exceed growth ceiling
