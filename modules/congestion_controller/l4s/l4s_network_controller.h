@@ -343,7 +343,6 @@ private:
   int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
   Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
   bool ce_episode_active_ = false;
-  bool ecn_priority_mode_ = false;
 
   // ECN authority hold/decay state
   Timestamp ecn_confidence_hold_until_ = Timestamp::MinusInfinity();
