@@ -1381,17 +1381,14 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   
   // === STEPPED DISCOVERY: Anchor Prague to RTCP-validated acked rate ===
   RTC_LOG(LS_INFO) << "L4S: STEPPING DECISION POINT - seen_first_rtcp_=" << (seen_first_rtcp_ ? "TRUE" : "FALSE")
+                   << ", ramping_initialized=" << (stepped_discovery_target_.bps() > 0 ? "TRUE" : "FALSE")
                    << ", effective_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps"
                    << (using_bootstrap ? " (BOOTSTRAP)" : " (OFFICIAL)");
   
-  if (!seen_first_rtcp_) {
-    // First estimate received (official or bootstrapped) - anchor and step up to 1.5x
-    RTC_LOG(LS_INFO) << "L4S: ENTERING FIRST STEPPING BLOCK - Setting up linear ramping infrastructure";
-    seen_first_rtcp_ = true;
-    discovery_start_time_ = Timestamp::MinusInfinity();  // Clear pre-RTCP ceiling tracking
-    last_rtcp_acked_rate_ = effective_acked_rate;
-    
-    // Set up linear ramping between RTCPs
+  // Initialize stepping/ramping if not yet done
+  if (stepped_discovery_target_.IsZero() || stepped_discovery_ceiling_.IsZero()) {
+    // Ramping targets not initialized yet - do it now
+    RTC_LOG(LS_INFO) << "L4S: INITIALIZING LINEAR RAMPING - Setting up targets for first time";
     stepped_discovery_target_ = effective_acked_rate * 1.5;  // Start: 1.5x acked
     stepped_discovery_ceiling_ = effective_acked_rate * kDiscoveryRampMultiplier;  // End: 2.0x acked (conservative)
     last_stepping_time_ = feedback.feedback_time;
@@ -1402,6 +1399,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
                      << ", stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
                      << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps by next RTCP"
                      << ", last_stepping_time=" << last_stepping_time_.ms() << "ms";
+    
+    seen_first_rtcp_ = true;  // Mark that we've initialized
   } else if (effective_acked_rate.bps() > last_rtcp_acked_rate_->bps() * 1.05) {
     // Acked rate grew >5% - apply new discovery step and reset ramp
     DataRate new_stepped_target = effective_acked_rate * 1.5;
