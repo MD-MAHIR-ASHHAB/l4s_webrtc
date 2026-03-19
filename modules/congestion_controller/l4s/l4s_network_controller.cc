@@ -1224,11 +1224,22 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   // 2. Get initial fused estimate (without ECN input)
   DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
   
-  // 3. Update Prague ECN controller with the base fused rate (not application limited)
-  if (!IsApplicationLimited()) {
+  // 3. Update Prague ECN controller.
+  // During ALR we still process explicit CE marks; only clean batches are skipped.
+  bool has_ce_mark = false;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (packet.ecn == EcnMarking::kCe) {
+      has_ce_mark = true;
+      break;
+    }
+  }
+  if (!IsApplicationLimited() || has_ce_mark) {
+    if (IsApplicationLimited() && has_ce_mark) {
+      RTC_LOG(LS_INFO) << "L4S: Processing CE feedback during ALR due to explicit CE marks";
+    }
     ProcessEcnFeedback(feedback, base_fused_rate);
   } else {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping clean ECN processing during ALR period";
   }
 }
 
@@ -1303,7 +1314,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
       DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
       DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::KilobitsPerSec(300));
-      RTC_LOG(LS_INFO) << "L4S: CE_MARK_DETECTED - "
+      RTC_LOG(LS_WARNING) << "L4S: CE_MARK_DETECTED - "
                           << "CE_packets=" << new_ce_count
                           << " ECT_packets=" << new_ect_count
                           << " batch_ratio=" << (batch_ce_ratio * 100) << "%"
