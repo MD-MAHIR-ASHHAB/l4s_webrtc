@@ -332,11 +332,14 @@ private:
 
   // Stepped discovery state tracking
   bool seen_first_rtcp_ = false;  // Track if first RTCP feedback has arrived
+  Timestamp discovery_start_time_ = Timestamp::MinusInfinity();  // When discovery mode started
   std::optional<DataRate> last_rtcp_acked_rate_;  // Anchor from last RTCP
   Timestamp ce_recovery_window_start_ = Timestamp::MinusInfinity();  // When CE mark triggered recovery window
   int clean_packets_since_ce_ = 0;  // Count of packets without CE marks during recovery
   static constexpr int kRecoveryCleanPacketThreshold = 25;  // 20-30 packets without CE = safe to grow
   static constexpr TimeDelta kRecoveryWindowMinTime = TimeDelta::Millis(100);  // ~2-5 RTTs
+  static constexpr DataRate kPreRtcpDiscoveryCeiling = DataRate::MilobitsPerSec(3);  // 3 Mbps max before RTCP
+  static constexpr TimeDelta kPreRtcpDiscoveryTimeout = TimeDelta::Seconds(2);  // Exit discovery after 2s if no RTCP
 
   // Metrics
   bool metrics_enabled_ = true;

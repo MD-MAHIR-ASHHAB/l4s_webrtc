@@ -1201,6 +1201,24 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     
     prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
     
+    // PRE-RTCP DISCOVERY CEILING: Prevent Prague from growing unconstrained before first RTCP
+    // Record discovery start time on first CE detection
+    if (discovery_start_time_.IsInfinite()) {
+      discovery_start_time_ = feedback.feedback_time;
+      RTC_LOG(LS_INFO) << "L4S: Discovery started at " << discovery_start_time_.ms() << " ms";
+    }
+    
+    // Apply pre-RTCP ceiling: cap Prague at kPreRtcpDiscoveryCeiling (3 Mbps) until first RTCP
+    if (!seen_first_rtcp_) {
+      DataRate prague_current = prague_estimator_->GetCurrentEstimate();
+      if (prague_current > kPreRtcpDiscoveryCeiling) {
+        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP CEILING APPLIED - Prague was " 
+                         << (prague_current.bps() / 1e6) << " Mbps, capped to " 
+                         << (kPreRtcpDiscoveryCeiling.bps() / 1e6) << " Mbps (waiting for first RTCP)";
+        prague_estimator_->SetCurrentEstimate(kPreRtcpDiscoveryCeiling);
+      }
+    }
+    
     // OPTION 2 & 3: CE-aware discovery exit - cap Prague's growth when CE appears early
     // Prevent overshoot to unrealistic estimates (e.g., 156 Mbps) during discovery
     if (ce_ratio > 0.0 && prague_estimator_->IsDiscoveryModeActive() && last_acked_bitrate_.has_value()) {
@@ -1345,6 +1363,7 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   if (!seen_first_rtcp_) {
     // First RTCP received - anchor and step up to 1.5x
     seen_first_rtcp_ = true;
+    discovery_start_time_ = Timestamp::MinusInfinity();  // Clear pre-RTCP ceiling tracking
     last_rtcp_acked_rate_ = *acked_bitrate;
     DataRate stepped_target = *acked_bitrate * 1.5;
     prague_estimator_->SetCurrentEstimate(stepped_target);
@@ -1447,6 +1466,25 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                         << "Mode: " << (dir_flag == 1 ? "ADD_INC" : "REDUC")
                         << ", Alpha: " << alpha;
     fused_rate = prague_rate;
+    
+    // PRE-RTCP DISCOVERY SAFETY: Apply ceiling if we haven't seen RTCP yet
+    if (!seen_first_rtcp_ && fused_rate > kPreRtcpDiscoveryCeiling) {
+      RTC_LOG(LS_INFO) << "L4S: PRE-RTCP SAFETY CAP - Prague " << (fused_rate.bps() / 1e6) 
+                       << " Mbps exceeded ceiling of " << (kPreRtcpDiscoveryCeiling.bps() / 1e6) 
+                       << " Mbps (no RTCP yet) - applying cap";
+      fused_rate = kPreRtcpDiscoveryCeiling;
+    }
+    
+    // Time-based fallback: if discovery has been running too long without RTCP, exit force-fully
+    if (!seen_first_rtcp_ && !discovery_start_time_.IsInfinite()) {
+      TimeDelta discovery_duration = now - discovery_start_time_;
+      if (discovery_duration > kPreRtcpDiscoveryTimeout) {
+        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP TIMEOUT - Discovery running for " << discovery_duration.ms() 
+                         << " ms without RTCP, exiting to prevent ossification";
+        discovery_active = false;
+        prague_estimator_->ExitDiscoveryMode("Pre-RTCP timeout");
+      }
+    }
   } else {
     // Not in discovery - log the fused rate and its sources
     auto sources = bandwidth_fusion_->GetCurrentSources();
@@ -1475,13 +1513,14 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // If acked rate exists and is much lower than fused rate, constrain fused estimate
   // This prevents the optimistic ECN estimate from overshooting when actual network
   // capacity is lower (e.g., due to packet loss or asymmetric congestion)
-  // With dualpi2 AQM, use tighter 1.2x multiplier to respect fairness enforcement
+  // ALIGNED WITH STEPPED DISCOVERY: Use 1.5x multiplier to match our stepping logic
+  // (we step Prague to 1.5x acked at each RTCP, so don't cap it tighter than that)
   if (last_acked_bitrate_.has_value()) {
-    // Allow fused_rate to be 1.2x the acked rate (tighter for dualpi2 fairness)
-    DataRate acked_ceiling = last_acked_bitrate_.value() * 1.2;
+    // Allow fused_rate to be 1.5x the acked rate (matches stepped discovery multiplier)
+    DataRate acked_ceiling = last_acked_bitrate_.value() * 1.5;
     if (fused_rate > acked_ceiling) {
       RTC_LOG(LS_VERBOSE) << "L4S: ACKED RATE SANITY CHECK - Fused: " << (fused_rate.bps() / 1e6) 
-                          << " Mbps exceeds 1.2x acked rate (" << (last_acked_bitrate_.value().bps() / 1e6) 
+                          << " Mbps exceeds 1.5x acked rate (" << (last_acked_bitrate_.value().bps() / 1e6) 
                           << " Mbps) - capping to " << (acked_ceiling.bps() / 1e6) << " Mbps";
       fused_rate = acked_ceiling;
     }
