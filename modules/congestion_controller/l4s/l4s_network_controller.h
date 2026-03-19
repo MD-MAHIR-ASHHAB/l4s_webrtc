@@ -249,8 +249,6 @@ private:
   DataRate DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now);
   void UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
-  void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
-  std::optional<DataRate> GetLastProbeResult();
   
   // Bandwidth fusion methods
   DataRate GetBaseFusedEstimate(Timestamp now);
@@ -274,7 +272,6 @@ private:
   // Confidence calculation
   double CalculateEcnConfidence(Timestamp now) const;
   double CalculateDelayConfidence(Timestamp now) const;
-  double CalculateProbeConfidence(Timestamp now) const;
   double CalculateAckedConfidence(Timestamp now) const;
 
   // Rate control
@@ -322,6 +319,7 @@ private:
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
+  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
 
   // Loss tracking
   double last_loss_fraction_ = 0.0;

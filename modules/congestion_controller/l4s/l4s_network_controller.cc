@@ -1132,17 +1132,47 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   // Update ALR detector first
   UpdateAlrDetector(feedback);
 
+  // === DEBUG: FEEDBACK TIMING DIAGNOSTICS ===
+  TimeDelta time_since_last_feedback = TimeDelta::MinusInfinity();
+  if (last_feedback_time_.IsFinite()) {
+    time_since_last_feedback = feedback.feedback_time - last_feedback_time_;
+  }
+  last_feedback_time_ = feedback.feedback_time;
+
   // GCC-style RTT update from transport feedback: derive RTT per received
   // packet and use the minimum sample in this feedback batch.
   std::vector<PacketResult> received_feedback = feedback.SortedByReceiveTime();
+  TimeDelta feedback_min_rtt = TimeDelta::PlusInfinity();
+  TimeDelta feedback_max_rtt = TimeDelta::Zero();
+  
   if (!received_feedback.empty()) {
     const Timestamp max_recv_time = received_feedback.back().receive_time;
-    TimeDelta feedback_min_rtt = TimeDelta::PlusInfinity();
     for (const auto& packet_feedback : received_feedback) {
       TimeDelta pending_time = max_recv_time - packet_feedback.receive_time;
       TimeDelta rtt = feedback.feedback_time - packet_feedback.sent_packet.send_time - pending_time;
       feedback_min_rtt = std::min(feedback_min_rtt, rtt);
+      feedback_max_rtt = std::max(feedback_max_rtt, rtt);
     }
+    
+    // === DEBUG OUTPUT: RTT DIAGNOSIS ===
+    RTC_LOG(LS_INFO) << "L4S: FEEDBACK_BATCH - "
+                     << "packets=" << received_feedback.size()
+                     << " time_since_last=" << (time_since_last_feedback.IsFinite() ? std::to_string(time_since_last_feedback.ms()) : "N/A")
+                     << "ms rtt_min=" << feedback_min_rtt.ms()
+                     << "ms rtt_max=" << feedback_max_rtt.ms()
+                     << "ms rtt_spread=" << (feedback_max_rtt - feedback_min_rtt).ms()
+                     << "ms last_rtt=" << (last_rtt_.IsFinite() ? std::to_string(last_rtt_.ms()) : "N/A")
+                     << "ms";
+    
+    // Detect RTT growth patterns
+    if (last_rtt_.IsFinite() && feedback_min_rtt > last_rtt_ + TimeDelta::Millis(10)) {
+      double growth_percent = ((feedback_min_rtt.ms() - last_rtt_.ms()) * 100.0) / last_rtt_.ms();
+      RTC_LOG(LS_WARNING) << "L4S: RTT_GROWTH_DETECTED - "
+                          << "delta=+" << (feedback_min_rtt - last_rtt_).ms()
+                          << "ms (" << growth_percent << "%) "
+                          << "spread=" << (feedback_max_rtt - feedback_min_rtt).ms() << "ms";
+    }
+    
     if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
       prague_estimator_->UpdateFromRtt(feedback_min_rtt);
       last_rtt_ = feedback_min_rtt;
@@ -1332,10 +1362,7 @@ void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPack
 }
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
-  RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator ENTRY - packets=" << feedback.packet_feedbacks.size();
-  
   if (feedback.packet_feedbacks.empty() || !acked_estimator_) {
-    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator EARLY_EXIT - empty or no estimator";
     return;
   }
 
@@ -1350,17 +1377,12 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   if (acked_bitrate.has_value()) {
     // Official estimate available - use it
     effective_acked_rate = *acked_bitrate;
-    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (effective_acked_rate.bps() / 1e6) 
-                     << " Mbps (official)";
   } else if (!last_actual_bitrate_.IsZero()) {
     // Estimator not converged yet - bootstrap with measured throughput
     effective_acked_rate = last_actual_bitrate_;
     using_bootstrap = true;
-    RTC_LOG(LS_INFO) << "L4S: BOOTSTRAP - Using measured throughput = " << (effective_acked_rate.bps() / 1e6) 
-                     << " Mbps (official acked_bitrate not ready yet)";
   } else {
     // No data at all
-    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - NO DATA (no acked_bitrate, no measured throughput)";
     return;
   }
 
@@ -1382,10 +1404,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     window_max_acked_rate_ = std::max(window_max_acked_rate_, rate_sample.second);
   }
   
-  RTC_LOG(LS_INFO) << "L4S: SLIDING WINDOW - acked=" << (effective_acked_rate.bps() / 1e6) 
-                   << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)")
-                   << ", window_max=" << (window_max_acked_rate_.bps() / 1e6) 
-                   << " Mbps, window_size=" << acked_rate_window_.size();
+  // SLIDING WINDOW logging disabled
+  // Log: window_max=" << window_max_acked_rate_, window_size=" << acked_rate_window_.size()
   
   // === UPDATE PRAGUE'S GROWTH BOUNDS ===
   // Constrain Prague's autonomous growth to [window_max, 2.0 × window_max]
@@ -1413,19 +1433,10 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   }
 }
 
-void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
-  // Probing disabled - no probe processing
-}
 
-std::optional<webrtc::DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
-  // Probing disabled
-  return std::nullopt;
-}
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
-  // DISABLED: Probing is disabled in L4S to prevent bandwidth overshooting during discovery.
-  // All probe requests are blocked to allow Prague to converge naturally to bottleneck capacity.
-  RTC_LOG(LS_VERBOSE) << "L4S: Probing is disabled (all probes blocked)";
+  // Probing disabled in L4S - returns immediately
 }
 
 double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
@@ -1444,10 +1455,7 @@ double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) con
   return 0.5;
 }
 
-double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
-  // Probing disabled - return 0 confidence
-  return 0.0;
-}
+
 
 double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) const {
   if (!acked_estimator_) {
@@ -1800,7 +1808,7 @@ bool webrtc::L4SNetworkController::IsApplicationLimited() const {
 }
 
 void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedback& feedback) {
-  // Track ALR state for logging/metrics only (probing disabled in L4S)
+  // Update ALR detector for application-limited detection
   if (alr_detector_) {
     std::optional<int64_t> alr_start_time =
         alr_detector_->GetApplicationLimitedRegionStartTime();
@@ -1808,7 +1816,6 @@ void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedb
       if (acked_estimator_) {
         acked_estimator_->SetAlrEndedTime(feedback.feedback_time);
       }
-      RTC_LOG(LS_VERBOSE) << "L4S: ALR ended at " << feedback.feedback_time.ms() << " ms";
     }
     previously_in_alr_ = alr_start_time.has_value();
   }
