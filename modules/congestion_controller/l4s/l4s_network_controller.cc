@@ -1000,6 +1000,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
   NetworkControlUpdate update;
+  // Track total packets sent for discovery growth criterion
+  packets_sent_since_controller_init_++;
+  
   // Feed ALR detector so it can track application-limited periods.
   if (alr_detector_) {
     alr_detector_->OnBytesSent(msg.size.bytes(), msg.send_time.ms());
@@ -1180,11 +1183,11 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   if (new_ect_count + new_ce_count > 0) {
     double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
     
-    // When CE marks appear, start recovery window
+    // When CE marks appear, reset discovery growth timer
     if (new_ce_count > 0) {
-      ce_recovery_window_start_ = feedback.feedback_time;
-      clean_packets_since_ce_ = 0;
-      RTC_LOG(LS_INFO) << "L4S: CE mark detected - starting recovery window";
+      discovery_growth_start_time_ = Timestamp::MinusInfinity();  // Reset growth phase
+      discovery_packets_at_growth_start_ = 0;
+      RTC_LOG(LS_INFO) << "L4S: CE mark detected - resetting discovery growth phase";
     }
     
     // Always use Prague's own estimate as the input rate.
@@ -1200,41 +1203,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
     
     prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
-    
-    // PRE-RTCP DISCOVERY CEILING: Prevent Prague from growing unconstrained before first RTCP
-    // Record discovery start time on first CE detection
-    if (discovery_start_time_.IsInfinite()) {
-      discovery_start_time_ = feedback.feedback_time;
-      RTC_LOG(LS_INFO) << "L4S: Discovery started at " << discovery_start_time_.ms() << " ms";
-    }
-    
-    // Apply pre-RTCP ceiling: cap Prague at kPreRtcpDiscoveryCeiling (3 Mbps) until first RTCP
-    if (!seen_first_rtcp_) {
-      DataRate prague_current = prague_estimator_->GetCurrentEstimate();
-      if (prague_current > kPreRtcpDiscoveryCeiling) {
-        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP CEILING APPLIED - Prague was " 
-                         << (prague_current.bps() / 1e6) << " Mbps, capped to " 
-                         << (kPreRtcpDiscoveryCeiling.bps() / 1e6) << " Mbps (waiting for first RTCP)";
-        prague_estimator_->SetCurrentEstimate(kPreRtcpDiscoveryCeiling);
-      }
-    }
-    
-    // OPTION 2 & 3: CE-aware discovery exit - cap Prague's growth when CE appears early
-    // Prevent overshoot to unrealistic estimates (e.g., 156 Mbps) during discovery
-    if (ce_ratio > 0.0 && prague_estimator_->IsDiscoveryModeActive() && last_acked_bitrate_.has_value()) {
-      DataRate acked_rate = *last_acked_bitrate_;
-      DataRate prague_current = prague_estimator_->GetCurrentEstimate();
-      // If Prague jumped more than 2.5x above acked rate during discovery, cap it
-      DataRate discovery_ceiling = acked_rate * 2.5;  // Allow 2.5x acked rate during discovery
-      
-      if (prague_current > discovery_ceiling) {
-        RTC_LOG(LS_INFO) << "L4S: CE-aware discovery cap - Prague was " 
-                         << (prague_current.bps() / 1e6) << " Mbps (acked=" 
-                         << (acked_rate.bps() / 1e6) << " Mbps), capping to " 
-                         << (discovery_ceiling.bps() / 1e6) << " Mbps to prevent overshoot";
-        prague_estimator_->SetCurrentEstimate(discovery_ceiling);
-      }
-    }
     
     // Log Prague's response after processing CE feedback
     DataRate prague_estimate_after_update = prague_estimator_->GetCurrentEstimate();
@@ -1275,19 +1243,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, ce_ratio);
     }
   } else {
-    // No ECN marks - count clean packets for recovery window
-    if (!ce_recovery_window_start_.IsInfinite()) {
-      clean_packets_since_ce_ += feedback.packet_feedbacks.size();
-      TimeDelta elapsed = feedback.feedback_time - ce_recovery_window_start_;
-      bool time_ok = elapsed >= kRecoveryWindowMinTime;
-      bool packets_ok = clean_packets_since_ce_ >= kRecoveryCleanPacketThreshold;
-      if (time_ok && packets_ok) {
-        RTC_LOG(LS_INFO) << "L4S RECOVERY: Window complete - " << elapsed.ms() << "ms, "
-                         << clean_packets_since_ce_ << " clean packets";
-        ce_recovery_window_start_ = Timestamp::MinusInfinity();
-        clean_packets_since_ce_ = 0;
-      }
-    }
+    // No ECN marks in this batch - clean packets received
+    RTC_LOG(LS_VERBOSE) << "L4S: Clean batch - no CE marks, window_max_acked=" 
+                        << (window_max_acked_rate_.bps() / 1e6) << " Mbps";
   }
   
   ect_count_ = new_ect_count;
@@ -1364,7 +1322,8 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
   if (acked_bitrate.has_value()) {
     // Official estimate available - use it
     effective_acked_rate = *acked_bitrate;
-    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (effective_acked_rate.bps() / 1e6) << " Mbps (official)";
+    RTC_LOG(LS_INFO) << "L4S: UpdateAckedBitrateEstimator - acked_bitrate = " << (effective_acked_rate.bps() / 1e6) 
+                     << " Mbps (official)";
   } else if (!last_actual_bitrate_.IsZero()) {
     // Estimator not converged yet - bootstrap with measured throughput
     effective_acked_rate = last_actual_bitrate_;
@@ -1379,45 +1338,26 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
 
   last_acked_bitrate_ = effective_acked_rate;
   
-  // === STEPPED DISCOVERY: Anchor Prague to RTCP-validated acked rate ===
-  RTC_LOG(LS_INFO) << "L4S: STEPPING DECISION POINT - seen_first_rtcp_=" << (seen_first_rtcp_ ? "TRUE" : "FALSE")
-                   << ", ramping_initialized=" << (stepped_discovery_target_.bps() > 0 ? "TRUE" : "FALSE")
-                   << ", effective_acked=" << (effective_acked_rate.bps() / 1e6) << " Mbps"
-                   << (using_bootstrap ? " (BOOTSTRAP)" : " (OFFICIAL)");
+  // === SLIDING WINDOW DISCOVERY: Maintain 50-RTT rolling window of acked rates ===
+  // Add current acked rate to window
+  acked_rate_window_.push_back({feedback.feedback_time, effective_acked_rate});
   
-  // Initialize stepping/ramping if not yet done
-  if (stepped_discovery_target_.IsZero() || stepped_discovery_ceiling_.IsZero()) {
-    // Ramping targets not initialized yet - do it now
-    RTC_LOG(LS_INFO) << "L4S: INITIALIZING LINEAR RAMPING - Setting up targets for first time";
-    stepped_discovery_target_ = effective_acked_rate * 1.5;  // Start: 1.5x acked
-    stepped_discovery_ceiling_ = effective_acked_rate * kDiscoveryRampMultiplier;  // End: 2.0x acked (conservative)
-    last_stepping_time_ = feedback.feedback_time;
-    
-    prague_estimator_->SetCurrentEstimate(stepped_discovery_target_);
-    RTC_LOG(LS_INFO) << "L4S STEPPED: First estimate - acked=" << (effective_acked_rate.bps() / 1e6) 
-                     << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
-                     << ", stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
-                     << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps by next RTCP"
-                     << ", last_stepping_time=" << last_stepping_time_.ms() << "ms";
-    
-    seen_first_rtcp_ = true;  // Mark that we've initialized
-  } else if (effective_acked_rate.bps() > last_rtcp_acked_rate_->bps() * 1.05) {
-    // Acked rate grew >5% - apply new discovery step and reset ramp
-    DataRate new_stepped_target = effective_acked_rate * 1.5;
-    if (new_stepped_target > prague_estimator_->GetCurrentEstimate()) {
-      // Update stepping targets
-      stepped_discovery_target_ = new_stepped_target;
-      stepped_discovery_ceiling_ = effective_acked_rate * kDiscoveryRampMultiplier;
-      last_stepping_time_ = feedback.feedback_time;
-      
-      prague_estimator_->SetCurrentEstimate(stepped_discovery_target_);
-      RTC_LOG(LS_INFO) << "L4S STEPPED: Growth - acked=" << (effective_acked_rate.bps() / 1e6) 
-                       << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
-                       << ", re-stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
-                       << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps";
-    }
-    last_rtcp_acked_rate_ = effective_acked_rate;
+  // Prune rates older than 9 seconds (50 RTTs @ 180ms)
+  while (!acked_rate_window_.empty() && 
+         feedback.feedback_time - acked_rate_window_.front().first > kAckedRateWindowDuration) {
+    acked_rate_window_.pop_front();
   }
+  
+  // Compute max acked rate in sliding window
+  window_max_acked_rate_ = DataRate::Zero();
+  for (const auto& rate_sample : acked_rate_window_) {
+    window_max_acked_rate_ = std::max(window_max_acked_rate_, rate_sample.second);
+  }
+  
+  RTC_LOG(LS_INFO) << "L4S: SLIDING WINDOW - acked=" << (effective_acked_rate.bps() / 1e6) 
+                   << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)")
+                   << ", window_max=" << (window_max_acked_rate_.bps() / 1e6) 
+                   << " Mbps, window_size=" << acked_rate_window_.size();
   
   double acked_confidence = CalculateAckedConfidence(feedback.feedback_time);
   bandwidth_fusion_->UpdateAckedEstimate(effective_acked_rate, acked_confidence,
@@ -1496,7 +1436,7 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // Use Prague ECN-based fusion (no probe constraints, no recovery mode boost)
   DataRate fused_rate = bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active, false);
   
-  // During discovery mode, use Prague's estimate directly
+  // During discovery mode, use sliding window to control Prague growth
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
     int dir_flag = prague_estimator_->GetDirectionFlag();
@@ -1506,73 +1446,65 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                         << ", Alpha: " << alpha;
     fused_rate = prague_rate;
     
-    // LINEAR INTER-RTCP RAMPING: Instead of letting Prague grow unconstrained at +0.2 Mbps/RTT,
-    // interpolate linearly from stepped_discovery_target_ (1.5x acked) to stepped_discovery_ceiling_ (2.0x acked)
-    // over the estimated RTCP interval. This prevents explosive growth (e.g., 4 → 86 Mbps) between RTCPs.
-    if (seen_first_rtcp_ && last_stepping_time_.IsFinite() && 
-        stepped_discovery_target_.bps() > 0 && stepped_discovery_ceiling_.bps() > 0) {
+    // SLIDING WINDOW DISCOVERY GROWTH: Interpolate from window_max_acked to 2x window_max_acked
+    // Growth is gated by dual criterion: time (1000ms) OR packets (25 pkts), whichever comes FIRST
+    // This allows faster recovery and more cautious exploration, controlled by network conditions.
+    
+    if (window_max_acked_rate_.bps() > 0) {
+      // Initialize or continue growth phase
+      if (discovery_growth_start_time_.IsInfinite()) {
+        // Start new growth phase from window max
+        discovery_growth_start_time_ = now;
+        discovery_packets_at_growth_start_ = packets_sent_since_controller_init_;
+        prague_estimator_->SetCurrentEstimate(window_max_acked_rate_);
+        RTC_LOG(LS_INFO) << "L4S: DISCOVERY GROWTH STARTED - Base rate: " << (window_max_acked_rate_.bps() / 1e6)
+                         << " Mbps (max in 9s window), will grow to " 
+                         << (window_max_acked_rate_.bps() * kDiscoveryMaxMultiplier / 1e6) << " Mbps";
+      }
       
-      RTC_LOG(LS_VERBOSE) << "L4S: RAMPING BLOCK ENTERED - Conditions: seen_first_rtcp=TRUE, stepping_time valid, targets set";
+      // Calculate growth progress: time elapsed OR packets sent, whichever reaches threshold first
+      TimeDelta elapsed = now - discovery_growth_start_time_;
+      int64_t packets_in_phase = packets_sent_since_controller_init_ - discovery_packets_at_growth_start_;
       
-      // Calculate how much time has elapsed since last stepping event (RTCP)
-      TimeDelta elapsed = now - last_stepping_time_;
+      bool time_complete = elapsed >= kDiscoveryGrowthTime;
+      bool packets_complete = packets_in_phase >= kDiscoveryGrowthPacketThreshold;
       
-      // Estimate RTCP interval based on RTT (typical: ~50-200 RTTs = 50-2000ms)
-      // Conservative estimate: assume RTCPs arrive roughly every 1000ms
-      // User can tune kEstimatedRtcpIntervalMs if measurements show different pattern
-      static constexpr int kEstimatedRtcpIntervalMs = 1000;
-      TimeDelta rtcp_interval = TimeDelta::Millis(kEstimatedRtcpIntervalMs);
+      double progress = 0.0;
+      if (time_complete || packets_complete) {
+        // One criterion met - growth complete, hold at ceiling
+        progress = 1.0;
+        RTC_LOG(LS_VERBOSE) << "L4S: GROWTH COMPLETE - "
+                            << (time_complete ? "Time" : "") 
+                            << (time_complete && packets_complete ? " & " : "")
+                            << (packets_complete ? "Packets" : "")
+                            << " criterion met (elapsed=" << elapsed.ms() << "ms, packets=" << packets_in_phase << ")";
+      } else {
+        // Interpolate based on whichever criterion is closest to completion
+        double time_progress = static_cast<double>(elapsed.ms()) / kDiscoveryGrowthTime.ms();
+        double packet_progress = static_cast<double>(packets_in_phase) / kDiscoveryGrowthPacketThreshold;
+        progress = std::min(time_progress, packet_progress);  // Whichever reaches first
+        RTC_LOG(LS_VERBOSE) << "L4S: DISCOVERY GROWTH - Time: " << (time_progress * 100) << "%, "
+                            << "Packets: " << (packet_progress * 100) << "% (progress=" << (progress * 100) << "%)";
+      }
       
-      // Calculate linear progress: 0.0 at step, 1.0 at next step
-      // Clamp to [0, 1] to handle timing variations
-      double progress = std::min(1.0, static_cast<double>(elapsed.ms()) / rtcp_interval.ms());
+      // Linearly interpolate between window_max and 2x window_max
+      DataRate growth_base = window_max_acked_rate_;
+      DataRate growth_ceiling = window_max_acked_rate_ * kDiscoveryMaxMultiplier;
+      DataRate ramped_rate = growth_base + (progress * (growth_ceiling - growth_base));
       
-      // Linearly interpolate between target and ceiling
-      DataRate ramped_rate = stepped_discovery_target_ +
-                            (progress * (stepped_discovery_ceiling_ - stepped_discovery_target_));
+      RTC_LOG(LS_VERBOSE) << "L4S: SLIDING WINDOW RAMP - Base: " << (growth_base.bps() / 1e6)
+                          << " Mbps, Ceiling: " << (growth_ceiling.bps() / 1e6)
+                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) 
+                          << " Mbps, Prague before: " << (fused_rate.bps() / 1e6) << " Mbps";
       
-      RTC_LOG(LS_VERBOSE) << "L4S: LINEAR RAMP - Elapsed: " << elapsed.ms() 
-                          << "ms, Progress: " << (progress * 100.0) << "%, "
-                          << "Target: " << (stepped_discovery_target_.bps() / 1e6) 
-                          << " Mbps, Ceiling: " << (stepped_discovery_ceiling_.bps() / 1e6) 
-                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) << " Mbps, "
-                          << "Prague before: " << (fused_rate.bps() / 1e6) << " Mbps";
-      
-      // Apply ramped constraint: actual rate cannot exceed ramped ceiling
+      // Apply ramped constraint: don't let Prague exceed growth ceiling
       fused_rate = std::min(fused_rate, ramped_rate);
       
-      RTC_LOG(LS_VERBOSE) << "L4S: LINEAR RAMP APPLIED - Prague after: " << (fused_rate.bps() / 1e6) << " Mbps";
-      
-    } else if (!seen_first_rtcp_) {
-      // PRE-RTCP PHASE: No stepping data yet, use simple safety ceiling
-      // DISCOVERY CEILING: Cap unconstrained Prague growth to prevent hallucination
-      // Before RTCP: use 3 Mbps ceiling (kPreRtcpDiscoveryCeiling)
-      if (fused_rate > kPreRtcpDiscoveryCeiling) {
-        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP SAFETY CAP - Prague " << (fused_rate.bps() / 1e6) 
-                         << " Mbps exceeded ceiling of " << (kPreRtcpDiscoveryCeiling.bps() / 1e6) 
-                         << " Mbps (no RTCP yet) - applying cap";
-        fused_rate = kPreRtcpDiscoveryCeiling;
-      }
-    } else if (seen_first_rtcp_ && last_acked_bitrate_.has_value()) {
-      // Fallback if ramping data not available: use simple ceiling (2.0x acked)
-      DataRate discovery_ceiling = last_acked_bitrate_.value() * 2.0;
-      if (fused_rate > discovery_ceiling) {
-        RTC_LOG(LS_INFO) << "L4S: DISCOVERY CEILING FALLBACK - Prague " << (fused_rate.bps() / 1e6) 
-                         << " Mbps capped to 2.0x acked (" << discovery_ceiling.bps() / 1e6 
-                         << " Mbps, acked=" << (last_acked_bitrate_.value().bps() / 1e6) << " Mbps)";
-        fused_rate = discovery_ceiling;
-      }
-    }
-    
-    // Time-based fallback: if discovery has been running too long without RTCP, exit force-fully
-    if (!seen_first_rtcp_ && !discovery_start_time_.IsInfinite()) {
-      TimeDelta discovery_duration = now - discovery_start_time_;
-      if (discovery_duration > kPreRtcpDiscoveryTimeout) {
-        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP TIMEOUT - Discovery running for " << discovery_duration.ms() 
-                         << " ms without RTCP, exiting to prevent ossification";
-        discovery_active = false;
-        prague_estimator_->ExitDiscoveryMode("Pre-RTCP timeout");
-      }
+      RTC_LOG(LS_VERBOSE) << "L4S: SLIDING WINDOW RAMP APPLIED - Prague after: " 
+                          << (fused_rate.bps() / 1e6) << " Mbps";
+    } else {
+      // Window not yet populated with samples
+      RTC_LOG(LS_VERBOSE) << "L4S: DISCOVERY MODE - Waiting for acked rate samples (window empty)";
     }
   } else {
     // Not in discovery - log the fused rate and its sources
@@ -1598,20 +1530,14 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     fused_rate = *max_target_rate_;
   }
   
-  // IMPORTANT: Sanity check - don't let estimate exceed actual delivery by too much
-  // If acked rate exists and is much lower than fused rate, constrain fused estimate
-  // This prevents the optimistic ECN estimate from overshooting when actual network
-  // capacity is lower (e.g., due to packet loss or asymmetric congestion)
-  // ALIGNED WITH STEPPED DISCOVERY: Use 1.5x multiplier to match our stepping logic
-  // (we step Prague to 1.5x acked at each RTCP, so don't cap it tighter than that)
-  if (last_acked_bitrate_.has_value()) {
-    // Allow fused_rate to be 1.5x the acked rate (matches stepped discovery multiplier)
-    DataRate acked_ceiling = last_acked_bitrate_.value() * 1.5;
-    if (fused_rate > acked_ceiling) {
-      RTC_LOG(LS_VERBOSE) << "L4S: ACKED RATE SANITY CHECK - Fused: " << (fused_rate.bps() / 1e6) 
-                          << " Mbps exceeds 1.5x acked rate (" << (last_acked_bitrate_.value().bps() / 1e6) 
-                          << " Mbps) - capping to " << (acked_ceiling.bps() / 1e6) << " Mbps";
-      fused_rate = acked_ceiling;
+  // Ceiling constraint: don't grow beyond 2.0x window max (simple safety check)
+  if (window_max_acked_rate_.bps() > 0) {
+    DataRate absolute_ceiling = window_max_acked_rate_ * (kDiscoveryMaxMultiplier + 0.5);  // Small safety margin
+    if (fused_rate > absolute_ceiling) {
+      RTC_LOG(LS_INFO) << "L4S: ABSOLUTE CEILING - Prague " << (fused_rate.bps() / 1e6)
+                       << " Mbps exceeds 2.5x window_max (" << (absolute_ceiling.bps() / 1e6)
+                       << " Mbps) - capping";
+      fused_rate = absolute_ceiling;
     }
   }
   
