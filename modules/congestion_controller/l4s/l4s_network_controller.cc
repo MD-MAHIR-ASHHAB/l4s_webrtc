@@ -1385,19 +1385,31 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
     seen_first_rtcp_ = true;
     discovery_start_time_ = Timestamp::MinusInfinity();  // Clear pre-RTCP ceiling tracking
     last_rtcp_acked_rate_ = effective_acked_rate;
-    DataRate stepped_target = effective_acked_rate * 1.5;
-    prague_estimator_->SetCurrentEstimate(stepped_target);
+    
+    // Set up linear ramping between RTCPs
+    stepped_discovery_target_ = effective_acked_rate * 1.5;  // Start: 1.5x acked
+    stepped_discovery_ceiling_ = effective_acked_rate * kDiscoveryRampMultiplier;  // End: 2.0x acked (conservative)
+    last_stepping_time_ = feedback.feedback_time;
+    
+    prague_estimator_->SetCurrentEstimate(stepped_discovery_target_);
     RTC_LOG(LS_INFO) << "L4S STEPPED: First estimate - acked=" << (effective_acked_rate.bps() / 1e6) 
                      << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
-                     << ", stepped Prague to " << (stepped_target.bps() / 1e6) << " Mbps (1.5x)";
+                     << ", stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
+                     << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps by next RTCP";
   } else if (effective_acked_rate.bps() > last_rtcp_acked_rate_->bps() * 1.05) {
-    // Acked rate grew >5% - apply new discovery step
+    // Acked rate grew >5% - apply new discovery step and reset ramp
     DataRate new_stepped_target = effective_acked_rate * 1.5;
     if (new_stepped_target > prague_estimator_->GetCurrentEstimate()) {
+      // Update stepping targets
+      stepped_discovery_target_ = new_stepped_target;
+      stepped_discovery_ceiling_ = effective_acked_rate * kDiscoveryRampMultiplier;
+      last_stepping_time_ = feedback.feedback_time;
+      
+      prague_estimator_->SetCurrentEstimate(stepped_discovery_target_);
       RTC_LOG(LS_INFO) << "L4S STEPPED: Growth - acked=" << (effective_acked_rate.bps() / 1e6) 
                        << " Mbps" << (using_bootstrap ? " (BOOTSTRAP)" : " (official)") 
-                       << ", stepped Prague to " << (new_stepped_target.bps() / 1e6) << " Mbps (1.5x)";
-      prague_estimator_->SetCurrentEstimate(new_stepped_target);
+                       << ", re-stepped Prague to " << (stepped_discovery_target_.bps() / 1e6) 
+                       << " Mbps (1.5x), will ramp to " << (stepped_discovery_ceiling_.bps() / 1e6) << " Mbps";
     }
     last_rtcp_acked_rate_ = effective_acked_rate;
   }
@@ -1489,20 +1501,53 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                         << ", Alpha: " << alpha;
     fused_rate = prague_rate;
     
-    // DISCOVERY CEILING: Cap unconstrained Prague growth to prevent hallucination
-    // Before RTCP: use 3 Mbps ceiling (kPreRtcpDiscoveryCeiling)
-    // After RTCP: use 2.0x acked_rate ceiling (allow growth above acked but bounded)
-    if (!seen_first_rtcp_ && fused_rate > kPreRtcpDiscoveryCeiling) {
-      RTC_LOG(LS_INFO) << "L4S: PRE-RTCP SAFETY CAP - Prague " << (fused_rate.bps() / 1e6) 
-                       << " Mbps exceeded ceiling of " << (kPreRtcpDiscoveryCeiling.bps() / 1e6) 
-                       << " Mbps (no RTCP yet) - applying cap";
-      fused_rate = kPreRtcpDiscoveryCeiling;
+    // LINEAR INTER-RTCP RAMPING: Instead of letting Prague grow unconstrained at +0.2 Mbps/RTT,
+    // interpolate linearly from stepped_discovery_target_ (1.5x acked) to stepped_discovery_ceiling_ (2.0x acked)
+    // over the estimated RTCP interval. This prevents explosive growth (e.g., 4 → 86 Mbps) between RTCPs.
+    if (seen_first_rtcp_ && last_stepping_time_.IsFinite() && 
+        stepped_discovery_target_.bps() > 0 && stepped_discovery_ceiling_.bps() > 0) {
+      
+      // Calculate how much time has elapsed since last stepping event (RTCP)
+      TimeDelta elapsed = now - last_stepping_time_;
+      
+      // Estimate RTCP interval based on RTT (typical: ~50-200 RTTs = 50-2000ms)
+      // Conservative estimate: assume RTCPs arrive roughly every 1000ms
+      // User can tune kEstimatedRtcpIntervalMs if measurements show different pattern
+      static constexpr int kEstimatedRtcpIntervalMs = 1000;
+      TimeDelta rtcp_interval = TimeDelta::Millis(kEstimatedRtcpIntervalMs);
+      
+      // Calculate linear progress: 0.0 at step, 1.0 at next step
+      // Clamp to [0, 1] to handle timing variations
+      double progress = std::min(1.0, static_cast<double>(elapsed.ms()) / rtcp_interval.ms());
+      
+      // Linearly interpolate between target and ceiling
+      DataRate ramped_rate = stepped_discovery_target_ +
+                            (progress * (stepped_discovery_ceiling_ - stepped_discovery_target_));
+      
+      RTC_LOG(LS_VERBOSE) << "L4S: LINEAR RAMP - Elapsed: " << elapsed.ms() 
+                          << "ms, Progress: " << (progress * 100.0) << "%, "
+                          << "Target: " << (stepped_discovery_target_.bps() / 1e6) 
+                          << " Mbps, Ceiling: " << (stepped_discovery_ceiling_.bps() / 1e6) 
+                          << " Mbps, Ramped: " << (ramped_rate.bps() / 1e6) << " Mbps";
+      
+      // Apply ramped constraint: actual rate cannot exceed ramped ceiling
+      fused_rate = std::min(fused_rate, ramped_rate);
+      
+    } else if (!seen_first_rtcp_) {
+      // PRE-RTCP PHASE: No stepping data yet, use simple safety ceiling
+      // DISCOVERY CEILING: Cap unconstrained Prague growth to prevent hallucination
+      // Before RTCP: use 3 Mbps ceiling (kPreRtcpDiscoveryCeiling)
+      if (fused_rate > kPreRtcpDiscoveryCeiling) {
+        RTC_LOG(LS_INFO) << "L4S: PRE-RTCP SAFETY CAP - Prague " << (fused_rate.bps() / 1e6) 
+                         << " Mbps exceeded ceiling of " << (kPreRtcpDiscoveryCeiling.bps() / 1e6) 
+                         << " Mbps (no RTCP yet) - applying cap";
+        fused_rate = kPreRtcpDiscoveryCeiling;
+      }
     } else if (seen_first_rtcp_ && last_acked_bitrate_.has_value()) {
-      // After first RTCP, use acked-rate proportional ceiling: 2.0x acked_rate
-      // This allows discovery to explore but prevents unlimited growth to 100+ Mbps
+      // Fallback if ramping data not available: use simple ceiling (2.0x acked)
       DataRate discovery_ceiling = last_acked_bitrate_.value() * 2.0;
       if (fused_rate > discovery_ceiling) {
-        RTC_LOG(LS_INFO) << "L4S: DISCOVERY CEILING - Prague " << (fused_rate.bps() / 1e6) 
+        RTC_LOG(LS_INFO) << "L4S: DISCOVERY CEILING FALLBACK - Prague " << (fused_rate.bps() / 1e6) 
                          << " Mbps capped to 2.0x acked (" << discovery_ceiling.bps() / 1e6 
                          << " Mbps, acked=" << (last_acked_bitrate_.value().bps() / 1e6) << " Mbps)";
         fused_rate = discovery_ceiling;
