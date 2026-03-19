@@ -490,10 +490,10 @@ webrtc::L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   DataRate clamped_estimate = std::max(estimate, DataRate::KilobitsPerSec(20));
-  RTC_LOG(LS_INFO) << "L4S: ECN_ESTIMATE_UPDATE - "
-                   << "new_estimate=" << (clamped_estimate.bps() / 1e6) << " Mbps, "
-                   << "confidence=" << confidence
-                   << " (prev=" << (sources_.ecn_estimate.bps() / 1e6) << " Mbps)";
+  RTC_LOG(LS_VERBOSE) << "L4S: ECN_ESTIMATE_UPDATE - "
+                      << "new_estimate=" << (clamped_estimate.bps() / 1e6) << " Mbps, "
+                      << "confidence=" << confidence
+                      << " (prev=" << (sources_.ecn_estimate.bps() / 1e6) << " Mbps)";
   sources_.ecn_estimate = clamped_estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
@@ -1513,7 +1513,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       if (hold_active) {
         ecn_clean_decay_multiplier_ = 1.0;
         ecn_confidence = std::max(ecn_confidence, config_.ecn_confidence_threshold);
-        RTC_LOG(LS_INFO)
+        RTC_LOG(LS_VERBOSE)
             << "L4S: CLEAN_ECN_BATCH - Holding ECN confidence at "
             << ecn_confidence
             << " (post-CE hold window active)";
@@ -1524,7 +1524,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         ecn_confidence = std::max(
             config_.ecn_min_confidence,
             ecn_confidence * ecn_clean_decay_multiplier_);
-        RTC_LOG(LS_INFO)
+        RTC_LOG(LS_VERBOSE)
             << "L4S: CLEAN_ECN_BATCH - Decaying ECN confidence to "
             << ecn_confidence << " (decay_multiplier="
             << ecn_clean_decay_multiplier_ << ")";
@@ -1957,11 +1957,13 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   {
     auto sources = bandwidth_fusion_->GetCurrentSources();
     DataRate prague_est = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_INFO) << "L4S: RATE_DECISION - Final: " << (fused_rate.bps() / 1e6) << " Mbps, "
-                     << "Prague: " << (prague_est.bps() / 1e6) << " Mbps, "
-                     << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
-                     << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
-                     << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
+    RTC_LOG(LS_VERBOSE) << "L4S: RATE_DECISION - Final: " << (fused_rate.bps() / 1e6)
+                        << " Mbps, "
+                        << "Prague: " << (prague_est.bps() / 1e6) << " Mbps, "
+                        << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
+                        << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
+                        << "Acked: " << (sources.acked_estimate.bps() / 1e6)
+                        << " Mbps";
   }
   
   return fused_rate;
