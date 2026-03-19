@@ -1368,7 +1368,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     
     // Log congestion metrics
     if (metrics_enabled_ && metrics_collector_) {
-      metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, ce_ratio);
+      metrics_collector_->LogCongestionMetrics(feedback.feedback_time, cumulative_ce_count_, cumulative_ect_count_, cumulative_ce_ratio);
     }
   } else {
     // No ECN marks in this batch - clean packets received
