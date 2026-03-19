@@ -17,7 +17,6 @@
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
-#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "system_wrappers/include/clock.h"
 
@@ -40,17 +39,12 @@ struct L4SControllerConfig {
   std::string test_case_name = "l4s_network_test";
   
   // Bandwidth Estimation Components
-  bool enable_probing = true;
-  bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
   bool enable_alr_detection = true;
-  TimeDelta probe_interval = TimeDelta::Seconds(5);
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
   double ecn_confidence_release_threshold = 0.65;
-  double probe_confidence_threshold = 0.7;
-  double delay_confidence_threshold = 0.6;
   double acked_confidence_threshold = 0.5;
 
   // ECN confidence hold/decay tuning
@@ -98,10 +92,6 @@ public:
   bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
   double GetConfidence(Timestamp now) const;
   
-  // Probe-aware rate limiting
-  void SetProbeConstraint(DataRate probe_estimate, double probe_confidence);
-  void ClearProbeConstraint();
-  
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
   
@@ -141,9 +131,6 @@ private:
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
   
-  // Probe constraint for discovery mode
-  DataRate probe_constraint_ = DataRate::Zero();
-  double probe_constraint_confidence_ = 0.0;
 };
 
 // Bandwidth source fusion engine
@@ -151,20 +138,14 @@ class L4SBandwidthFusion {
 public:
   struct BandwidthSources {
     DataRate ecn_estimate = DataRate::Zero();
-    DataRate delay_estimate = DataRate::Zero();
-    DataRate probe_estimate = DataRate::Zero();
     DataRate acked_estimate = DataRate::Zero();
     DataRate alr_estimate = DataRate::Zero();
     
     double ecn_confidence = 0.0;
-    double delay_confidence = 0.0;
-    double probe_confidence = 0.0;
     double acked_confidence = 0.0;
     double alr_confidence = 0.0;
     
     Timestamp last_ecn_update = Timestamp::MinusInfinity();
-    Timestamp last_delay_update = Timestamp::MinusInfinity();
-    Timestamp last_probe_update = Timestamp::MinusInfinity();
     Timestamp last_acked_update = Timestamp::MinusInfinity();
     Timestamp last_alr_update = Timestamp::MinusInfinity();
   };
@@ -173,8 +154,6 @@ public:
   ~L4SBandwidthFusion();
 
   void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now);
 
@@ -184,8 +163,6 @@ public:
 
 private:
   DataRate GetMostConfidentEstimate(Timestamp now) const;
-  DataRate ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const;
-  DataRate GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
 
   BandwidthSources sources_;
@@ -269,18 +246,9 @@ private:
   // Core processing methods
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
-  DataRate DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now);
-  void UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   
-  // Bandwidth fusion methods
-  DataRate GetBaseFusedEstimate(Timestamp now);
-
-  // Probing logic - DISABLED
-  void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
-  
   // Convergence detection
-  bool CheckProbeAndPragueConvergence(Timestamp now) const;
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
@@ -293,8 +261,6 @@ private:
   void UpdateAlrDetector(const TransportPacketsFeedback& feedback);
 
   // Confidence calculation
-  double CalculateEcnConfidence(Timestamp now) const;
-  double CalculateDelayConfidence(Timestamp now) const;
   double CalculateAckedConfidence(Timestamp now) const;
 
   // Rate control
@@ -321,7 +287,6 @@ private:
 
   // Bandwidth estimation components
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
-  std::unique_ptr<DelayBasedBwe> delay_estimator_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
   std::unique_ptr<AlrDetector> alr_detector_;
   std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
@@ -359,6 +324,8 @@ private:
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta rtcp_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta feedback_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
   Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
 

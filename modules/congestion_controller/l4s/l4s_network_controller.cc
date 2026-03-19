@@ -15,7 +15,6 @@
 #include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
-#include "logging/rtc_event_log/events/rtc_event_probe_cluster_created.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
@@ -24,9 +23,6 @@
 // Metrics collection
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
-
-// Real probe infrastructure
-#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 
 namespace webrtc {
 
@@ -449,25 +445,9 @@ int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t the
   return context_ai_bps;
 }
 
-void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate, double probe_confidence) {
-  probe_constraint_ = probe_estimate;
-  probe_constraint_confidence_ = probe_confidence;
-  
-  RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
-                   << " bps with confidence " << probe_confidence;
-}
-
-void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
-  probe_constraint_ = DataRate::Zero();
-  probe_constraint_confidence_ = 0.0;
-  
-  RTC_LOG(LS_VERBOSE) << "Prague: Cleared probe constraint";
-}
-
 void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reason) {
   if (discovery_mode_active_) {
     discovery_mode_active_ = false;
-    ClearProbeConstraint();  // Clear any probe constraints when exiting discovery
     RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - " << reason;
   }
 }
@@ -499,20 +479,6 @@ void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double con
   sources_.last_ecn_update = now;
 }
 
-void webrtc::L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating delay estimate to " << estimate.bps() << " bps with confidence " << confidence;
-  sources_.delay_estimate = estimate;
-  sources_.delay_confidence = confidence;
-  sources_.last_delay_update = now;
-}
-
-void webrtc::L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
-  sources_.probe_estimate = estimate;
-  sources_.probe_confidence = confidence;
-  sources_.last_probe_update = now;
-}
-
 void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
   RTC_LOG(LS_VERBOSE) << "L4S: Updating acked estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.acked_estimate = estimate;
@@ -532,13 +498,9 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimate(Timestamp now) con
 }
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const {
-  // L4S Fusion: Prague ECN provides congestion control authority,
-  // other estimators provide capacity discovery insights
-  
-  // During discovery or recovery mode, use probe-weighted fusion
-  if (discovery_mode || recovery_mode) {
-    return GetDiscoveryModeFusedEstimate(now, recovery_mode);
-  }
+  (void)discovery_mode;
+  (void)recovery_mode;
+  // L4S fusion for this controller is explicitly ECN + ACKed.
   
   // 1. Prague ECN estimate has highest priority for congestion control
   // When Prague detects congestion, it overrides other estimates
@@ -580,37 +542,14 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp 
     return weighted_estimate;
   }
   
-  // 2. When no recent congestion, use probe results as capacity upper bound
-  if (sources_.probe_confidence > config_.probe_confidence_threshold && 
-      IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    DataRate capacity_estimate = ValidateWithOtherSources(sources_.probe_estimate, sources_);
-    
-    // But don't exceed Prague's current estimate if it's lower (recent congestion)
-    if (sources_.ecn_confidence > 0.3) {
-      capacity_estimate = std::min(capacity_estimate, sources_.ecn_estimate * 1.1);
-    }
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Using probe-based capacity: " << capacity_estimate.bps() << " bps";
-    return capacity_estimate;
+  // 2. Fallback to ACKed estimate when ECN is stale/missing.
+  if (acked_has_signal) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Using ACKed fallback estimate: "
+                        << sources_.acked_estimate.bps() << " bps";
+    return sources_.acked_estimate;
   }
   
-  // 3. Fallback to conservative combination of delay and acked estimates
-  double total_weight = sources_.delay_confidence + sources_.acked_confidence;
-  if (total_weight > 0.1) {
-    DataRate weighted_estimate = 
-        (sources_.delay_estimate * sources_.delay_confidence + 
-         sources_.acked_estimate * sources_.acked_confidence) / total_weight;
-    
-    // Always respect Prague's congestion authority
-    if (sources_.ecn_confidence > 0.3) {
-      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate);
-    }
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Using weighted delay+acked estimate: " << weighted_estimate.bps() << " bps";
-    return weighted_estimate;
-  }
-  
-  // 4. Final fallback to most confident single estimate
+  // 3. Final fallback to most confident single estimate
   RTC_LOG(LS_VERBOSE) << "L4S: Using fallback estimate";
   return GetMostConfidentEstimate(now);
 }
@@ -624,101 +563,12 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp 
     best_confidence = sources_.ecn_confidence;
   }
   
-  if (sources_.delay_confidence > best_confidence && IsRecentlyUpdated(sources_.last_delay_update, now)) {
-    best_estimate = sources_.delay_estimate;
-    best_confidence = sources_.delay_confidence;
-  }
-  
-  if (sources_.probe_confidence > best_confidence && IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    best_estimate = sources_.probe_estimate;
-    best_confidence = sources_.probe_confidence;
-  }
-  
   if (sources_.acked_confidence > best_confidence && IsRecentlyUpdated(sources_.last_acked_update, now)) {
     best_estimate = sources_.acked_estimate;
     best_confidence = sources_.acked_confidence;
   }
   
   return best_estimate;
-}
-
-webrtc::DataRate webrtc::L4SBandwidthFusion::ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const {
-  // Don't allow probe results that are dramatically higher than other estimates
-  DataRate max_alternative = DataRate::Zero();
-  
-  if (sources.ecn_confidence > 0.3) {
-    max_alternative = std::max(max_alternative, sources.ecn_estimate);
-  }
-  if (sources.delay_confidence > 0.3) {
-    max_alternative = std::max(max_alternative, sources.delay_estimate);
-  }
-  if (sources.acked_confidence > 0.3) {
-    max_alternative = std::max(max_alternative, sources.acked_estimate);
-  }
-  
-  if (max_alternative > DataRate::Zero() && primary_estimate > max_alternative * 2.0) {
-    // Probe result seems too optimistic, cap it
-    return max_alternative * 1.5;
-  }
-  
-  return primary_estimate;
-}
-
-webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const {
-  // During discovery/recovery mode, give probe controller higher weight (80%)
-  // and other estimators lower weight (20%)
-  
-  DataRate probe_weighted = DataRate::Zero();
-  DataRate other_weighted = DataRate::Zero();
-  double probe_weight = 0.0;
-  double other_weight = 0.0;
-  
-  // Probe estimate gets reduced weight due to underestimation tendency
-  if (sources_.probe_confidence > 0.5 && IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    probe_weighted = sources_.probe_estimate;
-    probe_weight = recovery_mode ? 0.65 : 0.60;  // Reduced weight due to probe underestimation
-  }
-  
-  // Combine other estimates for remaining weight
-  double total_other_confidence = 0.0;
-  DataRate combined_other = DataRate::Zero();
-  
-  // Combine ECN and Acked estimates (delay and ALR removed for L4S simplicity)
-  if (sources_.ecn_confidence > 0.3 && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
-    combined_other = combined_other + sources_.ecn_estimate * sources_.ecn_confidence;
-    total_other_confidence += sources_.ecn_confidence;
-  }
-  
-  if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
-    combined_other = combined_other + sources_.acked_estimate * sources_.acked_confidence;
-    total_other_confidence += sources_.acked_confidence;
-  }
-  
-  if (total_other_confidence > 0.0) {
-    other_weighted = combined_other / total_other_confidence;
-    other_weight = 1.0 - probe_weight;
-  }
-  
-  // Calculate weighted fusion
-  DataRate fused_estimate;
-  if (probe_weight > 0.0 && other_weight > 0.0) {
-    fused_estimate = probe_weighted * probe_weight + other_weighted * other_weight;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Probe: " << probe_weighted.bps() 
-                     << " bps (" << (probe_weight * 100) << "%), Other: " << other_weighted.bps() 
-                     << " bps (" << (other_weight * 100) << "%), Fused: " << fused_estimate.bps() << " bps";
-  } else if (probe_weight > 0.0) {
-    fused_estimate = probe_weighted;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using probe only: " << fused_estimate.bps() << " bps";
-  } else if (other_weight > 0.0) {
-    fused_estimate = other_weighted;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using other estimates: " << fused_estimate.bps() << " bps";
-  } else {
-    // Fallback to most confident estimate
-    fused_estimate = GetMostConfidentEstimate(now);
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion fallback: " << fused_estimate.bps() << " bps";
-  }
-  
-  return fused_estimate;
 }
 
 bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
@@ -981,10 +831,6 @@ webrtc::L4SNetworkController::~L4SNetworkController() {
 }
 
 void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
-  if (config_.enable_delay_estimation) {
-    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr, nullptr);
-  }
-  
   if (config_.enable_acked_estimation) {
     acked_estimator_ = std::make_unique<AcknowledgedBitrateEstimator>(&env_.field_trials());
   }
@@ -994,8 +840,7 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   }
   
   RTC_LOG(LS_INFO) << "L4S: Initialized bandwidth estimators - "
-                   << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
-                   << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled")
+                   << "Acked: " << (acked_estimator_ ? "enabled" : "disabled")
                    << ", ALR: " << (alr_detector_ ? "enabled" : "disabled");
 }
 
@@ -1063,7 +908,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
     prague_estimator_->UpdateFromRtt(msg.round_trip_time);
-    last_rtt_ = msg.round_trip_time;
+    rtcp_rtt_ = msg.round_trip_time;
     last_estimated_round_trip_time_ = msg.round_trip_time;
   }
 
@@ -1072,13 +917,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
       !msg.round_trip_time.IsZero()) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+      msg.round_trip_time, msg.round_trip_time / 2, TimeDelta::Zero());
     RTC_LOG(LS_VERBOSE) << "L4S: RTT_SOURCE_RTCP_SR - rtt=" << msg.round_trip_time.ms()
                         << "ms (from RTCP Sender Report)";
   }
 
   RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
-                      << " ms";
+                      << " ms (RTCP source)";
 
   return update;
 }
@@ -1168,9 +1013,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
   
-  // Handle periodic probing
-  HandlePeriodicProbing(msg.feedback_time, &update);
-  
   // Fuse bandwidth estimates and update target rate
   DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
   target_rate_ = fused_rate;
@@ -1236,26 +1078,20 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     
     if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
       prague_estimator_->UpdateFromRtt(feedback_min_rtt);
+      feedback_rtt_ = feedback_min_rtt;
       last_rtt_ = feedback_min_rtt;
-      last_estimated_round_trip_time_ = feedback_min_rtt;
       RTC_LOG(LS_VERBOSE) << "L4S: RTT_SOURCE_FEEDBACK_PKT - rtt=" << feedback_min_rtt.ms()
                           << "ms (from TransportPacketsFeedback calculation)";
     }
   }
   
-  // 1. Update non-ECN estimators first (delay, acked, probe)
-  if (delay_estimator_) {
-    UpdateDelayBasedEstimator(feedback);
-  }
-  
+  // 1. Update non-ECN estimators first (acked)
   if (acked_estimator_) {
     UpdateAckedBitrateEstimator(feedback);
   }
   
-  // Probe controller removed - using pure ECN-based discovery
-  
-  // 2. Get initial fused estimate (without ECN input)
-  DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
+  // 2. Use current target as context baseline for CE logs/diagnostics.
+  DataRate base_fused_rate = target_rate_.value_or(prague_estimator_->GetCurrentEstimate());
   
   // 3. Update Prague ECN controller.
   // During ALR we still process explicit CE marks; only clean batches are skipped.
@@ -1637,57 +1473,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   ce_count_ = new_ce_count;
 }
 
-webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
-  // During discovery mode, bypass bottleneck constraints to allow aggressive growth
-  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode active - bypassing bottleneck detection, using fused rate: " 
-                     << fused_rate.bps() << " bps";
-    return fused_rate;
-  }
-  
-  // Intelligent bottleneck detection for Prague rate targeting
-  auto sources = bandwidth_fusion_->GetCurrentSources();
-  
-  DataRate probe_capacity = sources.probe_estimate;
-  DataRate acked_throughput = sources.acked_estimate;
-  
-  // Detect bottleneck type based on rate relationships
-  double probe_vs_acked_ratio = 1.0;
-  if (acked_throughput > DataRate::Zero() && probe_capacity > DataRate::Zero()) {
-    probe_vs_acked_ratio = probe_capacity.bps() / static_cast<double>(acked_throughput.bps());
-  }
-  
-  // Scenario 1: Large gap between probe and acked (receiver/app bottleneck)
-  if (probe_vs_acked_ratio > 2.0) {
-    if (IsApplicationLimited()) {
-      // Application bottleneck - respect application demand
-      RTC_LOG(LS_VERBOSE) << "L4S: Application bottleneck detected, targeting acked rate: " 
-                       << acked_throughput.bps() << " bps";
-      return acked_throughput;
-    } else {
-      // Receiver processing bottleneck - probe gently upward
-      DataRate gentle_target = acked_throughput * 1.25;  // 25% increase
-      gentle_target = std::min(gentle_target, fused_rate);  // Don't exceed fused rate
-      RTC_LOG(LS_VERBOSE) << "L4S: Receiver bottleneck detected, gentle increase to: " 
-                       << gentle_target.bps() << " bps (probe: " << probe_capacity.bps() 
-                       << ", acked: " << acked_throughput.bps() << ")";
-      return gentle_target;
-    }
-  }
-  
-  // Scenario 2: Network is the bottleneck - follow network-centric approach
-  // Use fused rate which includes probe discoveries and safety constraints
-  RTC_LOG(LS_VERBOSE) << "L4S: Network bottleneck detected, targeting fused rate: " 
-                   << fused_rate.bps() << " bps (ratio: " << probe_vs_acked_ratio << ")";
-  return fused_rate;
-}
-
-void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
-  // Delay estimation disabled for L4S - ECN marks are the primary signal
-  // L4S philosophy: explicit congestion signals (CE marks) replace delay inference
-  return;
-}
-
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
   if (feedback.packet_feedbacks.empty() || !acked_estimator_) {
     return;
@@ -2000,28 +1785,6 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
 
 
 
-void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
-  // Probing disabled in L4S - returns immediately
-}
-
-double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
-  return prague_estimator_->GetConfidence(now);
-}
-
-double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) const {
-  if (!delay_estimator_ || !last_rtt_.IsFinite()) {
-    return 0.0;
-  }
-  
-  // High confidence if RTT is stable
-  if (IsRttStable()) {
-    return 0.8;
-  }
-  return 0.5;
-}
-
-
-
 double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) const {
   if (!acked_estimator_) {
     return 0.0;
@@ -2124,7 +1887,6 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     auto sources = bandwidth_fusion_->GetCurrentSources();
     RTC_LOG(LS_VERBOSE) << "L4S: STEADY STATE - Fused: " << (fused_rate.bps() / 1e6) << " Mbps, "
                         << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
-                        << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
                         << "Acked: " << (sources.acked_estimate.bps() / 1e6) << " Mbps";
   }
   
@@ -2199,66 +1961,11 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
                         << " Mbps, "
                         << "Prague: " << (prague_est.bps() / 1e6) << " Mbps, "
                         << "ECN: " << (sources.ecn_estimate.bps() / 1e6) << " Mbps, "
-                        << "Delay: " << (sources.delay_estimate.bps() / 1e6) << " Mbps, "
                         << "Acked: " << (sources.acked_estimate.bps() / 1e6)
                         << " Mbps";
   }
   
   return fused_rate;
-}
-
-webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp now) {
-  // Get fused estimate from non-ECN sources only (delay, probe, acked)
-  // This provides the base capacity estimate before Prague applies AI/MD
-  
-  L4SBandwidthFusion::BandwidthSources temp_sources = bandwidth_fusion_->GetCurrentSources();
-  
-  // Temporarily zero out ECN estimate for base fusion
-  temp_sources.ecn_estimate = DataRate::Zero();
-  temp_sources.ecn_confidence = 0.0;
-  
-  // Use weighted combination of delay, probe, acked, and ALR estimates as base
-  double total_weight = temp_sources.delay_confidence + 
-                       temp_sources.probe_confidence + 
-                       temp_sources.acked_confidence +
-                       temp_sources.alr_confidence;
-  if (total_weight > 0.01) {  // Very low threshold - almost always use weighted combination
-    DataRate weighted_estimate = 
-        (temp_sources.delay_estimate * temp_sources.delay_confidence + 
-         temp_sources.probe_estimate * temp_sources.probe_confidence +
-         temp_sources.acked_estimate * temp_sources.acked_confidence +
-         temp_sources.alr_estimate * temp_sources.alr_confidence) / total_weight;
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Base fused estimate (no ECN): " << weighted_estimate.bps() << " bps";
-    return weighted_estimate;
-  }
-  
-  // Fallback to most confident non-ECN estimate
-  DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
-  double best_confidence = 0.0;
-  
-  if (temp_sources.delay_confidence > best_confidence) {
-    best_estimate = temp_sources.delay_estimate;
-    best_confidence = temp_sources.delay_confidence;
-  }
-  
-  if (temp_sources.acked_confidence > best_confidence) {
-    best_estimate = temp_sources.acked_estimate;
-    best_confidence = temp_sources.acked_confidence;
-  }
-  
-  if (temp_sources.probe_confidence > best_confidence) {
-    best_estimate = temp_sources.probe_estimate;
-    best_confidence = temp_sources.probe_confidence;
-  }
-  
-  if (temp_sources.alr_confidence > best_confidence) {
-    best_estimate = temp_sources.alr_estimate;
-    best_confidence = temp_sources.alr_confidence;
-  }
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: Fallback base estimate: " << best_estimate.bps() << " bps";
-  return best_estimate;
 }
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Timestamp at_time) const {
@@ -2327,10 +2034,10 @@ bool webrtc::L4SNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
 }
 
 bool webrtc::L4SNetworkController::EstimatesAreDiverging() const {
-  // Simple check for estimate divergence
+  // Simple check for estimate divergence between ECN and ACKed views.
   auto sources = bandwidth_fusion_->GetCurrentSources();
-  if (sources.ecn_estimate > DataRate::Zero() && sources.delay_estimate > DataRate::Zero()) {
-    double ratio = sources.ecn_estimate.bps() / static_cast<double>(sources.delay_estimate.bps());
+  if (sources.ecn_estimate > DataRate::Zero() && sources.acked_estimate > DataRate::Zero()) {
+    double ratio = sources.ecn_estimate.bps() / static_cast<double>(sources.acked_estimate.bps());
     return ratio > 2.0 || ratio < 0.5;  // 2x divergence threshold
   }
   return false;
@@ -2410,10 +2117,11 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
                                           last_acked_bitrate_);
   
   // Log delay metrics
-  if (last_rtt_.IsFinite()) {
-    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
-    RTC_LOG(LS_VERBOSE) << "L4S: PERIODIC_METRICS_LOG - rtt=" << last_rtt_.ms()
-                        << "ms (writing to JSON from last_rtt_)";
+  if (rtcp_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, rtcp_rtt_, rtcp_rtt_ / 2,
+                                        TimeDelta::Zero());
+    RTC_LOG(LS_VERBOSE) << "L4S: PERIODIC_METRICS_LOG - rtt=" << rtcp_rtt_.ms()
+                        << "ms (writing to JSON from RTCP RTT)";
   }
   
   // Log loss metrics
@@ -2444,39 +2152,6 @@ void webrtc::L4SNetworkController::UpdateAlrDetector(const TransportPacketsFeedb
   }
 }
 
-bool webrtc::L4SNetworkController::CheckProbeAndPragueConvergence(Timestamp now) const {
-  if (!prague_estimator_ || !bandwidth_fusion_) {
-    return false;
-  }
-
-  auto sources = bandwidth_fusion_->GetCurrentSources();
-  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
-  DataRate probe_rate = sources.probe_estimate;
-
-  // Need both estimates to be valid and recent
-  if (probe_rate <= DataRate::Zero() || prague_rate <= DataRate::Zero()) {
-    return false;
-  }
-
-  if (sources.probe_confidence < 0.7 || !IsRecentlyUpdated(sources.last_probe_update, now)) {
-    return false;
-  }
-
-  // Check convergence: estimates within 10% of each other
-  double rate_ratio = std::min(prague_rate.bps(), probe_rate.bps()) / 
-                     static_cast<double>(std::max(prague_rate.bps(), probe_rate.bps()));
-
-  bool converged = rate_ratio >= 0.9;  // 10% tolerance
-
-  if (converged) {
-    RTC_LOG(LS_INFO) << "L4S: Prague-Probe convergence detected - Prague: " 
-                     << prague_rate.bps() << " bps, Probe: " << probe_rate.bps() 
-                     << " bps, ratio: " << rate_ratio;
-  }
-
-  return converged;
-}
-
 bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const {
   if (!prague_estimator_ || !prague_estimator_->IsDiscoveryModeActive()) {
     return false;
@@ -2484,11 +2159,6 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 
   // Exit if CE marks detected (already handled in Prague estimator)
   if (prague_estimator_->GetDirectionFlag() == -1) {
-    return true;
-  }
-
-  // Exit if Prague and Probe converged on capacity
-  if (CheckProbeAndPragueConvergence(now)) {
     return true;
   }
 
