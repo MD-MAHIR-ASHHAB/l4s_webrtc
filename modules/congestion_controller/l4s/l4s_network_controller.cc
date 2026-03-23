@@ -595,10 +595,10 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Times
   double probe_weight = 0.0;
   double other_weight = 0.0;
   
-  // Probe estimate gets reduced weight due to underestimation tendency
+  // Probe estimate weight is intentionally conservative for CE-sensitive AQMs.
   if (sources_.probe_confidence > 0.5 && IsRecentlyUpdated(sources_.last_probe_update, now)) {
     probe_weighted = sources_.probe_estimate;
-    probe_weight = recovery_mode ? 0.65 : 0.60;  // Reduced weight due to probe underestimation
+    probe_weight = recovery_mode ? 0.50 : 0.45;
   }
   
   // Combine other estimates for remaining weight
@@ -1488,8 +1488,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
     RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
-    // Use a shorter fixed interval in recovery
-    if (since_last_probe >= TimeDelta::Seconds(2)) {
+    // Use a dedicated recovery interval, slower than before to avoid CE bursts.
+    if (since_last_probe >= config_.recovery_probe_interval) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
       InitiateRecoveryProbing(now, update);
       last_probe_time_ = now;
@@ -1527,7 +1527,9 @@ bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
   // Don't probe if ECN feedback is very fresh and confident (more permissive for discovery)
   double ecn_confidence = prague_estimator_->GetConfidence(now);
   bool is_discovery_mode = prague_estimator_->IsDiscoveryModeActive();
-  double confidence_threshold = is_discovery_mode ? 0.99 : 0.95;  // More permissive in discovery
+  double confidence_threshold = is_discovery_mode
+                                    ? config_.discovery_probe_block_confidence
+                                    : config_.steady_probe_block_confidence;
   
   if (IsEcnFeedbackFresh(now) && ecn_confidence > confidence_threshold) {
     RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to high ECN confidence: " << ecn_confidence 
@@ -1554,11 +1556,11 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
-  // Be more aggressive during ALR periods
-  double probe_multiplier = 1.5;  // Default
+  // Use conservative probing by default and only a modest boost in ALR.
+  double probe_multiplier = config_.probe_multiplier;
   if (IsApplicationLimited()) {
-    probe_multiplier = 2.0;  // More aggressive when application limited
-    RTC_LOG(LS_VERBOSE) << "L4S: Using aggressive probing during ALR period";
+    probe_multiplier = config_.alr_probe_multiplier;
+    RTC_LOG(LS_VERBOSE) << "L4S: Using ALR probe multiplier=" << probe_multiplier;
   }
   
   // Calculate probe rate
@@ -1599,9 +1601,9 @@ double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) con
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
   TimeDelta since_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
   if (since_probe < TimeDelta::Seconds(1)) {
-    return 0.95;  // Very high confidence in fresh probe results
+    return config_.probe_confidence_fresh;
   } else if (since_probe < TimeDelta::Seconds(10)) {
-    return 0.8;   // Good confidence in recent probes
+    return config_.probe_confidence_recent;
   }
   return 0.2;   // Low confidence in old probe results
 }
@@ -2000,10 +2002,10 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
 
-  // More aggressive than normal probing during recovery testing
-  double recovery_multiplier = 2.5;  // vs 1.5 normal
+  // Recovery is intentionally conservative for CE-sensitive AQMs.
+  double recovery_multiplier = config_.recovery_probe_multiplier;
   if (IsApplicationLimited()) {
-    recovery_multiplier = 3.0;  // Even more aggressive when application limited
+    recovery_multiplier = config_.recovery_alr_probe_multiplier;
   }
 
   // Calculate target probe rate
@@ -2012,10 +2014,7 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Reset ProbeController back to kInit so SetBitrates triggers a fresh
-  // exponential probe sequence from current_estimate.  Reset() preserves
-  // network_available_, enable_periodic_alr_probing_, and
-  // max_total_allocated_bitrate_ per the ProbeController contract.
+  // Bootstrap recovery probing once, then avoid repeated reset->startup bursts.
   DataRate clamped_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
   DataRate clamped_max = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
   if (!clamped_max.IsFinite()) {
@@ -2024,10 +2023,22 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   // Ensure max >= current so the probe target is meaningful.
   clamped_max = std::max(clamped_max, current_estimate);
 
-  probe_controller_->Reset(now);
-  auto probes = probe_controller_->SetBitrates(
-      clamped_min, current_estimate, clamped_max, now);
-  last_reported_bitrate_to_probe_controller_ = current_estimate;
+  std::vector<ProbeClusterConfig> probes;
+  if (!recovery_probe_bootstrapped_) {
+    probe_controller_->Reset(now);
+    probes = probe_controller_->SetBitrates(
+        clamped_min, current_estimate, clamped_max, now);
+    recovery_probe_bootstrapped_ = true;
+    last_reported_bitrate_to_probe_controller_ = current_estimate;
+  } else {
+    probes = probe_controller_->SetEstimatedBitrate(
+        current_estimate, BandwidthLimitedCause::kLossLimitedBweIncreasing,
+        now);
+    if (probes.empty()) {
+      probes = probe_controller_->RequestProbe(now);
+    }
+    last_reported_bitrate_to_probe_controller_ = current_estimate;
+  }
 
   if (!probes.empty()) {
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
@@ -2087,6 +2098,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
         cooldown_expired) {
 
       recovery_mode_active_ = true;
+      recovery_probe_bootstrapped_ = false;
       recovery_start_time_ = now;
 
       RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
@@ -2101,6 +2113,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
       recovery_mode_active_ = false;
+      recovery_probe_bootstrapped_ = false;
       RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
     }
   }
@@ -2117,6 +2130,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       
       bool by_convergence = !( recovery_duration > TimeDelta::Seconds(10) );
       recovery_mode_active_ = false;
+      recovery_probe_bootstrapped_ = false;
       consecutive_clean_packets_ = 0;
 
       if (by_convergence) {

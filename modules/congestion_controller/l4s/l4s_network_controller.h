@@ -46,7 +46,20 @@ struct L4SControllerConfig {
   bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
   bool enable_alr_detection = true;
-  TimeDelta probe_interval = TimeDelta::Seconds(5);
+  TimeDelta probe_interval = TimeDelta::Seconds(8);
+  TimeDelta recovery_probe_interval = TimeDelta::Seconds(5);
+
+  // Probe pacing aggressiveness.
+  double probe_multiplier = 1.2;
+  double alr_probe_multiplier = 1.35;
+  double recovery_probe_multiplier = 1.4;
+  double recovery_alr_probe_multiplier = 1.7;
+
+  // Probe gating and confidence behavior.
+  double discovery_probe_block_confidence = 0.92;
+  double steady_probe_block_confidence = 0.88;
+  double probe_confidence_fresh = 0.75;
+  double probe_confidence_recent = 0.55;
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
@@ -341,6 +354,7 @@ private:
 
   // Recovery state tracking
   bool recovery_mode_active_ = false;
+  bool recovery_probe_bootstrapped_ = false;
   int consecutive_clean_packets_ = 0;  // ECT1 without CE
   Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
   // After a successful convergence exit, block re-entry for this duration to
