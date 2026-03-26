@@ -333,7 +333,10 @@ private:
 
   // State management
   void AdvanceStateMachine(Timestamp now);
-  std::optional<TransitionDecision> EvaluateStateTransition() const;
+  std::optional<TransitionDecision> EvaluateStateTransition(Timestamp now) const;
+  TimeDelta GetMinimumStateDwell() const;
+  bool CanEnterRecoveryState(Timestamp now) const;
+  void LogStateSnapshot(Timestamp now);
   static const char* StateToString(ControllerState state);
   static const char* TransitionReasonToString(TransitionReason reason);
   void TransitionToState(ControllerState new_state,
@@ -364,6 +367,9 @@ private:
   ControllerState controller_state_ = ControllerState::kRouteReset;
   Timestamp state_entered_at_ = Timestamp::MinusInfinity();
   uint64_t state_transition_count_ = 0;
+  Timestamp last_state_snapshot_log_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kStateSnapshotLogInterval = TimeDelta::Seconds(1);
+  static constexpr TimeDelta kMinimumStateDwellFloor = TimeDelta::Millis(250);
 
   std::optional<DataRate> target_rate_;
   std::optional<DataRate> starting_rate_;

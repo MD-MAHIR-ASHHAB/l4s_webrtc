@@ -1882,21 +1882,82 @@ void webrtc::L4SNetworkController::AdvanceStateMachine(Timestamp now) {
     state_entered_at_ = now;
   }
 
-  std::optional<TransitionDecision> decision = EvaluateStateTransition();
+  LogStateSnapshot(now);
+
+  std::optional<TransitionDecision> decision = EvaluateStateTransition(now);
   if (decision.has_value()) {
     TransitionToState(decision->next_state, decision->reason, now);
   }
 }
 
+TimeDelta webrtc::L4SNetworkController::GetMinimumStateDwell() const {
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() && !last_rtt_.IsZero()
+          ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
+          : TimeDelta::Millis(100);
+  return std::max(kMinimumStateDwellFloor, effective_rtt * 2.0);
+}
+
+bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
+  return recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_;
+}
+
+void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
+  if (!now.IsFinite()) {
+    now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+
+  if (!last_state_snapshot_log_.IsInfinite() &&
+      (now - last_state_snapshot_log_) < kStateSnapshotLogInterval) {
+    return;
+  }
+  last_state_snapshot_log_ = now;
+
+  const bool discovery_active =
+      prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
+  const bool reduction_active =
+      prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+  TimeDelta dwell_time = state_entered_at_.IsInfinite()
+                             ? TimeDelta::Zero()
+                             : (now - state_entered_at_);
+  TimeDelta min_dwell = GetMinimumStateDwell();
+  TimeDelta cooldown_left =
+      recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_
+          ? TimeDelta::Zero()
+          : (recovery_cooldown_until_ - now);
+
+  RTC_LOG(LS_VERBOSE)
+      << "L4S: State snapshot state=" << StateToString(controller_state_)
+      << ", discovery=" << discovery_active
+      << ", reduction=" << reduction_active
+      << ", recovery=" << recovery_mode_active_
+      << ", dwell_ms=" << dwell_time.ms()
+      << ", min_dwell_ms=" << min_dwell.ms()
+      << ", cooldown_left_ms=" << cooldown_left.ms()
+      << ", target_bps=" << target_rate_.value_or(DataRate::Zero()).bps()
+      << ", acked_bps=" << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
+      << ", actual_bps=" << last_actual_bitrate_.bps()
+      << ", loss=" << last_loss_fraction_
+      << ", rtt_ms=" << (last_rtt_.IsFinite() ? last_rtt_.ms() : -1);
+}
+
 std::optional<webrtc::L4SNetworkController::TransitionDecision>
-webrtc::L4SNetworkController::EvaluateStateTransition() const {
+webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
   if (!prague_estimator_) {
     return std::nullopt;
+  }
+
+  if (!now.IsFinite()) {
+    now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
   }
 
   const bool discovery_active = prague_estimator_->IsDiscoveryModeActive();
   const bool reduction_active = prague_estimator_->GetDirectionFlag() == -1;
   const bool recovery_active = recovery_mode_active_;
+  const bool dwell_ok =
+      state_entered_at_.IsInfinite() ||
+      (now - state_entered_at_ >= GetMinimumStateDwell());
+  const bool recovery_cooldown_ok = CanEnterRecoveryState(now);
 
   switch (controller_state_) {
     case ControllerState::kRouteReset:
@@ -1916,7 +1977,7 @@ webrtc::L4SNetworkController::EvaluateStateTransition() const {
                                 TransitionReason::kInitComplete};
 
     case ControllerState::kSlowStart:
-      if (recovery_active) {
+      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
       }
@@ -1924,52 +1985,52 @@ webrtc::L4SNetworkController::EvaluateStateTransition() const {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
-      if (!discovery_active) {
+      if (!discovery_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kDiscoveryExit};
       }
       return std::nullopt;
 
     case ControllerState::kCongestionAvoidance:
-      if (recovery_active) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      if (discovery_active) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kDiscoveryActive};
-      }
       if (reduction_active) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
-      return std::nullopt;
-
-    case ControllerState::kCongestionExperienced:
-      if (recovery_active) {
+      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
       }
-      if (discovery_active) {
+      if (discovery_active && dwell_ok) {
         return TransitionDecision{ControllerState::kSlowStart,
                                   TransitionReason::kDiscoveryActive};
       }
-      if (!reduction_active) {
+      return std::nullopt;
+
+    case ControllerState::kCongestionExperienced:
+      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
+      }
+      if (discovery_active && dwell_ok) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kDiscoveryActive};
+      }
+      if (!reduction_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kPragueAdditive};
       }
       return std::nullopt;
 
     case ControllerState::kCongestionRecovery:
-      if (discovery_active) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kDiscoveryActive};
-      }
       if (!recovery_active && reduction_active) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
-      if (!recovery_active && !reduction_active) {
+      if (discovery_active && dwell_ok) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kDiscoveryActive};
+      }
+      if (!recovery_active && !reduction_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kRecoveryExited};
       }
