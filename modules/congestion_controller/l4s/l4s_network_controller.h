@@ -268,7 +268,18 @@ private:
 
   enum class TransitionReason {
     kRouteChange,
-    kLegacySignalSync,
+    kInitComplete,
+    kDiscoveryActive,
+    kDiscoveryExit,
+    kPragueReduction,
+    kPragueAdditive,
+    kRecoveryEntered,
+    kRecoveryExited,
+  };
+
+  struct TransitionDecision {
+    ControllerState next_state;
+    TransitionReason reason;
   };
 
   // Initialization
@@ -315,8 +326,8 @@ private:
   void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time);
 
   // State management
-  void SyncStateFromLegacySignals(Timestamp now);
-  ControllerState DeriveStateFromLegacySignals() const;
+  void AdvanceStateMachine(Timestamp now);
+  std::optional<TransitionDecision> EvaluateStateTransition() const;
   static const char* StateToString(ControllerState state);
   static const char* TransitionReasonToString(TransitionReason reason);
   void TransitionToState(ControllerState new_state,

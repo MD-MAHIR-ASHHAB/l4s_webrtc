@@ -892,7 +892,7 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
         logger_to_use, config_.test_case_name);
   }
 
-  SyncStateFromLegacySignals(Timestamp::Millis(env_.clock().TimeInMilliseconds()));
+  AdvanceStateMachine(Timestamp::Millis(env_.clock().TimeInMilliseconds()));
   
   RTC_LOG(LS_INFO) << "L4SNetworkController created with starting rate: " 
                    << starting_rate.bps() << " bps";
@@ -1061,7 +1061,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
 
-  SyncStateFromLegacySignals(msg.at_time);
+  AdvanceStateMachine(msg.at_time);
   
   return update;
 }
@@ -1201,7 +1201,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
 
-  SyncStateFromLegacySignals(msg.feedback_time);
+  AdvanceStateMachine(msg.feedback_time);
   
   return update;
 }
@@ -1818,27 +1818,108 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   }
 }
 
-void webrtc::L4SNetworkController::SyncStateFromLegacySignals(Timestamp now) {
-  TransitionToState(DeriveStateFromLegacySignals(),
-                    TransitionReason::kLegacySignalSync,
-                    now);
+void webrtc::L4SNetworkController::AdvanceStateMachine(Timestamp now) {
+  if (!now.IsFinite()) {
+    now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  if (state_entered_at_.IsInfinite()) {
+    state_entered_at_ = now;
+  }
+
+  std::optional<TransitionDecision> decision = EvaluateStateTransition();
+  if (decision.has_value()) {
+    TransitionToState(decision->next_state, decision->reason, now);
+  }
 }
 
-webrtc::L4SNetworkController::ControllerState
-webrtc::L4SNetworkController::DeriveStateFromLegacySignals() const {
-  if (recovery_mode_active_) {
-    return ControllerState::kCongestionRecovery;
-  }
+std::optional<webrtc::L4SNetworkController::TransitionDecision>
+webrtc::L4SNetworkController::EvaluateStateTransition() const {
   if (!prague_estimator_) {
-    return ControllerState::kRouteReset;
+    return std::nullopt;
   }
-  if (prague_estimator_->IsDiscoveryModeActive()) {
-    return ControllerState::kSlowStart;
+
+  const bool discovery_active = prague_estimator_->IsDiscoveryModeActive();
+  const bool reduction_active = prague_estimator_->GetDirectionFlag() == -1;
+  const bool recovery_active = recovery_mode_active_;
+
+  switch (controller_state_) {
+    case ControllerState::kRouteReset:
+      if (discovery_active) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kInitComplete};
+      }
+      if (recovery_active) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
+      }
+      if (reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      return TransitionDecision{ControllerState::kCongestionAvoidance,
+                                TransitionReason::kInitComplete};
+
+    case ControllerState::kSlowStart:
+      if (recovery_active) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
+      }
+      if (!discovery_active && reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      if (!discovery_active) {
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
+                                  TransitionReason::kDiscoveryExit};
+      }
+      return std::nullopt;
+
+    case ControllerState::kCongestionAvoidance:
+      if (recovery_active) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
+      }
+      if (discovery_active) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kDiscoveryActive};
+      }
+      if (reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      return std::nullopt;
+
+    case ControllerState::kCongestionExperienced:
+      if (recovery_active) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
+      }
+      if (discovery_active) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kDiscoveryActive};
+      }
+      if (!reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
+                                  TransitionReason::kPragueAdditive};
+      }
+      return std::nullopt;
+
+    case ControllerState::kCongestionRecovery:
+      if (discovery_active) {
+        return TransitionDecision{ControllerState::kSlowStart,
+                                  TransitionReason::kDiscoveryActive};
+      }
+      if (!recovery_active && reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      if (!recovery_active && !reduction_active) {
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
+                                  TransitionReason::kRecoveryExited};
+      }
+      return std::nullopt;
   }
-  if (prague_estimator_->GetDirectionFlag() == -1) {
-    return ControllerState::kCongestionExperienced;
-  }
-  return ControllerState::kCongestionAvoidance;
+  return std::nullopt;
 }
 
 const char* webrtc::L4SNetworkController::StateToString(ControllerState state) {
@@ -1862,8 +1943,20 @@ const char* webrtc::L4SNetworkController::TransitionReasonToString(
   switch (reason) {
     case TransitionReason::kRouteChange:
       return "route_change";
-    case TransitionReason::kLegacySignalSync:
-      return "legacy_signal_sync";
+    case TransitionReason::kInitComplete:
+      return "init_complete";
+    case TransitionReason::kDiscoveryActive:
+      return "discovery_active";
+    case TransitionReason::kDiscoveryExit:
+      return "discovery_exit";
+    case TransitionReason::kPragueReduction:
+      return "prague_reduction";
+    case TransitionReason::kPragueAdditive:
+      return "prague_additive";
+    case TransitionReason::kRecoveryEntered:
+      return "recovery_entered";
+    case TransitionReason::kRecoveryExited:
+      return "recovery_exited";
   }
   return "unknown";
 }
