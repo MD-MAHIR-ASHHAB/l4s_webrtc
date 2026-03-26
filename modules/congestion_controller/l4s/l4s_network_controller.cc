@@ -1048,14 +1048,14 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   }
   // --- end ProbeController integration ---
 
-  // Handle periodic probing
-  HandlePeriodicProbing(msg.at_time, &update);
+  // State-owned probing policy
+  ApplyStateProbingPolicy(msg.at_time, &update);
   
   // Update time-based decay in Prague estimator
   prague_estimator_->OnTimeUpdate(msg.at_time);
   
-  // Fuse all bandwidth estimates and update target rate
-  DataRate fused_rate = FuseBandwidthEstimates(msg.at_time);
+  // State-owned fusion policy
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time);
   target_rate_ = fused_rate;
   
   // Create rate update
@@ -1188,11 +1188,11 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
   
-  // Handle periodic probing
-  HandlePeriodicProbing(msg.feedback_time, &update);
+  // State-owned probing policy
+  ApplyStateProbingPolicy(msg.feedback_time, &update);
   
-  // Fuse bandwidth estimates and update target rate
-  DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
+  // State-owned fusion policy
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.feedback_time);
   target_rate_ = fused_rate;
   
   // Update throughput calculation
@@ -1245,7 +1245,22 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   // 2. Get initial fused estimate (without ECN input)
   DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
   
-  // 3. Update Prague ECN controller with the base fused rate (not application limited)
+  // 3. State-owned ECN policy
+  ApplyStateEcnPolicy(feedback, base_fused_rate);
+}
+
+void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
+    const TransportPacketsFeedback& feedback,
+    DataRate base_fused_rate) {
+  switch (controller_state_) {
+    case ControllerState::kRouteReset:
+    case ControllerState::kSlowStart:
+    case ControllerState::kCongestionAvoidance:
+    case ControllerState::kCongestionExperienced:
+    case ControllerState::kCongestionRecovery:
+      break;
+  }
+
   if (!IsApplicationLimited()) {
     ProcessEcnFeedback(feedback, base_fused_rate);
   } else {
@@ -1516,6 +1531,20 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
 }
 
+void webrtc::L4SNetworkController::ApplyStateProbingPolicy(
+    Timestamp now,
+    NetworkControlUpdate* update) {
+  switch (controller_state_) {
+    case ControllerState::kRouteReset:
+    case ControllerState::kSlowStart:
+    case ControllerState::kCongestionAvoidance:
+    case ControllerState::kCongestionExperienced:
+    case ControllerState::kCongestionRecovery:
+      HandlePeriodicProbing(now, update);
+      return;
+  }
+}
+
 TimeDelta webrtc::L4SNetworkController::GetRttScaledInterval() const {
   TimeDelta effective_rtt =
       last_rtt_.IsFinite() && !last_rtt_.IsZero()
@@ -1633,7 +1662,19 @@ double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) con
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
-  bool discovery_active = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
+  bool discovery_signal = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
+  bool discovery_active =
+      (controller_state_ == ControllerState::kSlowStart) && discovery_signal;
+
+  // Bridge current and previous behavior during the phased refactor.
+  if (!discovery_active && discovery_signal &&
+      controller_state_ != ControllerState::kCongestionRecovery) {
+    discovery_active = true;
+  }
+
+  bool recovery_active =
+      (controller_state_ == ControllerState::kCongestionRecovery) ||
+      recovery_mode_active_;
   
   // Check if we should exit discovery mode based on convergence
   if (discovery_active && ShouldExitDiscoveryMode(now)) {
@@ -1650,7 +1691,9 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   }
   
   // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
-  DataRate fused_rate = bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active, recovery_mode_active_);
+  DataRate fused_rate =
+      bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active,
+                                                  recovery_active);
   
   // During discovery mode, still use Prague's estimate as it incorporates probe constraints
   if (discovery_active) {
@@ -1678,6 +1721,19 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // }
   
   return fused_rate;
+}
+
+webrtc::DataRate webrtc::L4SNetworkController::ApplyStateFusionPolicy(
+    Timestamp now) {
+  switch (controller_state_) {
+    case ControllerState::kRouteReset:
+    case ControllerState::kSlowStart:
+    case ControllerState::kCongestionAvoidance:
+    case ControllerState::kCongestionExperienced:
+    case ControllerState::kCongestionRecovery:
+      return FuseBandwidthEstimates(now);
+  }
+  return FuseBandwidthEstimates(now);
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp now) {

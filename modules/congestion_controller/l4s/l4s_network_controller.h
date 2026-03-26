@@ -292,6 +292,12 @@ private:
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
   std::optional<DataRate> GetLastProbeResult();
+
+  // State-owned policy handlers (Phase 3)
+  void ApplyStateEcnPolicy(const TransportPacketsFeedback& feedback,
+                           DataRate base_fused_rate);
+  void ApplyStateProbingPolicy(Timestamp now, NetworkControlUpdate* update);
+  DataRate ApplyStateFusionPolicy(Timestamp now);
   
   // Bandwidth fusion methods
   DataRate GetBaseFusedEstimate(Timestamp now);
