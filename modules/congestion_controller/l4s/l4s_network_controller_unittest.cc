@@ -138,5 +138,80 @@ TEST_F(L4SNetworkControllerTest, FallbackToGccWhenNoEcn) {
   ASSERT_TRUE(fallback_update.target_rate.has_value());
 }
 
+TEST_F(L4SNetworkControllerTest, MinimumStateDwellUsesRttScalingWithFloor) {
+  controller_->last_rtt_ = TimeDelta::Millis(10);
+  EXPECT_EQ(controller_->GetMinimumStateDwell(), TimeDelta::Millis(250));
+
+  controller_->last_rtt_ = TimeDelta::Millis(80);
+  EXPECT_EQ(controller_->GetMinimumStateDwell(), TimeDelta::Millis(250));
+
+  controller_->last_rtt_ = TimeDelta::Millis(300);
+  EXPECT_EQ(controller_->GetMinimumStateDwell(), TimeDelta::Millis(600));
+}
+
+TEST_F(L4SNetworkControllerTest, RecoveryEntryRequiresCooldownAndDwell) {
+  const Timestamp now = Timestamp::Millis(5000);
+
+  controller_->controller_state_ =
+      L4SNetworkController::ControllerState::kCongestionAvoidance;
+  controller_->recovery_mode_active_ = true;
+
+  // Dwell not satisfied and cooldown active -> blocked.
+  controller_->state_entered_at_ = now;
+  controller_->recovery_cooldown_until_ = now + TimeDelta::Seconds(5);
+  EXPECT_FALSE(controller_->EvaluateStateTransition(now).has_value());
+
+  // Dwell satisfied but cooldown still active -> blocked.
+  controller_->state_entered_at_ = now - TimeDelta::Seconds(5);
+  EXPECT_FALSE(controller_->EvaluateStateTransition(now).has_value());
+
+  // Dwell + cooldown satisfied -> recovery transition allowed.
+  controller_->recovery_cooldown_until_ = Timestamp::MinusInfinity();
+  auto decision = controller_->EvaluateStateTransition(now);
+  ASSERT_TRUE(decision.has_value());
+  EXPECT_EQ(decision->next_state,
+            L4SNetworkController::ControllerState::kCongestionRecovery);
+  EXPECT_EQ(decision->reason,
+            L4SNetworkController::TransitionReason::kRecoveryEntered);
+}
+
+TEST_F(L4SNetworkControllerTest, CongestionExperiencedToAvoidanceRequiresDwell) {
+  const Timestamp now = Timestamp::Millis(8000);
+
+  // Force non-discovery, additive Prague signal.
+  controller_->prague_estimator_->ExitDiscoveryMode("unit test");
+
+  controller_->controller_state_ =
+      L4SNetworkController::ControllerState::kCongestionExperienced;
+  controller_->recovery_mode_active_ = false;
+
+  // Dwell not satisfied -> no transition.
+  controller_->state_entered_at_ = now;
+  EXPECT_FALSE(controller_->EvaluateStateTransition(now).has_value());
+
+  // Dwell satisfied -> transition to avoidance.
+  controller_->state_entered_at_ = now - TimeDelta::Seconds(5);
+  auto decision = controller_->EvaluateStateTransition(now);
+  ASSERT_TRUE(decision.has_value());
+  EXPECT_EQ(decision->next_state,
+            L4SNetworkController::ControllerState::kCongestionAvoidance);
+  EXPECT_EQ(decision->reason,
+            L4SNetworkController::TransitionReason::kPragueAdditive);
+}
+
+TEST_F(L4SNetworkControllerTest, StateSnapshotLoggingIsRateLimited) {
+  const Timestamp t0 = Timestamp::Millis(10000);
+  controller_->state_entered_at_ = t0 - TimeDelta::Seconds(2);
+
+  controller_->LogStateSnapshot(t0);
+  EXPECT_EQ(controller_->last_state_snapshot_log_, t0);
+
+  controller_->LogStateSnapshot(t0 + TimeDelta::Millis(500));
+  EXPECT_EQ(controller_->last_state_snapshot_log_, t0);
+
+  controller_->LogStateSnapshot(t0 + TimeDelta::Millis(1200));
+  EXPECT_EQ(controller_->last_state_snapshot_log_, t0 + TimeDelta::Millis(1200));
+}
+
 }  // namespace test
 }  // namespace webrtc

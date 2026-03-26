@@ -27,6 +27,10 @@
 
 namespace webrtc {
 
+namespace test {
+class L4SNetworkControllerTest;
+}
+
 // Forward declarations
 class RtcEventLog;
 
@@ -258,6 +262,8 @@ public:
   NetworkControlUpdate OnNetworkStateEstimate(NetworkStateEstimate msg) override;
 
 private:
+  friend class test::L4SNetworkControllerTest;
+
   enum class ControllerState {
     kRouteReset,
     kSlowStart,
