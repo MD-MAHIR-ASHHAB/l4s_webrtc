@@ -148,6 +148,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     
     // Only perform additive increase if we're in increasing mode (flag = 1)
     if (direction_flag_ == 1) {  // Always increase when in additive mode
+    if (!additive_hold_until_.IsInfinite() && current_time < additive_hold_until_) {
+      RTC_LOG(LS_VERBOSE) << "Prague: Additive increase paused during probe hold window";
+      last_update_time_ = current_time;
+      return;
+    }
     
     // Prague DCTCP additive increase: +1 MSS per RTT period
     // This is the fundamental L4S congestion control behavior
@@ -428,6 +433,10 @@ void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
   RTC_LOG(LS_VERBOSE) << "Prague: Cleared probe constraint";
 }
 
+void webrtc::PragueCapacityEstimator::SetAdditiveHoldUntil(Timestamp hold_until) {
+  additive_hold_until_ = hold_until;
+}
+
 void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reason) {
   if (discovery_mode_active_) {
     discovery_mode_active_ = false;
@@ -472,13 +481,6 @@ void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double c
   sources_.acked_estimate = estimate;
   sources_.acked_confidence = confidence;
   sources_.last_acked_update = now;
-}
-
-void webrtc::L4SBandwidthFusion::UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating ALR estimate to " << estimate.bps() << " bps with confidence " << confidence;
-  sources_.alr_estimate = estimate;
-  sources_.alr_confidence = confidence;
-  sources_.last_alr_update = now;
 }
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
@@ -655,12 +657,11 @@ bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timest
 // L4SMetricsCollector Implementation
 // =============================================================================
 
-webrtc::L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger, 
-                                                    const std::string& test_case_name,
-                                                    Clock* clock)
-    : logger_(logger), test_case_name_(test_case_name), clock_(clock) {
+webrtc::L4SMetricsCollector::L4SMetricsCollector(
+    test::MetricsLogger* logger,
+    const std::string& test_case_name)
+    : logger_(logger), test_case_name_(test_case_name) {
   RTC_CHECK(logger_);
-  RTC_CHECK(clock_);
   RTC_LOG(LS_INFO) << "L4SMetricsCollector initialized for test case: " << test_case_name_;
 }
 
@@ -888,8 +889,10 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
       logger_to_use = GetGlobalMetricsLogger();
     }
     metrics_collector_ = std::make_unique<L4SMetricsCollector>(
-        logger_to_use, config_.test_case_name, &env_.clock());
+        logger_to_use, config_.test_case_name);
   }
+
+  SyncStateFromLegacySignals(Timestamp::Millis(env_.clock().TimeInMilliseconds()));
   
   RTC_LOG(LS_INFO) << "L4SNetworkController created with starting rate: " 
                    << starting_rate.bps() << " bps";
@@ -903,10 +906,6 @@ webrtc::L4SNetworkController::~L4SNetworkController() {
 }
 
 void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
-  if (config_.enable_delay_estimation) {
-    delay_estimator_ = std::make_unique<DelayBasedBwe>(&env_.field_trials(), nullptr, nullptr);
-  }
-  
   if (config_.enable_probing) {
     probe_controller_ = std::make_unique<ProbeController>(&env_.field_trials(), &env_.event_log());
     probe_bitrate_estimator_ = std::make_unique<ProbeBitrateEstimator>(&env_.event_log());
@@ -925,8 +924,7 @@ void webrtc::L4SNetworkController::InitializeBandwidthEstimators() {
   }
   
   RTC_LOG(LS_INFO) << "L4S: Initialized bandwidth estimators - "
-                   << "Delay: " << (delay_estimator_ ? "enabled" : "disabled")
-                   << ", Probe: " << (probe_controller_ ? "enabled" : "disabled")
+                   << "Probe: " << (probe_controller_ ? "enabled" : "disabled")
                    << ", Acked: " << (acked_estimator_ ? "enabled" : "disabled")
                    << ", ALR: " << (alr_detector_ ? "enabled" : "disabled");
 }
@@ -946,6 +944,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkAvailability
       if (since_last_probe >= config_.probe_interval) {
         update.probe_cluster_configs.push_back(probe);
         last_probe_time_ = now;
+        StartProbeHold(now);
       } else {
         RTC_LOG(LS_VERBOSE)
             << "L4S: Dropping availability probe due to global interval gate";
@@ -962,9 +961,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   
   // Reset ECN support detection on network change
   ecn_supported_ = false;
-  ecn_capable_network_ = false;
-  ect_count_ = 0;
-  ce_count_ = 0;
   last_congestion_signal_ = Timestamp::MinusInfinity();
   
   // Update rate constraints
@@ -974,6 +970,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   }
   min_target_rate_ = msg.constraints.min_data_rate;
   max_target_rate_ = msg.constraints.max_data_rate;
+
+  TransitionToState(ControllerState::kRouteReset,
+                    TransitionReason::kRouteChange,
+                    Timestamp::Millis(env_.clock().TimeInMilliseconds()));
   
   return update;
 }
@@ -1011,6 +1011,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
           clamped_min, clamped_start, clamped_max, msg.at_time);
       update.probe_cluster_configs.insert(update.probe_cluster_configs.end(),
                                           init_probes.begin(), init_probes.end());
+      if (!init_probes.empty()) {
+        StartProbeHold(msg.at_time);
+      }
       probe_controller_->EnablePeriodicAlrProbing(true);
       RTC_LOG(LS_INFO) << "L4S: ProbeController initialised - "
                        << "min=" << clamped_min.bps() << " bps, "
@@ -1036,6 +1039,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
       if (since_last_probe >= config_.probe_interval) {
         update.probe_cluster_configs.push_back(probe);
         last_probe_time_ = msg.at_time;
+        StartProbeHold(msg.at_time);
       } else {
         RTC_LOG(LS_VERBOSE)
             << "L4S: Dropping periodic ProbeController probe due to global interval gate";
@@ -1056,6 +1060,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+
+  SyncStateFromLegacySignals(msg.at_time);
   
   return update;
 }
@@ -1194,6 +1200,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
+
+  SyncStateFromLegacySignals(msg.feedback_time);
   
   return update;
 }
@@ -1225,11 +1233,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     }
   }
   
-  // 1. Update non-ECN estimators first (delay, acked, probe)
-  if (delay_estimator_) {
-    UpdateDelayBasedEstimator(feedback);
-  }
-  
+  // 1. Update non-ECN estimators first (acked, probe)
   if (acked_estimator_) {
     UpdateAckedBitrateEstimator(feedback);
   }
@@ -1290,7 +1294,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   // Update ECN support detection
   if (new_ect_count > 0 || new_ce_count > 0) {
     ecn_supported_ = true;
-    ecn_capable_network_ = true;
     
     // Track ECN activity for confidence calculation
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
@@ -1307,7 +1310,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
                        << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
     } else {
-      prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate, feedback.feedback_time);
+      prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate);
       RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
                        << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
     }
@@ -1347,17 +1350,13 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
   
-  // Update counters
-  ect_count_ = new_ect_count;
-  ce_count_ = new_ce_count;
-  
   // Handle packet-based recovery detection (video-only counts).
   // Passing video-only ECT/CE ensures that CE marks on the lightweight audio
   // stream do not prematurely terminate recovery of the video path.
   HandleRecoveryDetection(new_video_ect_count, new_video_ce_count, feedback.feedback_time);
 }
 
-webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate, Timestamp now) {
+webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate) {
   // During discovery mode, bypass bottleneck constraints to allow aggressive growth
   if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
     RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode active - bypassing bottleneck detection, using fused rate: " 
@@ -1400,12 +1399,6 @@ webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(Da
   RTC_LOG(LS_VERBOSE) << "L4S: Network bottleneck detected, targeting fused rate: " 
                    << fused_rate.bps() << " bps (ratio: " << probe_vs_acked_ratio << ")";
   return fused_rate;
-}
-
-void webrtc::L4SNetworkController::UpdateDelayBasedEstimator(const TransportPacketsFeedback& feedback) {
-  // Delay estimation disabled for L4S - ECN marks are the primary signal
-  // L4S philosophy: explicit congestion signals (CE marks) replace delay inference
-  return;
 }
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
@@ -1482,6 +1475,11 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
                         << ", probe_controller=" << (probe_controller_ ? "available" : "null");
     return;
   }
+
+  if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Probe hold active, skipping probe scheduling";
+    return;
+  }
   
   // Recovery probing has higher priority and frequency
   if (recovery_mode_active_) {
@@ -1489,7 +1487,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
     RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
     // Use a dedicated recovery interval, slower than before to avoid CE bursts.
-    if (since_last_probe >= config_.recovery_probe_interval) {
+    TimeDelta recovery_interval = GetRttScaledInterval();
+    if (since_last_probe >= recovery_interval) {
       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
       InitiateRecoveryProbing(now, update);
       last_probe_time_ = now;
@@ -1517,7 +1516,38 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
 }
 
+TimeDelta webrtc::L4SNetworkController::GetRttScaledInterval() const {
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() && !last_rtt_.IsZero()
+          ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
+          : TimeDelta::Millis(100);
+  TimeDelta rtt_scaled = effective_rtt * config_.recovery_probe_rtt_factor;
+  return std::max(config_.min_rtt_scaled_interval, rtt_scaled);
+}
+
+void webrtc::L4SNetworkController::StartProbeHold(Timestamp now) {
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() && !last_rtt_.IsZero()
+          ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
+          : TimeDelta::Millis(100);
+  TimeDelta hold = std::max(config_.min_rtt_scaled_interval,
+                            effective_rtt * config_.probe_hold_rtt_factor);
+  probe_hold_until_ = now + hold;
+  if (prague_estimator_) {
+    prague_estimator_->SetAdditiveHoldUntil(probe_hold_until_);
+  }
+}
+
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
+  // Avoid periodic probing at very low rates where measurements are noisy.
+  DataRate current_estimate = target_rate_.value_or(DataRate::Zero());
+  if (current_estimate < config_.periodic_probe_min_rate) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to low target rate: "
+                        << current_estimate.bps() << " < "
+                        << config_.periodic_probe_min_rate.bps();
+    return false;
+  }
+
   // Don't probe if we're experiencing heavy congestion
   if (HasRecentCongestionSignals(now)) {
     RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to recent congestion signals";
@@ -1576,26 +1606,11 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   if (!probes.empty()) {
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
                                          probes.begin(), probes.end());
+    StartProbeHold(now);
     RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << probes.size()
                         << " probe clusters";
   }
   (void)probe_rate;  // calculated above, kept for ALR multiplier logic
-}
-
-double webrtc::L4SNetworkController::CalculateEcnConfidence(Timestamp now) const {
-  return prague_estimator_->GetConfidence(now);
-}
-
-double webrtc::L4SNetworkController::CalculateDelayConfidence(Timestamp now) const {
-  if (!delay_estimator_ || !last_rtt_.IsFinite()) {
-    return 0.0;
-  }
-  
-  // High confidence if RTT is stable
-  if (IsRttStable()) {
-    return 0.8;
-  }
-  return 0.5;
 }
 
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
@@ -1675,17 +1690,15 @@ webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp no
   temp_sources.ecn_estimate = DataRate::Zero();
   temp_sources.ecn_confidence = 0.0;
   
-  // Use weighted combination of delay, probe, acked, and ALR estimates as base
+  // Use weighted combination of delay, probe, and acked estimates as base
   double total_weight = temp_sources.delay_confidence + 
                        temp_sources.probe_confidence + 
-                       temp_sources.acked_confidence +
-                       temp_sources.alr_confidence;
+                       temp_sources.acked_confidence;
   if (total_weight > 0.01) {  // Very low threshold - almost always use weighted combination
     DataRate weighted_estimate = 
         (temp_sources.delay_estimate * temp_sources.delay_confidence + 
          temp_sources.probe_estimate * temp_sources.probe_confidence +
-         temp_sources.acked_estimate * temp_sources.acked_confidence +
-         temp_sources.alr_estimate * temp_sources.alr_confidence) / total_weight;
+         temp_sources.acked_estimate * temp_sources.acked_confidence) / total_weight;
     
     RTC_LOG(LS_VERBOSE) << "L4S: Base fused estimate (no ECN): " << weighted_estimate.bps() << " bps";
     return weighted_estimate;
@@ -1708,11 +1721,6 @@ webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp no
   if (temp_sources.probe_confidence > best_confidence) {
     best_estimate = temp_sources.probe_estimate;
     best_confidence = temp_sources.probe_confidence;
-  }
-  
-  if (temp_sources.alr_confidence > best_confidence) {
-    best_estimate = temp_sources.alr_estimate;
-    best_confidence = temp_sources.alr_confidence;
   }
   
   RTC_LOG(LS_VERBOSE) << "L4S: Fallback base estimate: " << best_estimate.bps() << " bps";
@@ -1798,6 +1806,7 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
             if (since_last_probe >= config_.probe_interval) {
               update->probe_cluster_configs.push_back(probe);
               last_probe_time_ = at_time;
+              StartProbeHold(at_time);
             } else {
               RTC_LOG(LS_VERBOSE)
                   << "L4S: Dropping bitrate-change probe due to global interval gate";
@@ -1809,8 +1818,87 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   }
 }
 
-bool webrtc::L4SNetworkController::IsL4SActive() const {
-  return ecn_supported_ && ecn_capable_network_;
+void webrtc::L4SNetworkController::SyncStateFromLegacySignals(Timestamp now) {
+  TransitionToState(DeriveStateFromLegacySignals(),
+                    TransitionReason::kLegacySignalSync,
+                    now);
+}
+
+webrtc::L4SNetworkController::ControllerState
+webrtc::L4SNetworkController::DeriveStateFromLegacySignals() const {
+  if (recovery_mode_active_) {
+    return ControllerState::kCongestionRecovery;
+  }
+  if (!prague_estimator_) {
+    return ControllerState::kRouteReset;
+  }
+  if (prague_estimator_->IsDiscoveryModeActive()) {
+    return ControllerState::kSlowStart;
+  }
+  if (prague_estimator_->GetDirectionFlag() == -1) {
+    return ControllerState::kCongestionExperienced;
+  }
+  return ControllerState::kCongestionAvoidance;
+}
+
+const char* webrtc::L4SNetworkController::StateToString(ControllerState state) {
+  switch (state) {
+    case ControllerState::kRouteReset:
+      return "route_reset";
+    case ControllerState::kSlowStart:
+      return "slow_start";
+    case ControllerState::kCongestionAvoidance:
+      return "congestion_avoidance";
+    case ControllerState::kCongestionExperienced:
+      return "congestion_experienced";
+    case ControllerState::kCongestionRecovery:
+      return "congestion_recovery";
+  }
+  return "unknown";
+}
+
+const char* webrtc::L4SNetworkController::TransitionReasonToString(
+    TransitionReason reason) {
+  switch (reason) {
+    case TransitionReason::kRouteChange:
+      return "route_change";
+    case TransitionReason::kLegacySignalSync:
+      return "legacy_signal_sync";
+  }
+  return "unknown";
+}
+
+void webrtc::L4SNetworkController::TransitionToState(ControllerState new_state,
+                                                     TransitionReason reason,
+                                                     Timestamp at_time) {
+  if (!at_time.IsFinite()) {
+    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+  }
+  if (new_state == controller_state_) {
+    if (state_entered_at_.IsInfinite()) {
+      state_entered_at_ = at_time;
+    }
+    return;
+  }
+
+  TimeDelta in_previous_state =
+      state_entered_at_.IsInfinite() ? TimeDelta::Zero()
+                                     : (at_time - state_entered_at_);
+  ++state_transition_count_;
+  RTC_LOG(LS_INFO) << "L4S: State transition #" << state_transition_count_ << " "
+                   << StateToString(controller_state_) << " -> "
+                   << StateToString(new_state) << " reason="
+                   << TransitionReasonToString(reason)
+                   << ", in_prev_state_ms=" << in_previous_state.ms()
+                   << ", target_bps="
+                   << target_rate_.value_or(DataRate::Zero()).bps()
+                   << ", acked_bps="
+                   << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
+                   << ", actual_bps=" << last_actual_bitrate_.bps()
+                   << ", loss=" << last_loss_fraction_;
+
+  controller_state_ = new_state;
+  state_entered_at_ = at_time;
 }
 
 bool webrtc::L4SNetworkController::HasRecentCongestionSignals(Timestamp now) const {
@@ -1821,21 +1909,6 @@ bool webrtc::L4SNetworkController::HasRecentCongestionSignals(Timestamp now) con
 bool webrtc::L4SNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
   return HasRecentCongestionSignals(now) || 
          (ecn_supported_ && (now - last_congestion_signal_) < TimeDelta::Seconds(5));
-}
-
-bool webrtc::L4SNetworkController::EstimatesAreDiverging() const {
-  // Simple check for estimate divergence
-  auto sources = bandwidth_fusion_->GetCurrentSources();
-  if (sources.ecn_estimate > DataRate::Zero() && sources.delay_estimate > DataRate::Zero()) {
-    double ratio = sources.ecn_estimate.bps() / static_cast<double>(sources.delay_estimate.bps());
-    return ratio > 2.0 || ratio < 0.5;  // 2x divergence threshold
-  }
-  return false;
-}
-
-bool webrtc::L4SNetworkController::IsRttStable() const {
-  // Simplified RTT stability check
-  return last_rtt_.IsFinite() && last_rtt_ < TimeDelta::Millis(100);
 }
 
 void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
@@ -2014,6 +2087,24 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
+  // Skip recovery probing at very low rates where queue/scheduler effects
+  // dominate and probe samples are typically misleading.
+  if (current_estimate < config_.recovery_probe_min_rate) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to low target rate: "
+                        << current_estimate.bps() << " < "
+                        << config_.recovery_probe_min_rate.bps();
+    return;
+  }
+
+  // Ensure probes are materially above current estimate; otherwise they are
+  // not useful for capacity seeking and only add CE risk.
+  DataRate min_useful_probe_rate = current_estimate * config_.min_useful_probe_uplift;
+  if (probe_rate < min_useful_probe_rate) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to insufficient uplift: "
+                        << probe_rate.bps() << " < " << min_useful_probe_rate.bps();
+    return;
+  }
+
   // Bootstrap recovery probing once, then avoid repeated reset->startup bursts.
   DataRate clamped_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
   DataRate clamped_max = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
@@ -2043,6 +2134,7 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   if (!probes.empty()) {
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
                                          probes.begin(), probes.end());
+    StartProbeHold(now);
     RTC_LOG(LS_INFO) << "L4S: Recovery probe initiated - "
                      << probes.size() << " clusters from "
                      << current_estimate.bps() << " bps "
@@ -2059,6 +2151,9 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
   // Handle recovery mode detection based on clean ECT1 packets
   if (ce_count == 0 && ect_count > 0) {
+    if (clean_ect_run_start_.IsInfinite()) {
+      clean_ect_run_start_ = now;
+    }
     consecutive_clean_packets_ += ect_count;
     
     // Trigger recovery mode if enough clean packets seen, not already in discovery,
@@ -2073,7 +2168,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     //
     //   effective_rtt   = clamp(last_rtt_, 50 ms, 300 ms)
     //   target_duration = 1.5 × effective_rtt
-    //   threshold       = clamp(packets/s × target_duration, 20, 500)
+    //   threshold       = clamp(packets/s × target_duration, recovery_min_clean_packets, 500)
     //
     // kRecoveryPacketThreshold (20) acts as the floor so the condition is
     // never trivially satisfied on very low-rate paths.
@@ -2089,10 +2184,19 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
                           : 2'000'000.0;  // 2 Mbps safe default
     double packets_per_sec = rate_bps / (1400.0 * 8.0);
     int dynamic_threshold = static_cast<int>(packets_per_sec * target_duration_s);
-    int recovery_threshold = std::clamp(dynamic_threshold,
-                                        kRecoveryPacketThreshold,  // floor = 20
-                                        500);                       // cap = 500
+    int recovery_threshold = std::clamp(
+      dynamic_threshold,
+      std::max(config_.recovery_min_clean_packets, kRecoveryPacketThreshold),
+      500);
+    TimeDelta clean_duration = now - clean_ect_run_start_;
+    TimeDelta min_clean_duration =
+      std::max(config_.recovery_min_clean_duration, effective_rtt * 2.0);
+    bool clean_duration_ok = clean_duration >= min_clean_duration;
+    bool rate_ok = target_rate_.value_or(DataRate::Zero()) >=
+             config_.recovery_probe_min_rate;
     if (consecutive_clean_packets_ >= recovery_threshold &&
+      clean_duration_ok &&
+      rate_ok &&
         !recovery_mode_active_ &&
         !prague_estimator_->IsDiscoveryModeActive() &&
         cooldown_expired) {
@@ -2104,16 +2208,20 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
                        << " clean ECT packets (threshold=" << recovery_threshold
                        << ", rtt=" << effective_rtt.ms() << "ms"
+                       << ", clean_ms=" << clean_duration.ms()
+                       << ", min_clean_ms=" << min_clean_duration.ms()
                        << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
     }
   } else if (ce_count > 0) {
     // Reset clean packet count on congestion
     consecutive_clean_packets_ = 0;
+    clean_ect_run_start_ = Timestamp::MinusInfinity();
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
+      recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
       RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
     }
   }
@@ -2132,6 +2240,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
       consecutive_clean_packets_ = 0;
+      clean_ect_run_start_ = Timestamp::MinusInfinity();
 
       if (by_convergence) {
         // Impose a cooldown so the controller doesn't oscillate back into
@@ -2140,6 +2249,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
         RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - convergence achieved, "
                          << "cooldown until +" << kRecoveryCooldown.seconds<int>() << "s";
       } else {
+        recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
         RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - timeout";
       }
     }
