@@ -175,11 +175,9 @@ public:
   ~L4SBandwidthFusion();
 
   void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
 
-  DataRate GetFusedEstimate(Timestamp now) const;
   DataRate GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const;
   BandwidthSources GetCurrentSources() const { return sources_; }
 

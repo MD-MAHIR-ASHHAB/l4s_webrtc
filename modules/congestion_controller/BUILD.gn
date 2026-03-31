@@ -113,6 +113,7 @@ if (rtc_include_tests && !build_with_chromium) {
 rtc_library("l4s_test") {
   testonly = true
   sources = [
+    "l4s/l4s_network_controller_unittest.cc",
     "l4s/l4s_prague_controller_unittest.cc",
   ]
   deps = [

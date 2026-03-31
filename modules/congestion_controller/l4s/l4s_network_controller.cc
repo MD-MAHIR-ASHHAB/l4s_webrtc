@@ -240,12 +240,13 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
   congestion_based_estimate_ = reduced;
+
   
   // Switch to reduction mode and reset non-CE counter
   direction_flag_ = -1;
   non_ce_packet_count_ = 0;
   
-  RTC_LOG(LS_WARNING) << "Prague: Packet loss detected, halving estimate to "
+  RTC_LOG(LS_INFO) << "Prague: Packet loss detected, halving estimate to "
                       << congestion_based_estimate_.bps() << " bps, switched to reduction mode";
   
   last_update_time_ = current_time;
@@ -462,13 +463,6 @@ void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double con
   sources_.last_ecn_update = now;
 }
 
-void webrtc::L4SBandwidthFusion::UpdateDelayEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating delay estimate to " << estimate.bps() << " bps with confidence " << confidence;
-  sources_.delay_estimate = estimate;
-  sources_.delay_confidence = confidence;
-  sources_.last_delay_update = now;
-}
-
 void webrtc::L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
   RTC_LOG(LS_VERBOSE) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
   sources_.probe_estimate = estimate;
@@ -481,10 +475,6 @@ void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double c
   sources_.acked_estimate = estimate;
   sources_.acked_confidence = confidence;
   sources_.last_acked_update = now;
-}
-
-webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimate(Timestamp now) const {
-  return GetFusedEstimateWithMode(now, false, false);
 }
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const {
@@ -971,6 +961,39 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   min_target_rate_ = msg.constraints.min_data_rate;
   max_target_rate_ = msg.constraints.max_data_rate;
 
+  // Route change must clear path-specific history. Keeping old recovery/fusion
+  // state can cause immediate post-route transitions that reflect the previous
+  // path rather than the new one.
+  DataRate reset_starting_rate =
+      starting_rate_.value_or(DataRate::KilobitsPerSec(300));
+  DataRate reset_min_rate =
+      min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
+  DataRate reset_max_rate =
+      max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
+  prague_estimator_ = std::make_unique<PragueCapacityEstimator>(
+      reset_starting_rate, reset_min_rate, reset_max_rate);
+  bandwidth_fusion_ = std::make_unique<L4SBandwidthFusion>(config_);
+
+  recovery_mode_active_ = false;
+  recovery_probe_bootstrapped_ = false;
+  consecutive_clean_packets_ = 0;
+  clean_ect_run_start_ = Timestamp::MinusInfinity();
+  recovery_start_time_ = Timestamp::MinusInfinity();
+  recovery_cooldown_until_ = Timestamp::MinusInfinity();
+
+  last_probe_time_ = Timestamp::MinusInfinity();
+  probe_hold_until_ = Timestamp::MinusInfinity();
+  initial_probes_sent_ = false;
+  last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
+  previously_in_alr_ = false;
+
+  throughput_window_.clear();
+  last_actual_bitrate_ = DataRate::Zero();
+  last_acked_bitrate_.reset();
+  last_loss_fraction_ = 0.0;
+  last_packets_lost_ = 0;
+  last_state_snapshot_log_ = Timestamp::MinusInfinity();
+
   TransitionToState(ControllerState::kRouteReset,
                     TransitionReason::kRouteChange,
                     Timestamp::Millis(env_.clock().TimeInMilliseconds()));
@@ -1252,15 +1275,6 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
 void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
     const TransportPacketsFeedback& feedback,
     DataRate base_fused_rate) {
-  switch (controller_state_) {
-    case ControllerState::kRouteReset:
-    case ControllerState::kSlowStart:
-    case ControllerState::kCongestionAvoidance:
-    case ControllerState::kCongestionExperienced:
-    case ControllerState::kCongestionRecovery:
-      break;
-  }
-
   if (!IsApplicationLimited()) {
     ProcessEcnFeedback(feedback, base_fused_rate);
   } else {
@@ -1272,103 +1286,99 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   if (feedback.packet_feedbacks.empty()) {
     return;
   }
-  
-  int new_ect_count = 0;
-  int new_ce_count = 0;
-  // Separate video-only counts for recovery detection.
-  // Audio CE packets are excluded from recovery logic so that lightweight
-  // audio CE marks (common on low-bandwidth audio streams) do not prevent
-  // or prematurely terminate recovery of the dominant video path.
-  // sent_packet.audio is set by TransportFeedbackAdapter from
-  // RtpPacketMediaType::kAudio at send time.
-  int new_video_ect_count = 0;
-  int new_video_ce_count = 0;
 
+  // --- Windowed ECN/CE accumulation ---
+  static int window_ce_count = 0;
+  static int window_ect_count = 0;
+  static Timestamp window_start_time = Timestamp::MinusInfinity();
+  TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
+
+  int batch_ect_count = 0;
+  int batch_ce_count = 0;
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
-      new_ect_count++;
+      batch_ect_count++;
     }
     if (packet.ecn == EcnMarking::kCe) {
-      new_ce_count++;
+      batch_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
-      
-      RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << new_ce_count
-                         << ", ECT count=" << new_ect_count;
-    }
-    // Video-only counts (audio=false covers video, padding, RTX)
-    if (!packet.sent_packet.audio) {
-      if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
-        new_video_ect_count++;
-      }
-      if (packet.ecn == EcnMarking::kCe) {
-        new_video_ce_count++;
-      }
+      RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << batch_ce_count
+                         << ", ECT count=" << batch_ect_count;
     }
   }
-  
+
   // Update ECN support detection
-  if (new_ect_count > 0 || new_ce_count > 0) {
+  if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
-    
-    // Track ECN activity for confidence calculation
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
-  
-  // Update Prague estimator with CE ratio using intelligent bottleneck detection
-  if (new_ect_count + new_ce_count > 0) {
-    double ce_ratio = static_cast<double>(new_ce_count) / (new_ect_count + new_ce_count);
-    
-    // During discovery mode, use Prague's own estimate to create positive feedback loop
-    DataRate prague_input_rate;
-    if (prague_estimator_->IsDiscoveryModeActive()) {
-      prague_input_rate = prague_estimator_->GetCurrentEstimate();
-      RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
-                       << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
-    } else {
-      prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate);
-      RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
-                       << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
-    }
-    
-    prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
-    
-    // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
-    // so allow Prague to drop no lower than 50% of that observed throughput.
-    // This is a safety net for edge cases where last_rtt_ is temporarily
-    // invalid and the once-per-RTT gate cannot protect against cascading MDs.
-    if (!last_actual_bitrate_.IsZero()) {
-      DataRate floor = last_actual_bitrate_ * 0.5;
-      DataRate prague_current = prague_estimator_->GetCurrentEstimate();
-      if (prague_current < floor) {
-        RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
-                           << " bps raised to " << floor.bps()
-                           << " bps (50% of actual throughput " << last_actual_bitrate_.bps() << " bps)";
-        // Re-seed the estimator at the floor so AI resumes from a sensible base
-        prague_estimator_->SetCurrentEstimate(floor);
+
+  // Accumulate counts for the window
+  window_ce_count += batch_ce_count;
+  window_ect_count += batch_ect_count;
+
+  // Ignore single-packet immediate feedbacks for reduction
+  int batch_total = batch_ect_count + batch_ce_count;
+  if (batch_total == 1) {
+    // Still accumulate, but do not trigger reduction yet
+    HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
+    return;
+  }
+
+  // Start a new window if needed
+  if (window_start_time.IsInfinite() || (feedback.feedback_time - window_start_time) >= window_duration) {
+    int window_total = window_ect_count + window_ce_count;
+    double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count) / window_total : 0.0;
+
+    // Only apply reduction if enough packets were seen in the window
+    const int min_packets_threshold = 3;
+    if (window_total >= min_packets_threshold) {
+      DataRate prague_input_rate;
+      if (prague_estimator_->IsDiscoveryModeActive()) {
+        prague_input_rate = prague_estimator_->GetCurrentEstimate();
+        RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
+                         << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
+      } else {
+        prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate);
+        RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
+                         << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
+      }
+
+      prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
+
+      // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
+      // so allow Prague to drop no lower than 50% of that observed throughput.
+      if (!last_actual_bitrate_.IsZero()) {
+        DataRate floor = last_actual_bitrate_ * 0.5;
+        DataRate prague_current = prague_estimator_->GetCurrentEstimate();
+        if (prague_current < floor) {
+          RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
+                             << " bps raised to " << floor.bps()
+                             << " bps (50% of actual throughput " << last_actual_bitrate_.bps() << " bps)";
+          prague_estimator_->SetCurrentEstimate(floor);
+        }
+      }
+
+      double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
+      if (prague_estimator_->GetDirectionFlag() == -1) {
+        ecn_confidence = std::max(ecn_confidence, 0.95);
+        RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
+      }
+      bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
+
+      if (metrics_enabled_ && metrics_collector_) {
+        metrics_collector_->LogCongestionMetrics(feedback.feedback_time, window_ce_count, window_ect_count, ce_ratio);
       }
     }
-    
-    // Update fusion engine with ECN estimate
-    double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
-    
-    // Boost ECN confidence when Prague is in reduction mode to prevent other estimators from overriding
-    if (prague_estimator_->GetDirectionFlag() == -1) {
-      ecn_confidence = std::max(ecn_confidence, 0.95);  // Very high confidence during reduction
-      RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
-    }
-    
-    bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
-    
-    // Log congestion metrics
-    if (metrics_enabled_ && metrics_collector_) {
-      metrics_collector_->LogCongestionMetrics(feedback.feedback_time, new_ce_count, new_ect_count, ce_ratio);
-    }
+
+    // Reset window
+    window_ce_count = 0;
+    window_ect_count = 0;
+    window_start_time = feedback.feedback_time;
   }
-  
-  // Handle packet-based recovery detection (video-only counts).
-  // Passing video-only ECT/CE ensures that CE marks on the lightweight audio
-  // stream do not prematurely terminate recovery of the video path.
-  HandleRecoveryDetection(new_video_ect_count, new_video_ce_count, feedback.feedback_time);
+
+  // Handle packet-based recovery detection (now using all packets, not just video).
+  HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate) {
@@ -1534,15 +1544,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
 void webrtc::L4SNetworkController::ApplyStateProbingPolicy(
     Timestamp now,
     NetworkControlUpdate* update) {
-  switch (controller_state_) {
-    case ControllerState::kRouteReset:
-    case ControllerState::kSlowStart:
-    case ControllerState::kCongestionAvoidance:
-    case ControllerState::kCongestionExperienced:
-    case ControllerState::kCongestionRecovery:
-      HandlePeriodicProbing(now, update);
-      return;
-  }
+  HandlePeriodicProbing(now, update);
 }
 
 TimeDelta webrtc::L4SNetworkController::GetRttScaledInterval() const {
@@ -1639,7 +1641,7 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << probes.size()
                         << " probe clusters";
   }
-  (void)probe_rate;  // calculated above, kept for ALR multiplier logic
+  // (void)probe_rate;  // calculated above, kept for ALR multiplier logic
 }
 
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
