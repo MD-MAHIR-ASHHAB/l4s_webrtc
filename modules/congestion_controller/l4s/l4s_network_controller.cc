@@ -1319,7 +1319,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
   // Ignore single-packet immediate feedbacks for reduction
   int batch_total = batch_ect_count + batch_ce_count;
-  if (batch_total == 1) {
+  if (batch_total < 3 ) {
     // Still accumulate, but do not trigger reduction yet
     HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
     return;
