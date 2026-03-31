@@ -80,7 +80,6 @@ struct L4SControllerConfig {
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
   double probe_confidence_threshold = 0.7;
-  double delay_confidence_threshold = 0.6;
   double acked_confidence_threshold = 0.5;
 };
 
