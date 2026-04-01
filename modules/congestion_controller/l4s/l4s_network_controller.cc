@@ -167,7 +167,7 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   // Only increase if we are in additive mode AND we have recent network feedback
   // (Prevents infinite ramp-up if the network dies completely)
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
-                          (current_time - last_feedback_time_) < TimeDelta::Seconds(2);
+                          (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
   if (direction_flag_ == 1 && network_is_alive) {
     if (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_) {
@@ -229,20 +229,39 @@ void webrtc::PragueCapacityEstimator::SetCurrentEstimate(DataRate rate) {
                                         DataRate::KilobitsPerSec(20));
 }
 
+// double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
+//   // Check for any ECN activity (ECT or CE packets)
+//   if (last_ecn_feedback_.IsInfinite()) {
+//     return 0.3;  // Low confidence without any ECN feedback
+//   }
+  
+//   TimeDelta since_ecn_activity = now - last_ecn_feedback_;
+//   if (since_ecn_activity < TimeDelta::Seconds(2)) {
+//     return 0.9;  // Very confident with recent ECN activity
+//   } else if (since_ecn_activity < TimeDelta::Seconds(5)) {
+//     return 0.7;  // Moderately confident
+//   }
+//   return 0.4;  // Lower confidence with stale ECN feedback
+// }
+
 double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
-  // Check for any ECN activity (ECT or CE packets)
   if (last_ecn_feedback_.IsInfinite()) {
     return 0.3;  // Low confidence without any ECN feedback
   }
   
   TimeDelta since_ecn_activity = now - last_ecn_feedback_;
-  if (since_ecn_activity < TimeDelta::Seconds(2)) {
-    return 0.9;  // Very confident with recent ECN activity
-  } else if (since_ecn_activity < TimeDelta::Seconds(5)) {
-    return 0.7;  // Moderately confident
+  
+  // In sparse RTP feedback, silence is golden. 
+  // Hold high confidence through standard periodic RTCP gaps.
+  if (since_ecn_activity < TimeDelta::Seconds(10)) {
+    return 0.95; // Highly confident. Prague remains Priority 1.
+  } else if (since_ecn_activity < TimeDelta::Seconds(15)) {
+    return 0.70; // Moderately confident.
   }
-  return 0.4;  // Lower confidence with stale ECN feedback
+  return 0.4;  // Path is likely dead
 }
+
+
 
 // int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time) {
 //   // Context-aware AI step calculation that adapts to network conditions
