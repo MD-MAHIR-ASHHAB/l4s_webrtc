@@ -1167,7 +1167,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   ApplyStateProbingPolicy(msg.at_time, &update);
 
   // Update time-based growth/decay in Prague estimator
-  prague_estimator_->OnTimeUpdate(msg.at_time);
+  prague_estimator_->OnTimeUpdate(msg.at_time, IsApplicationLimited());
   
   // CRITICAL FIX: Push the autonomously grown rate into the Fusion Engine
   // so the pacer actually speeds up between sparse RTCP packets.
