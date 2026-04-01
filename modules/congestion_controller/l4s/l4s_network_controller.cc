@@ -86,7 +86,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
       last_md_time_ = current_time; 
-      
+      last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
+
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
@@ -133,6 +134,8 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
   congestion_based_estimate_ = reduced;
+
+  last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
   
   // Switch to reduction mode and reset non-CE counter
@@ -1114,10 +1117,21 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
 
   // State-owned probing policy
   ApplyStateProbingPolicy(msg.at_time, &update);
-  
-  // Update time-based decay in Prague estimator
+
+  // Update time-based growth/decay in Prague estimator
   prague_estimator_->OnTimeUpdate(msg.at_time);
   
+  // CRITICAL FIX: Push the autonomously grown rate into the Fusion Engine
+  // so the pacer actually speeds up between sparse RTCP packets.
+  if (prague_estimator_->GetDirectionFlag() == 1) { 
+      double ecn_confidence = prague_estimator_->GetConfidence(msg.at_time);
+      bandwidth_fusion_->UpdateEcnEstimate(
+          prague_estimator_->GetCurrentEstimate(), 
+          ecn_confidence, 
+          msg.at_time
+      );
+  }
+
   // State-owned fusion policy
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time);
   target_rate_ = fused_rate;
@@ -2393,6 +2407,51 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
   (void)probe_rate;         // computed above for max clamping
   (void)recovery_multiplier;
 }
+
+
+
+double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
+  if (last_probe_time_.IsInfinite()) {
+    return 0.0;
+  }
+
+  TimeDelta since_probe = now - last_probe_time_;
+  
+  // In a sparse-feedback L4S architecture, we trust the micro-probe result 
+  // for the entire duration of the periodic probe interval (typically 5-8 seconds).
+  // This ensures the Fusion Engine doesn't drop the probe discovery before 
+  // the next cycle begins.
+  if (since_probe < config_.probe_interval) {
+    // Return a high confidence (e.g., 0.75+) so it can successfully act 
+    // as the Priority 2 capacity ceiling in GetFusedEstimateWithMode.
+    return config_.probe_confidence_fresh; 
+  } else if (since_probe < (config_.probe_interval * 2)) {
+    // If we missed a probe cycle, decay it so it no longer leads the fusion engine,
+    // but don't completely discard it yet.
+    return config_.probe_confidence_recent; 
+  }
+  
+  // Stale probe data (older than 2 intervals) is no longer trustworthy.
+  return 0.2;  
+}
+
+double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) const {
+  if (!acked_estimator_) {
+    return 0.0;
+  }
+  
+  // CRITICAL L4S OVERRIDE: 
+  // The Acknowledged Bitrate is highly volatile and represents current encoder 
+  // output, not maximum network capacity. If this confidence is too high, 
+  // it will cause a downward spiral during Application-Limited Regions (ALR).
+  // 
+  // By hard-capping this below the Fusion engine's standard thresholds (0.5+), 
+  // we ensure the Acked rate is ONLY used as a reality-check floor, never as 
+  // the dictating ceiling when Prague or Probes are active.
+  return 0.4; 
+}
+
+
 
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
   // Handle recovery mode detection based on clean ECT1 packets
