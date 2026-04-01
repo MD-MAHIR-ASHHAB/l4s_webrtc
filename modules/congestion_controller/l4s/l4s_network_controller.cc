@@ -1915,6 +1915,65 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   return update;
 }
 
+// void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time) {
+//   if (!at_time.IsFinite()) {
+//     at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+//   }
+  
+//   NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
+  
+//   if (rate_update.pacer_config) {
+//     update->pacer_config = rate_update.pacer_config;
+//   }
+//   if (rate_update.target_rate) {
+//     update->target_rate = rate_update.target_rate;
+
+//     // Notify ProbeController of a meaningful bitrate change (>5% shift).
+//     // Calling SetEstimatedBitrate on every feedback batch would flood
+//     // probe_controller.cc's "Measured bitrate" log because that log fires
+//     // unconditionally while state == kWaitingForProbingResult.
+//     if (probe_controller_) {
+//       DataRate target_bitrate = rate_update.target_rate->target_rate;
+//       bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
+//       bool changed_significantly =
+//           is_first_report ||
+//           (std::abs(static_cast<int64_t>(target_bitrate.bps()) -
+//                     static_cast<int64_t>(
+//                         last_reported_bitrate_to_probe_controller_.bps())) >
+//            static_cast<int64_t>(
+//                0.05 * last_reported_bitrate_to_probe_controller_.bps()));
+//       if (changed_significantly) {
+//         // Use kLossLimitedBweIncreasing during recovery so ProbeController
+//         // records the cause correctly for future RequestProbe decisions.
+//         BandwidthLimitedCause cause =
+//             recovery_mode_active_
+//                 ? BandwidthLimitedCause::kLossLimitedBweIncreasing
+//                 : BandwidthLimitedCause::kDelayBasedLimited;
+//         auto probes = probe_controller_->SetEstimatedBitrate(
+//             target_bitrate, cause, at_time);
+//         last_reported_bitrate_to_probe_controller_ = target_bitrate;
+//         if (!probes.empty()) {
+//           for (const auto& probe : probes) {
+//             TimeDelta since_last_probe =
+//                 last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
+//                                               : (at_time - last_probe_time_);
+//             if (since_last_probe >= config_.probe_interval) {
+//               update->probe_cluster_configs.push_back(probe);
+//               last_probe_time_ = at_time;
+//               StartProbeHold(at_time);
+//             } else {
+//               RTC_LOG(LS_VERBOSE)
+//                   << "L4S: Dropping bitrate-change probe due to global interval gate";
+//             }
+//           }
+//         }
+//       }
+//     }
+//   }
+// }
+
+//ALR based method 
+
 void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time) {
   if (!at_time.IsFinite()) {
     at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
@@ -1928,12 +1987,14 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   if (rate_update.target_rate) {
     update->target_rate = rate_update.target_rate;
 
-    // Notify ProbeController of a meaningful bitrate change (>5% shift).
-    // Calling SetEstimatedBitrate on every feedback batch would flood
-    // probe_controller.cc's "Measured bitrate" log because that log fires
-    // unconditionally while state == kWaitingForProbingResult.
+    DataRate target_bitrate = rate_update.target_rate->target_rate;
+
+    // --- CRITICAL FIX: Tell ALR Detector our new limit! ---
+    if (alr_detector_) {
+      alr_detector_->SetEstimatedBitrate(target_bitrate.bps());
+    }
+
     if (probe_controller_) {
-      DataRate target_bitrate = rate_update.target_rate->target_rate;
       bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
       bool changed_significantly =
           is_first_report ||
@@ -1943,8 +2004,6 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
            static_cast<int64_t>(
                0.05 * last_reported_bitrate_to_probe_controller_.bps()));
       if (changed_significantly) {
-        // Use kLossLimitedBweIncreasing during recovery so ProbeController
-        // records the cause correctly for future RequestProbe decisions.
         BandwidthLimitedCause cause =
             recovery_mode_active_
                 ? BandwidthLimitedCause::kLossLimitedBweIncreasing
@@ -1971,6 +2030,7 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
     }
   }
 }
+
 
 void webrtc::L4SNetworkController::AdvanceStateMachine(Timestamp now) {
   if (!now.IsFinite()) {
