@@ -162,7 +162,6 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
 
 //time-driven and ALR aware AI
 
-
 void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool is_app_limited) {
   if (last_update_time_.IsInfinite() || last_ai_update_time_.IsInfinite()) {
     last_update_time_ = current_time;
@@ -180,10 +179,11 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
                           (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
-  // --- CRITICAL FIX: The ALR Freeze ---
-  // Only grow the budget if the application is actually filling the current pipe.
-  if (direction_flag_ == 1 && network_is_alive && !is_app_limited) {
-    if (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_) {
+  // Growth Logic
+  if (direction_flag_ == 1 && network_is_alive) {
+    // Only perform autonomous time-driven AI if we are NOT app-limited.
+    // If we ARE app-limited, we stay at the current rate and wait for a Probe Nudge.
+    if (!is_app_limited && (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_)) {
       
       double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_.seconds<double>() : 0.05;
       double elapsed_s = ai_elapsed.seconds<double>();
@@ -212,20 +212,14 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
 
   last_ai_update_time_ = current_time;
 
+  // Standard Prague Decay
   if (elapsed >= kDecayInterval) {
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
     congestion_based_estimate_ = std::max(congestion_based_estimate_, DataRate::KilobitsPerSec(20));
     last_update_time_ = current_time;
   }
   
-  if (first_ce_mark_detected_ && !discovery_mode_active_) {
-    TimeDelta since_congestion = current_time - last_congestion_signal_;
-    if (since_congestion > TimeDelta::Seconds(30)) {
-      discovery_mode_active_ = true;
-      first_ce_mark_detected_ = false; 
-    }
-  }
-
+  // Alpha Decay Logic (Autonomous)
   if (alpha_ > 0.0) {
     TimeDelta since_last_ce = current_time - last_congestion_signal_;
     TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
@@ -238,6 +232,9 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
     }
   }
 }
+
+
+
 
 webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
   return congestion_based_estimate_;
