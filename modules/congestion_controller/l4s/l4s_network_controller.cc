@@ -1413,7 +1413,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       batch_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
       
-      // CRITICAL DISTINCTION: Was this CE mark caused by our own probe burst?
       if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
         probe_caused_congestion = true;
       }
@@ -1441,23 +1440,20 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     const int min_packets_threshold = 3;
     if (window_total >= min_packets_threshold) {
       
-      // Logic split: Network CE vs Probe CE
       if (batch_ce_count > 0 && probe_caused_congestion) {
         RTC_LOG(LS_INFO) << "L4S: CE marks triggered by Micro-Probe. Freezing AI, but bypassing MD.";
         
-        // Tell Prague to hold current rate, do NOT apply Multiplicative Decrease
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
         
-        // Re-align probe estimate to safe actual bitrate
         if (!last_actual_bitrate_.IsZero()) {
           bandwidth_fusion_->UpdateProbeEstimate(last_actual_bitrate_, 0.8, feedback.feedback_time);
         }
 
       } else {
-        // Standard Cross-Traffic Congestion - Apply full Prague MD
-        DataRate prague_input_rate = prague_estimator_->IsDiscoveryModeActive() 
-                                     ? prague_estimator_->GetCurrentEstimate() 
-                                     : DetermineBottleneckAwareTarget(current_fused_rate);
+        // --- CRITICAL FIX 3: Proportional Multiplicative Decrease ---
+        // We MUST apply the reduction factor to Prague's own internal estimate. 
+        // Feeding the physical acked_throughput here causes a catastrophic rate collapse.
+        DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
 
         prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
 
@@ -1483,7 +1479,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
 }
-
 
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate) {
