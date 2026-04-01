@@ -82,9 +82,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     if (direction_flag_ == 1) {
       direction_flag_ = -1;
       double reduction_factor = 1.0 - alpha_ / 2.0;
+
+
+      // --- CRITICAL FIX 3: Protect the video encoder ---
+      // Never cut more than 20% of the bitrate in a single RTT, regardless of alpha.
+      reduction_factor = std::max(reduction_factor, 0.80);
+
+
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
+
       last_md_time_ = current_time; 
       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
@@ -99,7 +107,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
+
         last_md_time_ = current_time;
+        last_ai_update_time_ = current_time; // Reset AI clock on cut
       }
     }
     last_congestion_signal_ = current_time;
@@ -163,9 +173,14 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
   TimeDelta elapsed = current_time - last_update_time_;
   TimeDelta ai_elapsed = current_time - last_ai_update_time_;
 
+  // --- CRITICAL FIX 1: Guard against OS thread double-firing ---
+  // If less than 1ms has passed, the OS thread double-fired. 
+  // Skip the update to prevent elapsed_s == 0.0 and division-by-zero errors.
+  if (ai_elapsed < TimeDelta::Millis(1)) {
+    return; 
+  }
+
   // 1. Autonomous Additive Increase (Virtual ACKs)
-  // Only increase if we are in additive mode AND we have recent network feedback
-  // (Prevents infinite ramp-up if the network dies completely)
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
                           (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
@@ -214,6 +229,20 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
     if (since_congestion > TimeDelta::Seconds(30)) {
       discovery_mode_active_ = true;
       first_ce_mark_detected_ = false; 
+    }
+  }
+
+  // --- CRITICAL FIX 2: Autonomously decay alpha over time ---
+  // Prevents the "Ghost of Congestion" trap in sparse-RTCP environments.
+  if (alpha_ > 0.0) {
+    TimeDelta since_last_ce = current_time - last_congestion_signal_;
+    TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
+    
+    if (!last_congestion_signal_.IsInfinite() && since_last_ce > safe_clearance) {
+      alpha_ *= 0.95; // Decay by 5% per tick
+      if (alpha_ < 0.001) {
+        alpha_ = 0.0;
+      }
     }
   }
 }
