@@ -2051,6 +2051,10 @@ bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
   return recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_;
 }
 
+// 
+
+//alr included snapshot in state transition evaluation to prevent recovery flapping when ALR ends during congestion
+
 void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
   if (!now.IsFinite()) {
     now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
@@ -2075,8 +2079,9 @@ void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
           ? TimeDelta::Zero()
           : (recovery_cooldown_until_ - now);
 
-  RTC_LOG(LS_VERBOSE)
+  RTC_LOG(LS_INFO)
       << "L4S: State snapshot state=" << StateToString(controller_state_)
+      << ", alr=" << IsApplicationLimited()
       << ", discovery=" << discovery_active
       << ", reduction=" << reduction_active
       << ", recovery=" << recovery_mode_active_
@@ -2089,6 +2094,7 @@ void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
       << ", loss=" << last_loss_fraction_
       << ", rtt_ms=" << (last_rtt_.IsFinite() ? last_rtt_.ms() : -1);
 }
+
 
 std::optional<webrtc::L4SNetworkController::TransitionDecision>
 webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
