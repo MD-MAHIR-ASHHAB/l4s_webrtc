@@ -1366,15 +1366,26 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   ApplyStateEcnPolicy(feedback, base_fused_rate);
 }
 
+// void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
+//     const TransportPacketsFeedback& feedback,
+//     DataRate base_fused_rate) {
+//   if (!IsApplicationLimited()) {
+//     ProcessEcnFeedback(feedback, base_fused_rate);
+//   } else {
+//     RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
+//   }
+// }
+
+
 void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
     const TransportPacketsFeedback& feedback,
     DataRate base_fused_rate) {
-  if (!IsApplicationLimited()) {
-    ProcessEcnFeedback(feedback, base_fused_rate);
-  } else {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping ECN processing during ALR period";
-  }
+  // --- CRITICAL FIX 2: Always respect the network ---
+  // Congestion is congestion, regardless of whether the application is 
+  // currently filling the pipe. We must always process ECN feedback.
+  ProcessEcnFeedback(feedback, base_fused_rate);
 }
+
 
 // 
 
