@@ -129,6 +129,12 @@ private:
   Timestamp last_congestion_signal_;
   Timestamp last_ecn_feedback_;  // Track any ECN activity (ECT or CE)
   
+
+  //time-driven AI
+  Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
+  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
+
+
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets

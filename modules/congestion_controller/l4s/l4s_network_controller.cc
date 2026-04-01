@@ -57,21 +57,18 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
 
 PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-  constexpr int kDefaultMssBytes = 1440;  // Typical Ethernet MSS
-  
-  TimeDelta rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(1);
-  double rtt_seconds = rtt.seconds<double>();
-  if (rtt_seconds <= 0.0) {
-    rtt_seconds = 0.001;  // Fallback RTT (1ms for VM testbed)
-  }
+// 
 
-  // Prague DCTCP-style rate adaptation with state machine (RFC 9330)
+
+//time driven AI
+
+
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+  last_feedback_time_ = current_time; // Track the last time we heard from the network
+
   if (ce_ratio > 0.0) {  // CE-marked packets detected
-    // Reset non-CE packet count when we see CE marks
     non_ce_packet_count_ = 0;
     
-    // Immediately exit discovery mode on first CE mark (highest priority)
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
       first_ce_mark_detected_ = true;
@@ -79,149 +76,45 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                        << ce_ratio << ")";
     }
     
-    // Always update alpha, even in reduction mode (proper DCTCP behavior)
     constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
     
-    // Only switch to reduction mode if we're in increasing mode
     if (direction_flag_ == 1) {
-
-      // Switch to reduction mode
       direction_flag_ = -1;
-
-      // Proportional decrease (much gentler than 50% reduction)
       double reduction_factor = 1.0 - alpha_ / 2.0;
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-      // Enforce absolute minimum of 20 kbps to prevent pacer crashes
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
-      last_md_time_ = current_time;  // Record when this MD fired
+      last_md_time_ = current_time; 
       
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
-                       << ", ce_ratio=" << ce_ratio 
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
     } else {
-      // Already in reduction mode. RFC 9330 §4.3: MD is applied at most once
-      // per RTT.  Alpha keeps accumulating so sustained congestion is captured,
-      // but the rate is only reduced again when a full RTT has elapsed since
-      // the last reduction.  This prevents the cascade where 10-20 CE batches
-      // each landing within one RTT collectively push the rate to the floor.
-      TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero()
-                               ? current_rtt_
-                               : TimeDelta::Millis(100);
-      bool gate_open = last_md_time_.IsInfinite() ||
-                       (current_time - last_md_time_ >= gate_rtt);
+      TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
+      bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
       if (gate_open) {
-        double additional_reduction = 1.0 - alpha_ / 4.0;  // Gentler than initial
-        DataRate further_reduced = std::max(
-            congestion_based_estimate_ * additional_reduction, min_target_rate_);
+        double additional_reduction = 1.0 - alpha_ / 4.0; 
+        DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
         last_md_time_ = current_time;
-        RTC_LOG(LS_VERBOSE) << "Prague: Additional reduction (once-per-RTT gate open, alpha="
-                         << alpha_ << ", ce_ratio=" << ce_ratio
-                         << ", additional_reduction=" << additional_reduction
-                         << "), new rate=" << congestion_based_estimate_.bps() << " bps";
-      } else {
-        RTC_LOG(LS_VERBOSE) << "Prague: MD gate closed - last MD "
-                         << (current_time - last_md_time_).ms()
-                         << " ms ago (rtt=" << gate_rtt.ms()
-                         << " ms), alpha accumulating to " << alpha_;
       }
     }
-    
-    // Update congestion signal timestamp
     last_congestion_signal_ = current_time;
-                     
+                      
   } else {  // No CE marks in this batch
-    // Increment non-CE packet count
     non_ce_packet_count_++;
-    
-    // Check if we should switch from reduction mode to additive mode
     if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
       direction_flag_ = 1;
-      non_ce_packet_count_ = 0;  // Reset counter
+      non_ce_packet_count_ = 0;
       RTC_LOG(LS_INFO) << "Prague: Switched to additive mode after " << kNonCeThreshold 
                        << " consecutive non-CE packets";
     }
-    
-    // Only perform additive increase if we're in increasing mode (flag = 1)
-    if (direction_flag_ == 1) {  // Always increase when in additive mode
-    if (!additive_hold_until_.IsInfinite() && current_time < additive_hold_until_) {
-      RTC_LOG(LS_VERBOSE) << "Prague: Additive increase paused during probe hold window";
-      last_update_time_ = current_time;
-      return;
-    }
-    
-    // Prague DCTCP additive increase: +1 MSS per RTT period
-    // This is the fundamental L4S congestion control behavior
-    int64_t bits_per_rtt = kDefaultMssBytes * 8;  // 1440 * 8 = 11520 bits
-    
-    // Calculate the theoretical AI rate: 1 MSS worth of extra bits per RTT period
-    int64_t theoretical_ai_bps = static_cast<int64_t>(bits_per_rtt / rtt_seconds);
-    
-    int64_t ai_step_bps;
-    
-    // Discovery Mode: Fast startup for rates below 5 Mbps when no congestion detected
-    bool in_discovery_mode = discovery_mode_active_ && 
-                            !first_ce_mark_detected_ && 
-                            current_rate.bps() < 5000000;  // 5 Mbps threshold
-    
-    if (in_discovery_mode) {
-      // Moderate aggressive growth: 5x normal AI step
-      ai_step_bps = theoretical_ai_bps * 5;
-      
-      // Safety cap for discovery mode
-      ai_step_bps = std::min(ai_step_bps, static_cast<int64_t>(2000000));  // Cap at 2 Mbps/RTT
-      
-      RTC_LOG(LS_VERBOSE) << "Prague: Discovery mode active - aggressive AI step: " 
-                       << ai_step_bps << " bps (5x theoretical: " << theoretical_ai_bps << " bps)";
-    } else {
-      // Normal Prague mode: Context-aware AI step calculation
-      ai_step_bps = CalculateContextAwareAiStep(theoretical_ai_bps, current_rate, current_time);
-      
-      // Note: Discovery mode exit is now handled by L4SNetworkController
-      // based on probe-Prague convergence or fallback threshold
-    }
-    
-    // Safety check to ensure valid step size
-    if (ai_step_bps <= 0 || ai_step_bps > 1000000000) {  // Cap at 1 Gbps for safety
-      RTC_LOG(LS_WARNING) << "Prague: Invalid AI step " << ai_step_bps << " bps, using fallback";
-      ai_step_bps = std::min(theoretical_ai_bps, static_cast<int64_t>(current_rate.bps() * 0.1));
-    }
-    
-    DataRate increased = current_rate + DataRate::BitsPerSec(ai_step_bps);
-    
-    // Don't exceed maximum rate
-    if (max_target_rate_ > DataRate::Zero()) {
-        increased = std::min(increased, max_target_rate_);
-    }
-    
-    // Apply probe constraint during discovery mode
-    if (discovery_mode_active_ && probe_constraint_ > DataRate::Zero() && probe_constraint_confidence_ > 0.7) {
-      DataRate max_allowed = probe_constraint_ * 0.95;  // 95% of probe estimate
-      if (increased > max_allowed) {
-        increased = max_allowed;
-        RTC_LOG(LS_VERBOSE) << "Prague: Rate limited by probe constraint to " << increased.bps() 
-                         << " bps (probe: " << probe_constraint_.bps() << " bps)";
-      }
-    }
-    
-    congestion_based_estimate_ = increased;
-    
-    RTC_LOG(LS_VERBOSE) << "Prague: DCTCP additive increase (+1.0 MSS/RTT, rtt=" << rtt.ms() << " ms, "
-                     << "step=" << ai_step_bps << " bps), new rate=" 
-                     << congestion_based_estimate_.bps() << " bps (input rate: " << current_rate.bps() << "), non_ce_count=" << non_ce_packet_count_;
-    } else if (direction_flag_ == -1) {
-      RTC_LOG(LS_VERBOSE) << "Prague: Skipping AI, in reduction mode (need " 
-                          << (kNonCeThreshold - non_ce_packet_count_) 
-                          << " more non-CE packets to switch)";
-    }
+    // AI logic is entirely removed from here!
   }
-  
-  last_update_time_ = current_time;
 }
+
 
 void webrtc::PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) {
   // Track any ECN activity (ECT or CE packets) to maintain confidence
@@ -252,31 +145,76 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   last_update_time_ = current_time;
 }
 
+// 
+
+//time-driven AI
+
+
 void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time) {
-  if (last_update_time_.IsInfinite()) {
+  if (last_update_time_.IsInfinite() || last_ai_update_time_.IsInfinite()) {
     last_update_time_ = current_time;
+    last_ai_update_time_ = current_time;
     return;
   }
   
   TimeDelta elapsed = current_time - last_update_time_;
+  TimeDelta ai_elapsed = current_time - last_ai_update_time_;
+
+  // 1. Autonomous Additive Increase (Virtual ACKs)
+  // Only increase if we are in additive mode AND we have recent network feedback
+  // (Prevents infinite ramp-up if the network dies completely)
+  bool network_is_alive = !last_feedback_time_.IsInfinite() && 
+                          (current_time - last_feedback_time_) < TimeDelta::Seconds(2);
+
+  if (direction_flag_ == 1 && network_is_alive) {
+    if (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_) {
+      
+      double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_.seconds<double>() : 0.05;
+      double elapsed_s = ai_elapsed.seconds<double>();
+      
+      // Calculate continuous bits per second increase based on elapsed time
+      constexpr double mss_bits = 1440.0 * 8.0;
+      double theoretical_increase = (mss_bits / rtt_s) * (elapsed_s / rtt_s);
+      
+      int64_t ai_step_bps = static_cast<int64_t>(theoretical_increase);
+
+      // Discovery Mode multiplier
+      if (discovery_mode_active_ && !first_ce_mark_detected_ && congestion_based_estimate_.bps() < 5000000) {
+        ai_step_bps *= 5;
+        ai_step_bps = std::min(ai_step_bps, static_cast<int64_t>(2000000 * elapsed_s)); // Cap burst
+      } else {
+        // Apply context-aware logic
+        ai_step_bps = CalculateContextAwareAiStep(ai_step_bps, congestion_based_estimate_, current_time, elapsed_s);
+      }
+
+      if (ai_step_bps > 0) {
+        DataRate increased = congestion_based_estimate_ + DataRate::BitsPerSec(ai_step_bps);
+        if (max_target_rate_ > DataRate::Zero()) {
+            increased = std::min(increased, max_target_rate_);
+        }
+        congestion_based_estimate_ = increased;
+      }
+    }
+  }
+
+  last_ai_update_time_ = current_time;
+
+  // 2. Existing Time Decay Logic (if no feedback for a long time)
   if (elapsed >= kDecayInterval) {
-    // Gradually decay estimates if not reinforced
     congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
-    // Enforce absolute minimum of 20 kbps to prevent pacer crashes
     congestion_based_estimate_ = std::max(congestion_based_estimate_, DataRate::KilobitsPerSec(20));
     last_update_time_ = current_time;
   }
   
-  // Re-enable discovery mode after 30 seconds without congestion signals
   if (first_ce_mark_detected_ && !discovery_mode_active_) {
     TimeDelta since_congestion = current_time - last_congestion_signal_;
     if (since_congestion > TimeDelta::Seconds(30)) {
       discovery_mode_active_ = true;
-      first_ce_mark_detected_ = false;  // Reset CE flag to allow rediscovery
-      RTC_LOG(LS_INFO) << "Prague: Re-enabling discovery mode after 30s without congestion (CE flag reset)";
+      first_ce_mark_detected_ = false; 
     }
   }
 }
+
 
 webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
   return congestion_based_estimate_;
@@ -303,121 +241,220 @@ double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
   return 0.4;  // Lower confidence with stale ECN feedback
 }
 
-int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time) {
-  // Context-aware AI step calculation that adapts to network conditions
+// int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time) {
+//   // Context-aware AI step calculation that adapts to network conditions
   
-  // Safety checks for input parameters
-  if (theoretical_ai_bps <= 0 || !current_rate.IsFinite() || current_time.IsInfinite()) {
+//   // Safety checks for input parameters
+//   if (theoretical_ai_bps <= 0 || !current_rate.IsFinite() || current_time.IsInfinite()) {
+//     RTC_LOG(LS_WARNING) << "Prague: Invalid input parameters to CalculateContextAwareAiStep";
+//     return 100000;  // Fallback: 100 Kbps step
+//   }
+  
+//   // 1. Base multiplier starts at 1.0 (full DCTCP behavior)
+//   double context_multiplier = 1.0;
+  
+//   // 2. Consider time since last congestion signal
+//   TimeDelta since_congestion = current_time - last_congestion_signal_;
+//   if (!last_congestion_signal_.IsInfinite()) {
+//     if (since_congestion < TimeDelta::Seconds(1)) {
+//       // Very recent congestion - be more conservative
+//       context_multiplier *= 0.3;
+//     } else if (since_congestion < TimeDelta::Seconds(5)) {
+//       // Recent congestion - moderate caution
+//       context_multiplier *= 0.6;
+//     } else if (since_congestion > TimeDelta::Seconds(10)) {
+//       // No recent congestion - can be more aggressive
+//       context_multiplier *= 1.5;
+//     }
+//     // Between 5-10 seconds: use base multiplier (1.0)
+//   }
+  
+//   // 3. Consider current alpha value (congestion severity)
+//   if (alpha_ > 0.5) {
+//     // High congestion memory - be very conservative
+//     context_multiplier *= 0.2;
+//   } else if (alpha_ > 0.1) {
+//     // Moderate congestion memory - be somewhat conservative
+//     context_multiplier *= 0.5;
+//   } else if (alpha_ < 0.01) {
+//     // Very low congestion memory - can be more aggressive
+//     context_multiplier *= 1.3;
+//   }
+  
+//   // 4. Consider rate magnitude (avoid explosive growth at high rates)
+//   int64_t current_bps = current_rate.bps();
+//   if (current_bps > 50000000) {  // > 50 Mbps
+//     // At very high rates, cap growth to prevent network overload
+//     context_multiplier *= 0.1;
+//   } else if (current_bps > 10000000) {  // > 10 Mbps
+//     // At high rates, be very conservative
+//     context_multiplier *= 0.2;
+//   } else if (current_bps > 5000000) {  // > 5 Mbps
+//     // At medium-high rates, be conservative
+//     context_multiplier *= 0.3;
+//   } else if (current_bps > 1000000) {  // > 1 Mbps
+//     // At medium rates, moderate increases
+//     context_multiplier *= 0.6;
+//   } else if (current_bps < 300000) {  // < 300 Kbps
+//     // At very low rates, allow more aggressive growth
+//     context_multiplier *= 1.5;
+//   }
+  
+//   // 5. Consider direction flag stability
+//   if (direction_flag_ == 1 && non_ce_packet_count_ > kNonCeThreshold * 2) {
+//     // Been in additive mode for a while - can be more aggressive
+//     context_multiplier *= 1.2;
+//   }
+  
+//   // 6. Apply RTT-based scaling (better responsiveness for high RTT)
+//   double rtt_seconds = current_rtt_.IsFinite() ? current_rtt_.seconds<double>() : 0.05;
+//   if (rtt_seconds < 0.01) {  // < 10ms RTT - very low latency scenario
+//     // For very low RTT, dramatically reduce AI steps to prevent explosive growth
+//     context_multiplier *= 0.1;
+//     RTC_LOG(LS_VERBOSE) << "Prague: Very low RTT (" << (rtt_seconds * 1000) << " ms), applying aggressive dampening";
+//   } else if (rtt_seconds < 0.05) {  // < 50ms RTT - low latency
+//     // For low RTT, moderate reduction to prevent excessive growth
+//     context_multiplier *= 0.3;
+//   } else if (rtt_seconds > 0.1) {  // > 100ms RTT
+//     // High RTT networks need more aggressive AI to maintain fairness
+//     context_multiplier *= std::min(2.0, rtt_seconds / 0.05);  // Scale with RTT, cap at 2x
+//   }
+  
+//   // 7. Calculate context-aware step
+//   int64_t context_ai_bps = static_cast<int64_t>(theoretical_ai_bps * context_multiplier);
+  
+//   // 8. Apply reasonable bounds to prevent pathological behavior
+//   int64_t min_step_bps = theoretical_ai_bps / 20;  // At least 5% of DCTCP standard
+  
+//   // Much more aggressive rate-based capping for low RTT scenarios
+//   int64_t rate_based_max_step = std::max(
+//       static_cast<int64_t>(current_bps * 0.1),   // 10% of current rate
+//       static_cast<int64_t>(100000)               // Minimum 100 Kbps step
+//   );
+  
+//   int64_t max_step_bps = std::min(
+//       theoretical_ai_bps * 2,     // At most 2x DCTCP standard
+//       rate_based_max_step         // But respect rate-based limit
+//   );
+  
+//   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
+  
+//   // Final safety check to ensure result is valid
+//   if (context_ai_bps <= 0 || context_ai_bps > 1000000000 || !std::isfinite(context_ai_bps)) {
+//     RTC_LOG(LS_WARNING) << "Prague: Invalid context AI step calculated: " << context_ai_bps;
+//     context_ai_bps = 100000;  // Fallback: 100 Kbps
+//   }
+  
+//   // Log the decision for debugging
+//   RTC_LOG(LS_VERBOSE) << "Prague: Context-aware AI calculation - "
+//                       << "theoretical=" << theoretical_ai_bps << " bps, "
+//                       << "multiplier=" << context_multiplier << ", "
+//                       << "context_step=" << context_ai_bps << " bps, "
+//                       << "alpha=" << alpha_ << ", "
+//                       << "since_congestion=" << (last_congestion_signal_.IsInfinite() ? -1.0 : since_congestion.ms<double>()) << " ms, "
+//                       << "current_rate=" << current_bps << " bps";
+  
+//   return context_ai_bps;
+// }
+
+
+//time-driven, context-aware AI step calculation that adapts to network conditions and recent history
+
+int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(
+    int64_t time_scaled_ai_step, 
+    DataRate current_rate, 
+    Timestamp current_time, 
+    double elapsed_s) {
+  
+  // Safety checks - fallback scales with time (e.g., 1 Mbps per second of elapsed time)
+  int64_t time_scaled_fallback = static_cast<int64_t>(1000000 * elapsed_s);
+  
+  if (time_scaled_ai_step <= 0 || !current_rate.IsFinite() || current_time.IsInfinite() || elapsed_s <= 0.0) {
     RTC_LOG(LS_WARNING) << "Prague: Invalid input parameters to CalculateContextAwareAiStep";
-    return 100000;  // Fallback: 100 Kbps step
+    return time_scaled_fallback; 
   }
   
-  // 1. Base multiplier starts at 1.0 (full DCTCP behavior)
   double context_multiplier = 1.0;
   
-  // 2. Consider time since last congestion signal
+  // 1. Time since last congestion signal
   TimeDelta since_congestion = current_time - last_congestion_signal_;
   if (!last_congestion_signal_.IsInfinite()) {
     if (since_congestion < TimeDelta::Seconds(1)) {
-      // Very recent congestion - be more conservative
       context_multiplier *= 0.3;
     } else if (since_congestion < TimeDelta::Seconds(5)) {
-      // Recent congestion - moderate caution
       context_multiplier *= 0.6;
     } else if (since_congestion > TimeDelta::Seconds(10)) {
-      // No recent congestion - can be more aggressive
       context_multiplier *= 1.5;
     }
-    // Between 5-10 seconds: use base multiplier (1.0)
   }
   
-  // 3. Consider current alpha value (congestion severity)
+  // 2. Alpha value (congestion severity)
   if (alpha_ > 0.5) {
-    // High congestion memory - be very conservative
     context_multiplier *= 0.2;
   } else if (alpha_ > 0.1) {
-    // Moderate congestion memory - be somewhat conservative
     context_multiplier *= 0.5;
   } else if (alpha_ < 0.01) {
-    // Very low congestion memory - can be more aggressive
     context_multiplier *= 1.3;
   }
   
-  // 4. Consider rate magnitude (avoid explosive growth at high rates)
+  // 3. Rate magnitude
   int64_t current_bps = current_rate.bps();
-  if (current_bps > 50000000) {  // > 50 Mbps
-    // At very high rates, cap growth to prevent network overload
+  if (current_bps > 50000000) {        // > 50 Mbps
     context_multiplier *= 0.1;
-  } else if (current_bps > 10000000) {  // > 10 Mbps
-    // At high rates, be very conservative
+  } else if (current_bps > 10000000) { // > 10 Mbps
     context_multiplier *= 0.2;
   } else if (current_bps > 5000000) {  // > 5 Mbps
-    // At medium-high rates, be conservative
     context_multiplier *= 0.3;
   } else if (current_bps > 1000000) {  // > 1 Mbps
-    // At medium rates, moderate increases
     context_multiplier *= 0.6;
-  } else if (current_bps < 300000) {  // < 300 Kbps
-    // At very low rates, allow more aggressive growth
+  } else if (current_bps < 300000) {   // < 300 Kbps
     context_multiplier *= 1.5;
   }
   
-  // 5. Consider direction flag stability
+  // 4. Direction flag stability
   if (direction_flag_ == 1 && non_ce_packet_count_ > kNonCeThreshold * 2) {
-    // Been in additive mode for a while - can be more aggressive
     context_multiplier *= 1.2;
   }
   
-  // 6. Apply RTT-based scaling (better responsiveness for high RTT)
+  // 5. RTT-based scaling
   double rtt_seconds = current_rtt_.IsFinite() ? current_rtt_.seconds<double>() : 0.05;
-  if (rtt_seconds < 0.01) {  // < 10ms RTT - very low latency scenario
-    // For very low RTT, dramatically reduce AI steps to prevent explosive growth
+  if (rtt_seconds < 0.01) {
     context_multiplier *= 0.1;
-    RTC_LOG(LS_VERBOSE) << "Prague: Very low RTT (" << (rtt_seconds * 1000) << " ms), applying aggressive dampening";
-  } else if (rtt_seconds < 0.05) {  // < 50ms RTT - low latency
-    // For low RTT, moderate reduction to prevent excessive growth
+  } else if (rtt_seconds < 0.05) {
     context_multiplier *= 0.3;
-  } else if (rtt_seconds > 0.1) {  // > 100ms RTT
-    // High RTT networks need more aggressive AI to maintain fairness
-    context_multiplier *= std::min(2.0, rtt_seconds / 0.05);  // Scale with RTT, cap at 2x
+  } else if (rtt_seconds > 0.1) {
+    context_multiplier *= std::min(2.0, rtt_seconds / 0.05);
   }
   
-  // 7. Calculate context-aware step
-  int64_t context_ai_bps = static_cast<int64_t>(theoretical_ai_bps * context_multiplier);
+  // 6. Apply multiplier to the ALREADY time-scaled step
+  int64_t context_ai_bps = static_cast<int64_t>(time_scaled_ai_step * context_multiplier);
   
-  // 8. Apply reasonable bounds to prevent pathological behavior
-  int64_t min_step_bps = theoretical_ai_bps / 20;  // At least 5% of DCTCP standard
+  // 7. Time-scaled bounding
+  int64_t min_step_bps = time_scaled_ai_step / 20; 
   
-  // Much more aggressive rate-based capping for low RTT scenarios
+  // The rate-based cap limits the step to 10% of current rate PER SECOND of elapsed time
   int64_t rate_based_max_step = std::max(
-      static_cast<int64_t>(current_bps * 0.1),   // 10% of current rate
-      static_cast<int64_t>(100000)               // Minimum 100 Kbps step
+      static_cast<int64_t>(current_bps * 0.1 * elapsed_s), 
+      time_scaled_fallback 
   );
   
   int64_t max_step_bps = std::min(
-      theoretical_ai_bps * 2,     // At most 2x DCTCP standard
-      rate_based_max_step         // But respect rate-based limit
+      time_scaled_ai_step * 2,  
+      rate_based_max_step       
   );
   
   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
   
-  // Final safety check to ensure result is valid
   if (context_ai_bps <= 0 || context_ai_bps > 1000000000 || !std::isfinite(context_ai_bps)) {
     RTC_LOG(LS_WARNING) << "Prague: Invalid context AI step calculated: " << context_ai_bps;
-    context_ai_bps = 100000;  // Fallback: 100 Kbps
+    context_ai_bps = time_scaled_fallback; 
   }
-  
-  // Log the decision for debugging
-  RTC_LOG(LS_VERBOSE) << "Prague: Context-aware AI calculation - "
-                      << "theoretical=" << theoretical_ai_bps << " bps, "
-                      << "multiplier=" << context_multiplier << ", "
-                      << "context_step=" << context_ai_bps << " bps, "
-                      << "alpha=" << alpha_ << ", "
-                      << "since_congestion=" << (last_congestion_signal_.IsInfinite() ? -1.0 : since_congestion.ms<double>()) << " ms, "
-                      << "current_rate=" << current_bps << " bps";
   
   return context_ai_bps;
 }
+
+
+
 
 void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate, double probe_confidence) {
   probe_constraint_ = probe_estimate;
@@ -446,6 +483,9 @@ void webrtc::PragueCapacityEstimator::ExitDiscoveryMode(const std::string& reaso
   }
 }
 
+// 
+
+
 // =============================================================================
 // L4SBandwidthFusion Implementation
 // =============================================================================
@@ -457,76 +497,136 @@ webrtc::L4SBandwidthFusion::~L4SBandwidthFusion() = default;
 void webrtc::L4SBandwidthFusion::UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now) {
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   DataRate clamped_estimate = std::max(estimate, DataRate::KilobitsPerSec(20));
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating ECN estimate to " << clamped_estimate.bps() 
+                      << " bps with confidence " << confidence;
   sources_.ecn_estimate = clamped_estimate;
   sources_.ecn_confidence = confidence;
   sources_.last_ecn_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating probe estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating probe estimate to " << estimate.bps() 
+                      << " bps with confidence " << confidence;
   sources_.probe_estimate = estimate;
   sources_.probe_confidence = confidence;
   sources_.last_probe_update = now;
 }
 
 void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now) {
-  RTC_LOG(LS_VERBOSE) << "L4S: Updating acked estimate to " << estimate.bps() << " bps with confidence " << confidence;
+  RTC_LOG(LS_VERBOSE) << "L4S: Updating acked estimate to " << estimate.bps() 
+                      << " bps with confidence " << confidence;
   sources_.acked_estimate = estimate;
   sources_.acked_confidence = confidence;
   sources_.last_acked_update = now;
 }
 
-webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const {
-  // L4S Fusion: Prague ECN provides congestion control authority,
-  // other estimators provide capacity discovery insights
+webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
+    Timestamp now, bool discovery_mode, bool recovery_mode) const {
   
-  // During discovery or recovery mode, use probe-weighted fusion
+  // 1. STATE MACHINE BRANCH: Fast capacity seeking
   if (discovery_mode || recovery_mode) {
     return GetDiscoveryModeFusedEstimate(now, recovery_mode);
   }
   
-  // 1. Prague ECN estimate has highest priority for congestion control
-  // When Prague detects congestion, it overrides other estimates
-  if (sources_.ecn_confidence > config_.ecn_confidence_threshold && 
-      IsRecentlyUpdated(sources_.last_ecn_update, now)) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Using Prague ECN estimate: " << sources_.ecn_estimate.bps() << " bps";
-    return sources_.ecn_estimate;
-  }
+  // 2. STEADY STATE: Prague Time-Based AI is the Dictator
+  DataRate prague_rate = sources_.ecn_estimate;
+  DataRate probe_rate = sources_.probe_estimate;
+  DataRate acked_rate = sources_.acked_estimate;
   
-  // 2. When no recent congestion, use probe results as capacity upper bound
-  if (sources_.probe_confidence > config_.probe_confidence_threshold && 
-      IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    DataRate capacity_estimate = ValidateWithOtherSources(sources_.probe_estimate, sources_);
+  bool prague_confident = sources_.ecn_confidence > config_.ecn_confidence_threshold && 
+                          IsRecentlyUpdated(sources_.last_ecn_update, now);
+  bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
+                         IsRecentlyUpdated(sources_.last_probe_update, now);
+  bool acked_confident = sources_.acked_confidence > config_.acked_confidence_threshold && 
+                         IsRecentlyUpdated(sources_.last_acked_update, now);
+
+  DataRate fused_rate = DataRate::KilobitsPerSec(300); // Safe fallback
+
+  if (prague_confident) {
+    fused_rate = prague_rate;
     
-    // But don't exceed Prague's current estimate if it's lower (recent congestion)
-    if (sources_.ecn_confidence > 0.3) {
-      capacity_estimate = std::min(capacity_estimate, sources_.ecn_estimate * 1.1);
+    // Micro-Probe Uplift: If a probe cleanly found higher capacity, allow it to 
+    // pull the time-based AI forward, but cap the jump (e.g., 1.5x) to prevent runaway AQM overshoot.
+    if (probe_confident && probe_rate > prague_rate) {
+      DataRate max_uplift = prague_rate * 1.5;
+      fused_rate = std::min(probe_rate, max_uplift);
+      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Steady State Probe Uplift applied -> " << fused_rate.bps() << " bps";
     }
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Using probe-based capacity: " << capacity_estimate.bps() << " bps";
-    return capacity_estimate;
+  } 
+  // 3. Fallbacks if ECN feedback is completely dead
+  else if (probe_confident) {
+    fused_rate = probe_rate;
+    RTC_LOG(LS_VERBOSE) << "L4S Fusion: Prague dead, falling back to Probe -> " << fused_rate.bps() << " bps";
+  } 
+  else if (acked_confident) {
+    // Acked rate is a terrible ceiling. If we MUST use it, gently lift it by 10% 
+    // to give the video encoder room to grow.
+    fused_rate = acked_rate * 1.1; 
+    RTC_LOG(LS_VERBOSE) << "L4S Fusion: Falling back to Acked rate -> " << fused_rate.bps() << " bps";
+  } else {
+    fused_rate = GetMostConfidentEstimate(now);
   }
-  
-  // 3. Fallback to conservative combination of delay and acked estimates
-  double total_weight = sources_.delay_confidence + sources_.acked_confidence;
-  if (total_weight > 0.1) {
-    DataRate weighted_estimate = 
-        (sources_.delay_estimate * sources_.delay_confidence + 
-         sources_.acked_estimate * sources_.acked_confidence) / total_weight;
-    
-    // Always respect Prague's congestion authority
-    if (sources_.ecn_confidence > 0.3) {
-      weighted_estimate = std::min(weighted_estimate, sources_.ecn_estimate);
+
+  // 4. THE REALITY CHECK FLOOR (Crucial for Application Limited Regions)
+  // Never let the fused estimate fall below what the network is actively delivering right now.
+  if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+    if (fused_rate < acked_rate) {
+      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Acked Floor engaged. Fused " << fused_rate.bps() 
+                          << " bps raised to actual " << acked_rate.bps() << " bps";
+      fused_rate = acked_rate;
     }
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Using weighted delay+acked estimate: " << weighted_estimate.bps() << " bps";
-    return weighted_estimate;
   }
+
+  return std::max(fused_rate, DataRate::KilobitsPerSec(20));
+}
+
+webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(
+    Timestamp now, bool recovery_mode) const {
   
-  // 4. Final fallback to most confident single estimate
-  RTC_LOG(LS_VERBOSE) << "L4S: Using fallback estimate";
-  return GetMostConfidentEstimate(now);
+  // In Discovery or Recovery mode, the goal is to find the ceiling FAST.
+  // Therefore, Probes take priority over the slow Time-Based AI, UNLESS Prague 
+  // has seen a CE mark and tells us to stop.
+  
+  DataRate probe_rate = sources_.probe_estimate;
+  DataRate prague_rate = sources_.ecn_estimate;
+  
+  bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
+                         IsRecentlyUpdated(sources_.last_probe_update, now);
+  bool prague_confident = sources_.ecn_confidence > config_.ecn_confidence_threshold && 
+                          IsRecentlyUpdated(sources_.last_ecn_update, now);
+
+  DataRate fused_rate = DataRate::KilobitsPerSec(300);
+
+  if (probe_confident) {
+    fused_rate = probe_rate;
+    
+    // The Prague Veto: If Prague is confident but its estimate is LOWER than the probe,
+    // it means Prague applied a Multiplicative Decrease (saw CE marks). 
+    // Congestion avoidance ALWAYS overrides capacity discovery.
+    if (prague_confident && prague_rate < fused_rate) {
+      fused_rate = prague_rate;
+      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Prague vetoed probe, using ECN rate: " 
+                          << fused_rate.bps() << " bps";
+    } else {
+      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Trusting probe: " 
+                          << fused_rate.bps() << " bps";
+    }
+  } else if (prague_confident) {
+    fused_rate = prague_rate;
+    RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - No valid probe, using Prague AI: " 
+                        << fused_rate.bps() << " bps";
+  } else {
+    fused_rate = GetMostConfidentEstimate(now);
+  }
+
+  // Apply Reality Check Floor
+  if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+    if (fused_rate < sources_.acked_estimate) {
+      fused_rate = sources_.acked_estimate;
+    }
+  }
+
+  return std::max(fused_rate, DataRate::KilobitsPerSec(20));
 }
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp now) const {
@@ -536,11 +636,6 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp 
   if (sources_.ecn_confidence > best_confidence && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
     best_estimate = sources_.ecn_estimate;
     best_confidence = sources_.ecn_confidence;
-  }
-  
-  if (sources_.delay_confidence > best_confidence && IsRecentlyUpdated(sources_.last_delay_update, now)) {
-    best_estimate = sources_.delay_estimate;
-    best_confidence = sources_.delay_confidence;
   }
   
   if (sources_.probe_confidence > best_confidence && IsRecentlyUpdated(sources_.last_probe_update, now)) {
@@ -556,92 +651,38 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp 
   return best_estimate;
 }
 
-webrtc::DataRate webrtc::L4SBandwidthFusion::ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const {
-  // Don't allow probe results that are dramatically higher than other estimates
+webrtc::DataRate webrtc::L4SBandwidthFusion::ValidateWithOtherSources(
+    DataRate primary_estimate, const BandwidthSources& sources) const {
+  // Utility method to prevent probe artifacts from causing runaway targets
   DataRate max_alternative = DataRate::Zero();
   
   if (sources.ecn_confidence > 0.3) {
     max_alternative = std::max(max_alternative, sources.ecn_estimate);
   }
-  if (sources.delay_confidence > 0.3) {
-    max_alternative = std::max(max_alternative, sources.delay_estimate);
-  }
   if (sources.acked_confidence > 0.3) {
     max_alternative = std::max(max_alternative, sources.acked_estimate);
   }
   
+  // If a probe result is more than 2x our other known valid signals, it's likely 
+  // a DualPI2 scheduling artifact (burst spread over a long window). Cap it.
   if (max_alternative > DataRate::Zero() && primary_estimate > max_alternative * 2.0) {
-    // Probe result seems too optimistic, cap it
     return max_alternative * 1.5;
   }
   
   return primary_estimate;
 }
 
-webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const {
-  // During discovery/recovery mode, give probe controller higher weight (80%)
-  // and other estimators lower weight (20%)
-  
-  DataRate probe_weighted = DataRate::Zero();
-  DataRate other_weighted = DataRate::Zero();
-  double probe_weight = 0.0;
-  double other_weight = 0.0;
-  
-  // Probe estimate weight is intentionally conservative for CE-sensitive AQMs.
-  if (sources_.probe_confidence > 0.5 && IsRecentlyUpdated(sources_.last_probe_update, now)) {
-    probe_weighted = sources_.probe_estimate;
-    probe_weight = recovery_mode ? 0.50 : 0.45;
-  }
-  
-  // Combine other estimates for remaining weight
-  double total_other_confidence = 0.0;
-  DataRate combined_other = DataRate::Zero();
-  
-  // Combine ECN and Acked estimates (delay and ALR removed for L4S simplicity)
-  if (sources_.ecn_confidence > 0.3 && IsRecentlyUpdated(sources_.last_ecn_update, now)) {
-    combined_other = combined_other + sources_.ecn_estimate * sources_.ecn_confidence;
-    total_other_confidence += sources_.ecn_confidence;
-  }
-  
-  if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
-    combined_other = combined_other + sources_.acked_estimate * sources_.acked_confidence;
-    total_other_confidence += sources_.acked_confidence;
-  }
-  
-  if (total_other_confidence > 0.0) {
-    other_weighted = combined_other / total_other_confidence;
-    other_weight = 1.0 - probe_weight;
-  }
-  
-  // Calculate weighted fusion
-  DataRate fused_estimate;
-  if (probe_weight > 0.0 && other_weight > 0.0) {
-    fused_estimate = probe_weighted * probe_weight + other_weighted * other_weight;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Probe: " << probe_weighted.bps() 
-                     << " bps (" << (probe_weight * 100) << "%), Other: " << other_weighted.bps() 
-                     << " bps (" << (other_weight * 100) << "%), Fused: " << fused_estimate.bps() << " bps";
-  } else if (probe_weight > 0.0) {
-    fused_estimate = probe_weighted;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using probe only: " << fused_estimate.bps() << " bps";
-  } else if (other_weight > 0.0) {
-    fused_estimate = other_weighted;
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion - Using other estimates: " << fused_estimate.bps() << " bps";
-  } else {
-    // Fallback to most confident estimate
-    fused_estimate = GetMostConfidentEstimate(now);
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery/recovery fusion fallback: " << fused_estimate.bps() << " bps";
-  }
-  
-  return fused_estimate;
-}
-
 bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timestamp now) const {
-  // Check both timestamps for infinity before arithmetic to prevent crash
   if (last_update.IsInfinite() || now.IsInfinite()) {
     return false;
   }
-  return (now - last_update) < TimeDelta::Seconds(10);
+  // In a sparse-RTCP setup, data is considered valid for up to 12 seconds 
+  // (to survive periodic reporting gaps) before being flagged as stale.
+  return (now - last_update) < TimeDelta::Seconds(12);
 }
+
+
+
 
 // =============================================================================
 // L4SMetricsCollector Implementation
@@ -1196,17 +1237,17 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 
   // Track packet loss count from per-packet feedback for logging only.
   // CE remains the primary congestion-control signal.
-  int packets_with_feedback = 0;
-  int lost_packets_in_feedback = 0;
-  for (const auto& packet_feedback : msg.PacketsWithFeedback()) {
-    ++packets_with_feedback;
-    if (!packet_feedback.IsReceived()) {
-      ++lost_packets_in_feedback;
-    }
-  }
-  if (packets_with_feedback > 0) {
-    last_packets_lost_ = lost_packets_in_feedback;
-  }
+  // int packets_with_feedback = 0;
+  // int lost_packets_in_feedback = 0;
+  // for (const auto& packet_feedback : msg.PacketsWithFeedback()) {
+  //   ++packets_with_feedback;
+  //   if (!packet_feedback.IsReceived()) {
+  //     ++lost_packets_in_feedback;
+  //   }
+  // }
+  // if (packets_with_feedback > 0) {
+  //   last_packets_lost_ = lost_packets_in_feedback;
+  // }
   
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
@@ -1282,12 +1323,15 @@ void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
   }
 }
 
+// 
+
+//time-driven AI 
+
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
     return;
   }
 
-  // --- Windowed ECN/CE accumulation ---
   static int window_ce_count = 0;
   static int window_ect_count = 0;
   static Timestamp window_start_time = Timestamp::MinusInfinity();
@@ -1295,6 +1339,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
   int batch_ect_count = 0;
   int batch_ce_count = 0;
+  bool probe_caused_congestion = false;
+
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
       batch_ect_count++;
@@ -1302,84 +1348,79 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     if (packet.ecn == EcnMarking::kCe) {
       batch_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
-      RTC_LOG(LS_VERBOSE) << "L4S: CE mark detected! Count=" << batch_ce_count
-                         << ", ECT count=" << batch_ect_count;
+      
+      // CRITICAL DISTINCTION: Was this CE mark caused by our own probe burst?
+      if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
+        probe_caused_congestion = true;
+      }
     }
   }
 
-  // Update ECN support detection
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
 
-  // Accumulate counts for the window
   window_ce_count += batch_ce_count;
   window_ect_count += batch_ect_count;
 
-  // Ignore single-packet immediate feedbacks for reduction
   int batch_total = batch_ect_count + batch_ce_count;
-  if (batch_total < 3 ) {
-    // Still accumulate, but do not trigger reduction yet
+  if (batch_total < 3) {
     HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
     return;
   }
 
-  // Start a new window if needed
   if (window_start_time.IsInfinite() || (feedback.feedback_time - window_start_time) >= window_duration) {
     int window_total = window_ect_count + window_ce_count;
     double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count) / window_total : 0.0;
 
-    // Only apply reduction if enough packets were seen in the window
     const int min_packets_threshold = 3;
     if (window_total >= min_packets_threshold) {
-      DataRate prague_input_rate;
-      if (prague_estimator_->IsDiscoveryModeActive()) {
-        prague_input_rate = prague_estimator_->GetCurrentEstimate();
-        RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - using Prague's own estimate as input: " << prague_input_rate.bps() 
-                         << " bps (bypassing constrained fused rate: " << current_fused_rate.bps() << ")";
+      
+      // Logic split: Network CE vs Probe CE
+      if (batch_ce_count > 0 && probe_caused_congestion) {
+        RTC_LOG(LS_INFO) << "L4S: CE marks triggered by Micro-Probe. Freezing AI, but bypassing MD.";
+        
+        // Tell Prague to hold current rate, do NOT apply Multiplicative Decrease
+        prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
+        
+        // Re-align probe estimate to safe actual bitrate
+        if (!last_actual_bitrate_.IsZero()) {
+          bandwidth_fusion_->UpdateProbeEstimate(last_actual_bitrate_, 0.8, feedback.feedback_time);
+        }
+
       } else {
-        prague_input_rate = DetermineBottleneckAwareTarget(current_fused_rate);
-        RTC_LOG(LS_VERBOSE) << "L4S: Applying Prague AI/MD to bottleneck-aware rate: " << prague_input_rate.bps() 
-                         << " bps (original fused: " << current_fused_rate.bps() << ", ce_ratio=" << ce_ratio << ")";
-      }
+        // Standard Cross-Traffic Congestion - Apply full Prague MD
+        DataRate prague_input_rate = prague_estimator_->IsDiscoveryModeActive() 
+                                     ? prague_estimator_->GetCurrentEstimate() 
+                                     : DetermineBottleneckAwareTarget(current_fused_rate);
 
-      prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
 
-      // Actual-rate floor: the network is provably delivering last_actual_bitrate_,
-      // so allow Prague to drop no lower than 50% of that observed throughput.
-      if (!last_actual_bitrate_.IsZero()) {
-        DataRate floor = last_actual_bitrate_ * 0.5;
-        DataRate prague_current = prague_estimator_->GetCurrentEstimate();
-        if (prague_current < floor) {
-          RTC_LOG(LS_VERBOSE) << "Prague: Actual-rate floor applied: " << prague_current.bps()
-                             << " bps raised to " << floor.bps()
-                             << " bps (50% of actual throughput " << last_actual_bitrate_.bps() << " bps)";
-          prague_estimator_->SetCurrentEstimate(floor);
+        if (!last_actual_bitrate_.IsZero()) {
+          DataRate floor = last_actual_bitrate_ * 0.5;
+          if (prague_estimator_->GetCurrentEstimate() < floor) {
+            prague_estimator_->SetCurrentEstimate(floor);
+          }
         }
       }
 
       double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
       if (prague_estimator_->GetDirectionFlag() == -1) {
         ecn_confidence = std::max(ecn_confidence, 0.95);
-        RTC_LOG(LS_VERBOSE) << "L4S: Prague in reduction mode, boosting ECN confidence to " << ecn_confidence;
       }
       bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
-
-      if (metrics_enabled_ && metrics_collector_) {
-        metrics_collector_->LogCongestionMetrics(feedback.feedback_time, window_ce_count, window_ect_count, ce_ratio);
-      }
     }
 
-    // Reset window
     window_ce_count = 0;
     window_ect_count = 0;
     window_start_time = feedback.feedback_time;
   }
 
-  // Handle packet-based recovery detection (now using all packets, not just video).
   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
 }
+
+
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate) {
   // During discovery mode, bypass bottleneck constraints to allow aggressive growth
@@ -1410,7 +1451,7 @@ webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(Da
       return acked_throughput;
     } else {
       // Receiver processing bottleneck - probe gently upward
-      DataRate gentle_target = acked_throughput * 1.25;  // 25% increase
+      DataRate gentle_target = acked_throughput * 1.1;  // 10% increase
       gentle_target = std::min(gentle_target, fused_rate);  // Don't exceed fused rate
       RTC_LOG(LS_VERBOSE) << "L4S: Receiver bottleneck detected, gentle increase to: " 
                        << gentle_target.bps() << " bps (probe: " << probe_capacity.bps() 
@@ -1609,59 +1650,52 @@ bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
   return true;
 }
 
+
+// 
+
+//time-driven probing used for both periodic and recovery probes, with different parameters and constraints
+
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
   if (!probe_controller_) {
     return;
   }
 
-  // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
-  // Use conservative probing by default and only a modest boost in ALR.
-  double probe_multiplier = config_.probe_multiplier;
+  // Shift to Micro-Probing: 5% to 10% elevation maximum
+  // Overwrite the GCC config defaults to prevent burst marks
+  double micro_probe_multiplier = 1.05; 
   if (IsApplicationLimited()) {
-    probe_multiplier = config_.alr_probe_multiplier;
-    RTC_LOG(LS_VERBOSE) << "L4S: Using ALR probe multiplier=" << probe_multiplier;
+    micro_probe_multiplier = 1.10; // Slightly higher if ALR limits us
   }
   
-  // Calculate probe rate
-  DataRate probe_rate = current_estimate * probe_multiplier;
+  DataRate probe_rate = current_estimate * micro_probe_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // RequestProbe handles the ALR-end + large-drop case.  Periodic ALR
-  // probing is already driven by Process() in OnProcessInterval, so there is
-  // nothing else to do here for the normal (non-ALR) steady-state path.
-  auto probes = probe_controller_->RequestProbe(now);
+  // Force the ProbeController to use our micro-probe rate rather than its default 3x multipliers
+  auto probes = probe_controller_->SetEstimatedBitrate(current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
+  if (probes.empty()) {
+     probes = probe_controller_->RequestProbe(now);
+  }
+  
+  // Clamp all requested probes down to the micro_probe_multiplier constraint
+  for (auto& probe : probes) {
+      if (probe.target_data_rate > probe_rate) {
+          probe.target_data_rate = probe_rate;
+      }
+  }
+
   if (!probes.empty()) {
     update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
                                          probes.begin(), probes.end());
     StartProbeHold(now);
-    RTC_LOG(LS_VERBOSE) << "L4S: RequestProbe returned " << probes.size()
-                        << " probe clusters";
+    RTC_LOG(LS_VERBOSE) << "L4S: Micro-Probe requested at " << probe_rate.bps() << " bps";
   }
-  // (void)probe_rate;  // calculated above, kept for ALR multiplier logic
 }
 
-double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
-  TimeDelta since_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-  if (since_probe < TimeDelta::Seconds(1)) {
-    return config_.probe_confidence_fresh;
-  } else if (since_probe < TimeDelta::Seconds(10)) {
-    return config_.probe_confidence_recent;
-  }
-  return 0.2;   // Low confidence in old probe results
-}
 
-double webrtc::L4SNetworkController::CalculateAckedConfidence(Timestamp now) const {
-  if (!acked_estimator_) {
-    return 0.0;
-  }
-  
-  // Moderate confidence in acknowledged bitrate
-  return 0.6;
-}
 
 webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
   bool discovery_signal = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
