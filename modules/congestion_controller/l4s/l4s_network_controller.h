@@ -118,7 +118,7 @@ public:
 
 private:
   // Context-aware AI step calculation
-  int64_t CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time);
+  int64_t CalculateContextAwareAiStep(int64_t time_scaled_ai_step, DataRate current_rate, Timestamp current_time, double elapsed_s);
 
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
