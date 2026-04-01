@@ -1544,46 +1544,107 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
                                          feedback.feedback_time);
 }
 
+
+
+// void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
+//   if (!probe_bitrate_estimator_) {
+//     return;
+//   }
+
+//   // Process each packet to detect probe clusters and measure real throughput
+//   for (const auto& packet_feedback : feedback.SortedByReceiveTime()) {
+//     if (packet_feedback.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
+//       // This is a real probe packet - let ProbeBitrateEstimator measure it
+//       probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_feedback);
+      
+//       RTC_LOG(LS_VERBOSE) << "L4S: Processing probe packet from cluster " 
+//                          << packet_feedback.sent_packet.pacing_info.probe_cluster_id
+//                          << ", size: " << packet_feedback.sent_packet.size.bytes() << " bytes";
+//     }
+//   }
+
+//   // Get the real measured probe result (if any)
+//   std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
+//   if (measured_probe_rate) {
+//     // Layer 1 sanity guard: discard probe results that are physically impossible.
+//     // If the link is already delivering more actual throughput than the probe measured,
+//     // the probe result is an artifact (e.g. DualPI2 scheduling spreading the burst
+//     // across a long receive window at uncongested rates) and must not be used to cap
+//     // the rate. A real capacity measurement can never be below the already-observed
+//     // delivery rate.
+//     if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
+//       double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+//       bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
+
+//       RTC_LOG(LS_VERBOSE) << "L4S: Real probe result accepted: " << measured_probe_rate->bps()
+//                           << " bps (actual throughput: " << last_actual_bitrate_.bps()
+//                           << " bps) with confidence " << probe_confidence;
+//     } else {
+//       RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
+//                        << measured_probe_rate->bps() << " bps < actual throughput "
+//                        << last_actual_bitrate_.bps() << " bps - likely AQM scheduling artifact";
+//     }
+//   }
+// }
+
+//nudging logic to break ALR deadlock when a probe proves the path is clean
+
 void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
   if (!probe_bitrate_estimator_) {
     return;
   }
 
-  // Process each packet to detect probe clusters and measure real throughput
+  bool probe_packet_has_ce = false;
   for (const auto& packet_feedback : feedback.SortedByReceiveTime()) {
     if (packet_feedback.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
-      // This is a real probe packet - let ProbeBitrateEstimator measure it
       probe_bitrate_estimator_->HandleProbeAndEstimateBitrate(packet_feedback);
       
-      RTC_LOG(LS_VERBOSE) << "L4S: Processing probe packet from cluster " 
-                         << packet_feedback.sent_packet.pacing_info.probe_cluster_id
-                         << ", size: " << packet_feedback.sent_packet.size.bytes() << " bytes";
+      // Monitor if the physical probe actually hit a queue
+      if (packet_feedback.ecn == EcnMarking::kCe) {
+        probe_packet_has_ce = true;
+      }
     }
   }
 
-  // Get the real measured probe result (if any)
   std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
   if (measured_probe_rate) {
-    // Layer 1 sanity guard: discard probe results that are physically impossible.
-    // If the link is already delivering more actual throughput than the probe measured,
-    // the probe result is an artifact (e.g. DualPI2 scheduling spreading the burst
-    // across a long receive window at uncongested rates) and must not be used to cap
-    // the rate. A real capacity measurement can never be below the already-observed
-    // delivery rate.
+    // Reality Check Floor: Only accept probes that aren't mathematically impossible
     if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
       double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
       bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
 
-      RTC_LOG(LS_VERBOSE) << "L4S: Real probe result accepted: " << measured_probe_rate->bps()
-                          << " bps (actual throughput: " << last_actual_bitrate_.bps()
-                          << " bps) with confidence " << probe_confidence;
+      // --- THE SAFE ESCALATION HANDSHAKE ---
+      // If the encoder is stuck (ALR) and a probe physically proved the path is CLEAN,
+      // nudge Prague up to invite the encoder to use more bandwidth.
+      if (IsApplicationLimited() && prague_estimator_ && !probe_packet_has_ce) {
+          DataRate current_prague = prague_estimator_->GetCurrentEstimate();
+          
+          if (*measured_probe_rate > (current_prague * 1.1)) {
+              // Cautious 50% nudge toward the probe result
+              DataRate nudge_step = (*measured_probe_rate - current_prague) * 0.5;
+              DataRate new_target = current_prague + nudge_step;
+
+              RTC_LOG(LS_INFO) << "L4S: Safe Escalation! Probe proved " << measured_probe_rate->kbps() 
+                               << "k. Nudging Prague to " << new_target.kbps() 
+                               << "k to break ALR deadlock.";
+              
+              prague_estimator_->SetCurrentEstimate(new_target);
+              
+              // Force the Fusion Engine and ALR Detector to sync immediately
+              bandwidth_fusion_->UpdateEcnEstimate(new_target, 0.95, feedback.feedback_time);
+              if (alr_detector_) {
+                alr_detector_->SetEstimatedBitrate(new_target.bps());
+              }
+          }
+      }
     } else {
       RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
                        << measured_probe_rate->bps() << " bps < actual throughput "
-                       << last_actual_bitrate_.bps() << " bps - likely AQM scheduling artifact";
+                       << last_actual_bitrate_.bps() << " bps";
     }
   }
 }
+
 
 std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
   if (!probe_bitrate_estimator_) {
