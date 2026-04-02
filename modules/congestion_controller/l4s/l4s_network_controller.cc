@@ -1890,27 +1890,46 @@ std::optional<webrtc::ProbeClusterConfig> webrtc::L4SNetworkController::CreateCu
 
 //time-driven probing used for both periodic and recovery probes, with different parameters and constraints
 
+
+// Helper: Returns true if encoder needs more headroom for probing
+bool webrtc::L4SNetworkController::EncoderNeedsMoreHeadroom(double multiplier) const {
+  if (!IsApplicationLimited()) {
+    return true;
+  }
+  DataRate current_estimate = target_rate_.value_or(DataRate::Zero());
+  DataRate actual_throughput = last_actual_bitrate_;
+  if (actual_throughput <= DataRate::Zero()) {
+    return true; // Don't block probes if we have no data yet
+  }
+  if (current_estimate > actual_throughput * multiplier) {
+    return false;
+  }
+  return true;
+}
+
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
+  // Headroom cap: block probe if already >2x actual throughput
+  if (!EncoderNeedsMoreHeadroom(2.0)) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping periodic probe due to headroom cap (2x actual throughput).";
+    return;
+  }
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  
   double micro_probe_multiplier = 1.05;
   if (IsApplicationLimited()) {
     // Widen the net to help the encoder out of the yo-yo trap
     micro_probe_multiplier = 1.25; 
   }
-  
   DataRate probe_rate = current_estimate * micro_probe_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
-
   // --- Bypass WebRTC ProbeController: Call our unified helper ---
   auto custom_probe = CreateCustomProbe(now, probe_rate);
   if (custom_probe) {
-      update->probe_cluster_configs.push_back(*custom_probe);
-      StartProbeHold(now);
-      RTC_LOG(LS_INFO) << "L4S: Manually injected Periodic Micro-Probe at " 
-                       << probe_rate.bps() << " bps with ID " << custom_probe->id;
+    update->probe_cluster_configs.push_back(*custom_probe);
+    StartProbeHold(now);
+    RTC_LOG(LS_INFO) << "L4S: Manually injected Periodic Micro-Probe at " 
+                     << probe_rate.bps() << " bps with ID " << custom_probe->id;
   }
 }
 
@@ -2599,37 +2618,38 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 }
 
 void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
+  // Headroom cap: block probe if already >2x actual throughput (slightly more generous for recovery)
+  if (!EncoderNeedsMoreHeadroom(2.0)) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to headroom cap (2.0x actual throughput).";
+    return;
+  }
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  
   double recovery_multiplier = config_.recovery_probe_multiplier;
   if (IsApplicationLimited()) {
     recovery_multiplier = config_.recovery_alr_probe_multiplier;
   }
-
   DataRate probe_rate = current_estimate * recovery_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
-
   if (current_estimate < config_.recovery_probe_min_rate) {
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to low target rate.";
     return;
   }
-
   DataRate min_useful_probe_rate = current_estimate * config_.min_useful_probe_uplift;
   if (probe_rate < min_useful_probe_rate) {
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to insufficient uplift.";
     return;
   }
-
   // --- Bypass WebRTC ProbeController: Call our unified helper ---
   auto custom_probe = CreateCustomProbe(now, probe_rate);
   if (custom_probe) {
-      update->probe_cluster_configs.push_back(*custom_probe);
-      StartProbeHold(now);
-      RTC_LOG(LS_INFO) << "L4S: Manually injected Recovery Probe at " 
-                       << probe_rate.bps() << " bps with ID " << custom_probe->id;
+    update->probe_cluster_configs.push_back(*custom_probe);
+    StartProbeHold(now);
+    RTC_LOG(LS_INFO) << "L4S: Manually injected Recovery Probe at " 
+                     << probe_rate.bps() << " bps with ID " << custom_probe->id;
   }
+}
 }
 
 
