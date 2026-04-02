@@ -1384,9 +1384,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
 
-  if (throughput_estimator_) {
-    last_actual_bitrate_ = throughput_estimator_->GetCurrentEstimate();
-  }
+  // if (throughput_estimator_) {
+  //   last_actual_bitrate_ = throughput_estimator_->GetCurrentEstimate();
+  // }
   
   // State-owned probing policy
   ApplyStateProbingPolicy(msg.feedback_time, &update);
