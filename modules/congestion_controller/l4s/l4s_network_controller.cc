@@ -1902,7 +1902,7 @@ bool webrtc::L4SNetworkController::EncoderNeedsMoreHeadroom(double multiplier) c
     return true;
   }
   DataRate current_estimate = target_rate_.value_or(DataRate::Zero());
-  DataRate actual_throughput = last_actual_bitrate_;
+  DataRate actual_throughput = this->last_actual_bitrate_;
   if (actual_throughput <= DataRate::Zero()) {
     return true; // Don't block probes if we have no data yet
   }
