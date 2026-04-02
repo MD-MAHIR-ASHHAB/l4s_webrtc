@@ -1405,6 +1405,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkStateEstimat
   return update;
 }
 
+
 void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback) {
   // Update ALR detector first
   UpdateAlrDetector(feedback);
@@ -1420,6 +1421,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       TimeDelta rtt = feedback.feedback_time - packet_feedback.sent_packet.send_time - pending_time;
       feedback_min_rtt = std::min(feedback_min_rtt, rtt);
     }
+    
     if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
       // --- CRITICAL FIX 1A: Smooth the RTT ---
       // Never feed raw, instantaneous RTT into Prague. 
@@ -1437,14 +1439,6 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       last_estimated_round_trip_time_ = safe_rtt;
     }
   }
-
-
-    // if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
-    //   prague_estimator_->UpdateFromRtt(feedback_min_rtt);
-    //   last_rtt_ = feedback_min_rtt;
-    //   last_estimated_round_trip_time_ = feedback_min_rtt;
-    // }
-  }
   
   // 1. Update non-ECN estimators first (acked, probe)
   if (acked_estimator_) {
@@ -1457,7 +1451,7 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   
   // 2. Get initial fused estimate (without ECN input)
   DataRate base_fused_rate = GetBaseFusedEstimate(feedback.feedback_time);
-  
+
   // 3. State-owned ECN policy
   ApplyStateEcnPolicy(feedback, base_fused_rate);
 }
