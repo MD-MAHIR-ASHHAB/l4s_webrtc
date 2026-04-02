@@ -1480,74 +1480,69 @@ void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
 // 
 
 //time-driven AI 
-
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
     return;
   }
 
-  static int window_ce_count = 0;
-  static int window_ect_count = 0;
-  static Timestamp window_start_time = Timestamp::MinusInfinity();
+  // NOTE: window_ce_count_, window_ect_count_, and window_start_time_ 
+  // MUST be moved to private members in l4s_network_controller.h
+  
   TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
 
   int batch_ect_count = 0;
   int batch_ce_count = 0;
   bool probe_caused_congestion = false;
 
+  // 1. Extract Batch Info
   for (const auto& packet : feedback.packet_feedbacks) {
-    // if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
       batch_ect_count++;
     }
     if (packet.ecn == EcnMarking::kCe) {
       batch_ce_count++;
       last_congestion_signal_ = feedback.feedback_time;
-      
       if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
         probe_caused_congestion = true;
       }
     }
   }
 
+  // 2. Heartbeat/Activity Update
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
 
-  window_ce_count += batch_ce_count;
-  window_ect_count += batch_ect_count;
+  // 3. Accumulate Window (Do this before ANY returns!)
+  window_ce_count_ += batch_ce_count;
+  window_ect_count_ += batch_ect_count;
 
-  int batch_total = batch_ect_count + batch_ce_count;
-  if (batch_total < 3) {
-    HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
-    return;
-  }
+  // 4. THE WINDOW GATE (RTT-Aware processing)
+  // We process the accumulated data if:
+  // a) The RTT window has expired
+  // b) OR we have a significant number of packets (e.g., > 15) even if RTT hasn't passed
+  bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
+  int window_total = window_ce_count_ + window_ect_count_;
 
-  if (window_start_time.IsInfinite() || (feedback.feedback_time - window_start_time) >= window_duration) {
-    int window_total = window_ect_count + window_ce_count;
-    double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count) / window_total : 0.0;
+  if (window_expired || window_total >= 20) {
+    double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
 
-    const int min_packets_threshold = 3;
-    if (window_total >= min_packets_threshold) {
-      
-      if (batch_ce_count > 0 && probe_caused_congestion) {
-        RTC_LOG(LS_INFO) << "L4S: CE marks triggered by Micro-Probe. Freezing AI, but bypassing MD.";
-        
+    // Minimum packets to trust the ratio
+    if (window_total >= 3) {
+      if (window_ce_count_ > 0 && probe_caused_congestion) {
+        RTC_LOG(LS_INFO) << "L4S: Probe-triggered CE. Freezing AI for 2 RTTs.";
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
         
         if (!last_actual_bitrate_.IsZero()) {
-          bandwidth_fusion_->UpdateProbeEstimate(last_actual_bitrate_, 0.8, feedback.feedback_time);
+           bandwidth_fusion_->UpdateProbeEstimate(last_actual_bitrate_, 0.8, feedback.feedback_time);
         }
-
       } else {
-        // --- CRITICAL FIX 3: Proportional Multiplicative Decrease ---
-        // We MUST apply the reduction factor to Prague's own internal estimate. 
-        // Feeding the physical acked_throughput here causes a catastrophic rate collapse.
+        // Standard Prague Update
         DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
-
         prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
 
+        // Safety Floor to prevent total collapse
         if (!last_actual_bitrate_.IsZero()) {
           DataRate floor = last_actual_bitrate_ * 0.5;
           if (prague_estimator_->GetCurrentEstimate() < floor) {
@@ -1556,6 +1551,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         }
       }
 
+      // Sync with Fusion Engine
       double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
       if (prague_estimator_->GetDirectionFlag() == -1) {
         ecn_confidence = std::max(ecn_confidence, 0.95);
@@ -1563,11 +1559,13 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
     }
 
-    window_ce_count = 0;
-    window_ect_count = 0;
-    window_start_time = feedback.feedback_time;
+    // RESET WINDOW
+    window_ce_count_ = 0;
+    window_ect_count_ = 0;
+    window_start_time_ = feedback.feedback_time;
   }
 
+  // 5. Recovery logic always sees the raw batch info
   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
 }
 
@@ -1910,7 +1908,7 @@ bool webrtc::L4SNetworkController::EncoderNeedsMoreHeadroom(double multiplier) c
 
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
   // Headroom cap: block probe if already >2x actual throughput
-  if (!EncoderNeedsMoreHeadroom(2.0)) {
+  if (!EncoderNeedsMoreHeadroom(1.2)) {
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping periodic probe due to headroom cap (2x actual throughput).";
     return;
   }
