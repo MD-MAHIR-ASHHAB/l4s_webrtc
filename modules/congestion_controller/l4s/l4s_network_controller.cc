@@ -179,10 +179,8 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
                           (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
-  // Growth Logic
+  // 1. Growth Logic (ALR Aware)
   if (direction_flag_ == 1 && network_is_alive) {
-    // Only perform autonomous time-driven AI if we are NOT app-limited.
-    // If we ARE app-limited, we stay at the current rate and wait for a Probe Nudge.
     if (!is_app_limited && (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_)) {
       
       double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_.seconds<double>() : 0.05;
@@ -212,14 +210,27 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
 
   last_ai_update_time_ = current_time;
 
-  // Standard Prague Decay
+  // --- CRITICAL FIX 2A: Stop the ALR Decay Spiral ---
+  // If the application is underutilizing the link, the network is NOT congested,
+  // it is just idle. We must freeze the 5% decay so the encoder has a stable platform.
   if (elapsed >= kDecayInterval) {
-    congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
-    congestion_based_estimate_ = std::max(congestion_based_estimate_, DataRate::KilobitsPerSec(20));
+    if (!is_app_limited) {
+      congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
+      congestion_based_estimate_ = std::max(congestion_based_estimate_, DataRate::KilobitsPerSec(20));
+    }
+    // Always reset the timer so we don't build up "decay debt" while frozen
     last_update_time_ = current_time;
   }
   
-  // Alpha Decay Logic (Autonomous)
+  // 3. Mode Escapes & Alpha Decay
+  if (first_ce_mark_detected_ && !discovery_mode_active_) {
+    TimeDelta since_congestion = current_time - last_congestion_signal_;
+    if (since_congestion > TimeDelta::Seconds(30)) {
+      discovery_mode_active_ = true;
+      first_ce_mark_detected_ = false; 
+    }
+  }
+
   if (alpha_ > 0.0) {
     TimeDelta since_last_ce = current_time - last_congestion_signal_;
     TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
