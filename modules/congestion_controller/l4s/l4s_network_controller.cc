@@ -1874,9 +1874,10 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
   
   // Shift to Micro-Probing: 5% to 10% elevation maximum
   // Overwrite the GCC config defaults to prevent burst marks
-  double micro_probe_multiplier = 1.05; 
-  if (IsApplicationLimited()) {
-    micro_probe_multiplier = 1.10; // Slightly higher if ALR limits us
+  double micro_probe_multiplier = 1.05;
+    if (IsApplicationLimited()) {
+      // Send a bolder probe to ensure the receiver can easily measure the gap
+      micro_probe_multiplier = 1.20; 
   }
   
   DataRate probe_rate = current_estimate * micro_probe_multiplier;
