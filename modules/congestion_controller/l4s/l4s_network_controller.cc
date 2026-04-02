@@ -2766,7 +2766,8 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       rate_ok &&
         !recovery_mode_active_ &&
         !prague_estimator_->IsDiscoveryModeActive() &&
-        cooldown_expired) {
+        cooldown_expired &&
+        !IsApplicationLimited() {
 
       recovery_mode_active_ = true;
       recovery_probe_bootstrapped_ = false;
