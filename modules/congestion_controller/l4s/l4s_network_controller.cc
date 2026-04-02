@@ -2761,6 +2761,10 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     bool clean_duration_ok = clean_duration >= min_clean_duration;
     bool rate_ok = target_rate_.value_or(DataRate::Zero()) >=
              config_.recovery_probe_min_rate;
+
+    // --- CRITICAL FIX: The ALR Recovery Block ---
+    // Do not attempt to probe for the network ceiling if the application 
+    // is currently the bottleneck.
     if (consecutive_clean_packets_ >= recovery_threshold &&
       clean_duration_ok &&
       rate_ok &&
