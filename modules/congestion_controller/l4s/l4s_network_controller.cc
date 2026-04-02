@@ -1172,6 +1172,14 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time);
   target_rate_ = fused_rate;
   
+  // --- CRITICAL FIX 1B: CLOSE THE FUSION GAP ---
+  // The Driver (Prague) must always steer from the actual enforced limit. 
+  // If Fusion bounded the rate (e.g., max limits, probe ceilings), 
+  // Prague's internal state must be synchronized to match reality.
+  if (prague_estimator_) {
+      prague_estimator_->SetCurrentEstimate(fused_rate);
+  }
+
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
 
