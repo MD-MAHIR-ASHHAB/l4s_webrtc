@@ -2649,7 +2649,7 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
     RTC_LOG(LS_INFO) << "L4S: Manually injected Recovery Probe at " 
                      << probe_rate.bps() << " bps with ID " << custom_probe->id;
   }
-}
+
 }
 
 
