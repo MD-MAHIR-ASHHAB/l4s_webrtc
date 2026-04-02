@@ -1341,10 +1341,29 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       feedback_min_rtt = std::min(feedback_min_rtt, rtt);
     }
     if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
-      prague_estimator_->UpdateFromRtt(feedback_min_rtt);
-      last_rtt_ = feedback_min_rtt;
-      last_estimated_round_trip_time_ = feedback_min_rtt;
+      // --- CRITICAL FIX 1A: Smooth the RTT ---
+      // Never feed raw, instantaneous RTT into Prague. 
+      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+          // Exponential moving average: 80% old, 20% new
+          last_rtt_ = (last_rtt_ * 0.8) + (feedback_min_rtt * 0.2);
+      } else {
+          last_rtt_ = feedback_min_rtt;
+      }
+      
+      // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
+      TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
+      
+      prague_estimator_->UpdateFromRtt(safe_rtt);
+      last_estimated_round_trip_time_ = safe_rtt;
     }
+  }
+
+
+    // if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
+    //   prague_estimator_->UpdateFromRtt(feedback_min_rtt);
+    //   last_rtt_ = feedback_min_rtt;
+    //   last_estimated_round_trip_time_ = feedback_min_rtt;
+    // }
   }
   
   // 1. Update non-ECN estimators first (acked, probe)
