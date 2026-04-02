@@ -301,7 +301,7 @@ private:
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
   std::optional<DataRate> GetLastProbeResult();
-  std::optional<webrtc::ProbeClusterConfig> webrtc::L4SNetworkController::CreateCustomProbe(Timestamp now, DataRate target_rate);
+  std::optional<webrtc::ProbeClusterConfig>CreateCustomProbe(Timestamp now, DataRate target_rate);
 
   // State-owned policy handlers (Phase 3)
   void ApplyStateEcnPolicy(const TransportPacketsFeedback& feedback,
