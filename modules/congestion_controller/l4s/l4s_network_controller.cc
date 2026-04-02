@@ -630,12 +630,63 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
 }
 
+
+
+// webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(
+//     Timestamp now, bool recovery_mode) const {
+  
+//   // In Discovery or Recovery mode, the goal is to find the ceiling FAST.
+//   // Therefore, Probes take priority over the slow Time-Based AI, UNLESS Prague 
+//   // has seen a CE mark and tells us to stop.
+  
+//   DataRate probe_rate = sources_.probe_estimate;
+//   DataRate prague_rate = sources_.ecn_estimate;
+  
+//   bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
+//                          IsRecentlyUpdated(sources_.last_probe_update, now);
+//   bool prague_confident = sources_.ecn_confidence > config_.ecn_confidence_threshold && 
+//                           IsRecentlyUpdated(sources_.last_ecn_update, now);
+
+//   DataRate fused_rate = DataRate::KilobitsPerSec(300);
+
+//   if (probe_confident) {
+//     fused_rate = probe_rate;
+    
+//     // The Prague Veto: If Prague is confident but its estimate is LOWER than the probe,
+//     // it means Prague applied a Multiplicative Decrease (saw CE marks). 
+//     // Congestion avoidance ALWAYS overrides capacity discovery.
+//     if (prague_confident && prague_rate < fused_rate) {
+//       fused_rate = prague_rate;
+//       RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Prague vetoed probe, using ECN rate: " 
+//                           << fused_rate.bps() << " bps";
+//     } else {
+//       RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Trusting probe: " 
+//                           << fused_rate.bps() << " bps";
+//     }
+//   } else if (prague_confident) {
+//     fused_rate = prague_rate;
+//     RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - No valid probe, using Prague AI: " 
+//                         << fused_rate.bps() << " bps";
+//   } else {
+//     fused_rate = GetMostConfidentEstimate(now);
+//   }
+
+//   // Apply Reality Check Floor
+//   if (sources_.acked_confidence > 0.3 && IsRecentlyUpdated(sources_.last_acked_update, now)) {
+//     if (fused_rate < sources_.acked_estimate) {
+//       fused_rate = sources_.acked_estimate;
+//     }
+//   }
+
+//   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
+// }
+
+
+
+
+
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(
     Timestamp now, bool recovery_mode) const {
-  
-  // In Discovery or Recovery mode, the goal is to find the ceiling FAST.
-  // Therefore, Probes take priority over the slow Time-Based AI, UNLESS Prague 
-  // has seen a CE mark and tells us to stop.
   
   DataRate probe_rate = sources_.probe_estimate;
   DataRate prague_rate = sources_.ecn_estimate;
@@ -650,13 +701,21 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(
   if (probe_confident) {
     fused_rate = probe_rate;
     
-    // The Prague Veto: If Prague is confident but its estimate is LOWER than the probe,
-    // it means Prague applied a Multiplicative Decrease (saw CE marks). 
-    // Congestion avoidance ALWAYS overrides capacity discovery.
-    if (prague_confident && prague_rate < fused_rate) {
-      fused_rate = prague_rate;
-      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Prague vetoed probe, using ECN rate: " 
-                          << fused_rate.bps() << " bps";
+    if (prague_confident) {
+      if (prague_rate < fused_rate) {
+        // The Prague Veto: Prague saw CE marks and dictates a lower rate.
+        fused_rate = prague_rate;
+        RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Prague vetoed probe, using ECN rate: " 
+                            << fused_rate.bps() << " bps";
+      } else {
+        // --- CRITICAL FIX 2B: The Smeared Probe Guard ---
+        // Prague is HIGHER than the probe. The probe got smeared by the AQM queue.
+        // We MUST hold the Prague rate so we don't crash the BWE and rubber-band!
+        fused_rate = prague_rate;
+        RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Ignored smeared probe (" 
+                            << probe_rate.bps() << " bps), holding Prague rate: " 
+                            << prague_rate.bps() << " bps";
+      }
     } else {
       RTC_LOG(LS_VERBOSE) << "L4S Fusion: Discovery Mode - Trusting probe: " 
                           << fused_rate.bps() << " bps";
@@ -678,6 +737,8 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetDiscoveryModeFusedEstimate(
 
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
 }
+
+
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetMostConfidentEstimate(Timestamp now) const {
   DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
