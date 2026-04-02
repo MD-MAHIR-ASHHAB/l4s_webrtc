@@ -1709,8 +1709,10 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
       if (IsApplicationLimited() && prague_estimator_ && !probe_packet_has_ce) {
           DataRate current_prague = prague_estimator_->GetCurrentEstimate();
           
-          if (*measured_probe_rate > (current_prague * 1.1)) {
-              // Cautious 50% nudge toward the probe result
+          // Accept the probe if it proves even a 5% capacity uplift
+          if (*measured_probe_rate > (current_prague * 1.05)) {
+              
+              // Take a cautious step toward the probe result
               DataRate nudge_step = (*measured_probe_rate - current_prague) * 0.5;
               DataRate new_target = current_prague + nudge_step;
 
