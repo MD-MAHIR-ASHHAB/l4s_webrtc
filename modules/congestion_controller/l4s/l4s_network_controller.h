@@ -317,6 +317,8 @@ private:
   bool ShouldProbeNow(Timestamp now) const;
   void InitiateProbing(Timestamp now, NetworkControlUpdate* update);
   void InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update);
+  // Returns true if encoder needs more headroom for probing (periodic/recovery)
+  bool EncoderNeedsMoreHeadroom(double multiplier) const;
   TimeDelta GetRttScaledInterval() const;
   void StartProbeHold(Timestamp now);
   
