@@ -730,25 +730,6 @@ void Conductor::AddTracks() {
     if (!result_or_error.ok()) {
       RTC_LOG(LS_ERROR) << "Failed to add video track to PeerConnection: "
                         << result_or_error.error().message();
-    } else {
-      // Raise sender-side cap so encoder can scale to 1080p when bandwidth allows.
-      constexpr int kVideoMaxBitrateBps = 30000000;
-      webrtc::scoped_refptr<webrtc::RtpSenderInterface> video_sender =
-          result_or_error.value();
-      auto parameters = video_sender->GetParameters();
-      for (auto& encoding : parameters.encodings) {
-        encoding.max_bitrate_bps = kVideoMaxBitrateBps;
-      }
-
-      webrtc::RTCError set_params_result = video_sender->SetParameters(parameters);
-      if (!set_params_result.ok()) {
-        RTC_LOG(LS_ERROR)
-            << "Failed to set video sender max_bitrate_bps: "
-            << set_params_result.message();
-      } else {
-        RTC_LOG(LS_INFO) << "Configured video sender max_bitrate_bps="
-                         << kVideoMaxBitrateBps;
-      }
     }
   } else {
     RTC_LOG(LS_ERROR) << "OpenVideoCaptureDevice failed";
