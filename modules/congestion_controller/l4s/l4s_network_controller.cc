@@ -1496,7 +1496,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   bool probe_caused_congestion = false;
 
   for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
+    // if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1 || packet.ecn == EcnMarking::kCe) {
+    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
       batch_ect_count++;
     }
     if (packet.ecn == EcnMarking::kCe) {
