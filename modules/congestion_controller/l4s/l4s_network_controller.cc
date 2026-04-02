@@ -1865,21 +1865,38 @@ bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
 
 // 
 
+
+
+std::optional<webrtc::ProbeClusterConfig> webrtc::L4SNetworkController::CreateCustomProbe(
+    Timestamp now, DataRate target_rate) {
+    
+  if (target_rate <= DataRate::Zero()) {
+      return std::nullopt;
+  }
+
+  // Use a static ID counter starting high to avoid any collisions with native WebRTC probes
+  static int32_t next_custom_probe_id = 10000; 
+
+  ProbeClusterConfig custom_probe;
+  custom_probe.at_time = now;
+  custom_probe.target_data_rate = target_rate;
+  // 15ms is the sweet spot: long enough to get a good read, short enough not to bloat the DualPI2 queue
+  custom_probe.target_duration = TimeDelta::Millis(15); 
+  custom_probe.target_probe_count = 5;
+  custom_probe.id = next_custom_probe_id++;
+
+  return custom_probe;
+}
+
 //time-driven probing used for both periodic and recovery probes, with different parameters and constraints
 
 void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
-  if (!probe_controller_) {
-    return;
-  }
-
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   
-  // Shift to Micro-Probing: 5% to 10% elevation maximum
-  // Overwrite the GCC config defaults to prevent burst marks
   double micro_probe_multiplier = 1.05;
-    if (IsApplicationLimited()) {
-      // Send a bolder probe to ensure the receiver can easily measure the gap
-      micro_probe_multiplier = 1.20; 
+  if (IsApplicationLimited()) {
+    // Widen the net to help the encoder out of the yo-yo trap
+    micro_probe_multiplier = 1.25; 
   }
   
   DataRate probe_rate = current_estimate * micro_probe_multiplier;
@@ -1887,24 +1904,13 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Force the ProbeController to use our micro-probe rate rather than its default 3x multipliers
-  auto probes = probe_controller_->SetEstimatedBitrate(current_estimate, BandwidthLimitedCause::kDelayBasedLimited, now);
-  if (probes.empty()) {
-     probes = probe_controller_->RequestProbe(now);
-  }
-  
-  // Clamp all requested probes down to the micro_probe_multiplier constraint
-  for (auto& probe : probes) {
-      if (probe.target_data_rate > probe_rate) {
-          probe.target_data_rate = probe_rate;
-      }
-  }
-
-  if (!probes.empty()) {
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
-                                         probes.begin(), probes.end());
-    StartProbeHold(now);
-    RTC_LOG(LS_VERBOSE) << "L4S: Micro-Probe requested at " << probe_rate.bps() << " bps";
+  // --- Bypass WebRTC ProbeController: Call our unified helper ---
+  auto custom_probe = CreateCustomProbe(now, probe_rate);
+  if (custom_probe) {
+      update->probe_cluster_configs.push_back(*custom_probe);
+      StartProbeHold(now);
+      RTC_LOG(LS_INFO) << "L4S: Manually injected Periodic Micro-Probe at " 
+                       << probe_rate.bps() << " bps with ID " << custom_probe->id;
   }
 }
 
@@ -2593,86 +2599,38 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 }
 
 void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
-  if (!probe_controller_) {
-    return;
-  }
-
-  // Get current best estimate for probe rate calculation
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-
-  // Recovery is intentionally conservative for CE-sensitive AQMs.
+  
   double recovery_multiplier = config_.recovery_probe_multiplier;
   if (IsApplicationLimited()) {
     recovery_multiplier = config_.recovery_alr_probe_multiplier;
   }
 
-  // Calculate target probe rate
   DataRate probe_rate = current_estimate * recovery_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
 
-  // Skip recovery probing at very low rates where queue/scheduler effects
-  // dominate and probe samples are typically misleading.
   if (current_estimate < config_.recovery_probe_min_rate) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to low target rate: "
-                        << current_estimate.bps() << " < "
-                        << config_.recovery_probe_min_rate.bps();
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to low target rate.";
     return;
   }
 
-  // Ensure probes are materially above current estimate; otherwise they are
-  // not useful for capacity seeking and only add CE risk.
   DataRate min_useful_probe_rate = current_estimate * config_.min_useful_probe_uplift;
   if (probe_rate < min_useful_probe_rate) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to insufficient uplift: "
-                        << probe_rate.bps() << " < " << min_useful_probe_rate.bps();
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to insufficient uplift.";
     return;
   }
 
-  // Bootstrap recovery probing once, then avoid repeated reset->startup bursts.
-  DataRate clamped_min = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
-  DataRate clamped_max = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
-  if (!clamped_max.IsFinite()) {
-    clamped_max = DataRate::KilobitsPerSec(100000);
+  // --- Bypass WebRTC ProbeController: Call our unified helper ---
+  auto custom_probe = CreateCustomProbe(now, probe_rate);
+  if (custom_probe) {
+      update->probe_cluster_configs.push_back(*custom_probe);
+      StartProbeHold(now);
+      RTC_LOG(LS_INFO) << "L4S: Manually injected Recovery Probe at " 
+                       << probe_rate.bps() << " bps with ID " << custom_probe->id;
   }
-  // Ensure max >= current so the probe target is meaningful.
-  clamped_max = std::max(clamped_max, current_estimate);
-
-  std::vector<ProbeClusterConfig> probes;
-  if (!recovery_probe_bootstrapped_) {
-    probe_controller_->Reset(now);
-    probes = probe_controller_->SetBitrates(
-        clamped_min, current_estimate, clamped_max, now);
-    recovery_probe_bootstrapped_ = true;
-    last_reported_bitrate_to_probe_controller_ = current_estimate;
-  } else {
-    probes = probe_controller_->SetEstimatedBitrate(
-        current_estimate, BandwidthLimitedCause::kLossLimitedBweIncreasing,
-        now);
-    if (probes.empty()) {
-      probes = probe_controller_->RequestProbe(now);
-    }
-    last_reported_bitrate_to_probe_controller_ = current_estimate;
-  }
-
-  if (!probes.empty()) {
-    update->probe_cluster_configs.insert(update->probe_cluster_configs.end(),
-                                         probes.begin(), probes.end());
-    StartProbeHold(now);
-    RTC_LOG(LS_INFO) << "L4S: Recovery probe initiated - "
-                     << probes.size() << " clusters from "
-                     << current_estimate.bps() << " bps "
-                     << "(max=" << clamped_max.bps() << " bps)";
-  } else {
-    // Network not yet available inside ProbeController; probe will fire once
-    // OnNetworkAvailability is forwarded.
-    RTC_LOG(LS_VERBOSE) << "L4S: Recovery probe deferred - network not available";
-  }
-  (void)probe_rate;         // computed above for max clamping
-  (void)recovery_multiplier;
 }
-
 
 
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
