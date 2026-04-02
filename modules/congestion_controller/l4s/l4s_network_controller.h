@@ -391,9 +391,9 @@ private:
   // ECN state
   bool ecn_supported_ = false;
   Timestamp last_congestion_signal_ = Timestamp::MinusInfinity();
-  static int window_ce_count = 0;
-  static int window_ect_count = 0;
-  static Timestamp window_start_time = Timestamp::MinusInfinity();
+  int window_ce_count = 0;
+  int window_ect_count = 0;
+  Timestamp window_start_time = Timestamp::MinusInfinity();
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
