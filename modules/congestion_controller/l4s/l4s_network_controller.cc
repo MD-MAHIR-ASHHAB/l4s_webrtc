@@ -785,7 +785,7 @@ bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timest
   if (last_update.IsInfinite() || now.IsInfinite()) {
     return false;
   }
-  // In a sparse-RTCP setup, data is considered valid for up to 12 seconds 
+  // In a sparse-RTCP setup, data is considered valid for up to 60 seconds 
   // (to survive periodic reporting gaps) before being flagged as stale.
   return (now - last_update) < TimeDelta::Seconds(60);
 }
@@ -805,7 +805,34 @@ webrtc::L4SMetricsCollector::L4SMetricsCollector(
   RTC_LOG(LS_INFO) << "L4SMetricsCollector initialized for test case: " << test_case_name_;
 }
 
-webrtc::L4SMetricsCollector::~L4SMetricsCollector() = default;
+//old code, new code is below
+
+// webrtc::L4SMetricsCollector::~L4SMetricsCollector() = default;
+
+// void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
+//     Timestamp at_time,
+//     DataRate target_bitrate,
+//     DataRate actual_bitrate,
+//     std::optional<DataRate> acked_bitrate) {
+//   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
+//     return;
+//   }
+  
+//   last_bandwidth_log_ = at_time;
+//   // Shared GCC/L4S contract: throughput for comparison is acked rate.
+//   DataRate rate_to_log = acked_bitrate.value_or(DataRate::Zero());
+//   UpdateThroughputStats(rate_to_log);
+
+//   logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
+//                                 rate_to_log.bps() / 1e6,
+//                                 webrtc::test::Unit::kUnitless,
+//                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
+//                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+//   (void)target_bitrate;
+//   (void)actual_bitrate;
+// }
+
 
 void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
     Timestamp at_time,
@@ -817,19 +844,33 @@ void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
   }
   
   last_bandwidth_log_ = at_time;
-  // Shared GCC/L4S contract: throughput for comparison is acked rate.
-  DataRate rate_to_log = acked_bitrate.value_or(DataRate::Zero());
+
+  // --- CRITICAL FIX: Use Physical Reality for Graphs ---
+  // We ignore the broken acked_bitrate and plot the actual physical throughput.
+  DataRate rate_to_log = actual_bitrate; 
   UpdateThroughputStats(rate_to_log);
 
+  // Note: Keeping the string name "acked_rate_mbps" so your external python/plotting 
+  // scripts don't break, but it's now fed with ACTUAL data.
   logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
                                 rate_to_log.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 
-  (void)target_bitrate;
-  (void)actual_bitrate;
+  // Let's also log the Target Budget so you can graph them side-by-side!
+  if (target_bitrate.IsFinite()) {
+      logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
+                                    target_bitrate.bps() / 1e6,
+                                    webrtc::test::Unit::kUnitless,
+                                    webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                    {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+
+  (void)acked_bitrate; // Throw the broken one in the trash instead
 }
+
+
 
 void webrtc::L4SMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter) {
   if (at_time - last_delay_log_ < kDelayLogInterval) {
