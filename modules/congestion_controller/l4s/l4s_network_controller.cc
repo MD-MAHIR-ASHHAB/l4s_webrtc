@@ -279,12 +279,10 @@ double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
   
   TimeDelta since_ecn_activity = now - last_ecn_feedback_;
   
-  // In sparse RTP feedback, silence is golden. 
-  // Hold high confidence through standard periodic RTCP gaps.
-  if (since_ecn_activity < TimeDelta::Seconds(10)) {
-    return 0.95; // Highly confident. Prague remains Priority 1.
-  } else if (since_ecn_activity < TimeDelta::Seconds(15)) {
-    return 0.70; // Moderately confident.
+  // In L4S, silence is golden. As long as the connection hasn't totally 
+  // timed out, Prague remains the absolute authority.
+  if (since_ecn_activity < TimeDelta::Seconds(60)) {
+    return 0.95; // Highly confident. Priority 1.
   }
   return 0.4;  // Path is likely dead
 }
