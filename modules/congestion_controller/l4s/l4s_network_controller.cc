@@ -1584,9 +1584,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         RTC_LOG(LS_INFO) << "L4S: Probe-triggered CE. Freezing AI for 2 RTTs.";
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
         
-        if (!last_actual_bitrate_.IsZero()) {
-           bandwidth_fusion_->UpdateProbeEstimate(last_actual_bitrate_, 0.8, feedback.feedback_time);
-        }
+        // CRITICAL FIX: The probe FAILED. Clear it! Do not save last_actual_bitrate_ here.
+        bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
+      }
       } else {
         // Standard Prague Update
         DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
