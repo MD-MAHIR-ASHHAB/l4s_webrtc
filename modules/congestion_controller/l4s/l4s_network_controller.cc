@@ -1437,7 +1437,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   ApplyStateProbingPolicy(msg.feedback_time, &update);
   
 // State-owned fusion policy
-  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // or msg.feedback_time
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.feedback_time); // or msg.feedback_time
   target_rate_ = fused_rate;
   // Update throughput calculation
   UpdateThroughputWindow(msg);
@@ -1587,7 +1587,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         // CRITICAL FIX: The probe FAILED. Clear it! Do not save last_actual_bitrate_ here.
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       }
-      } else {
+      else {
         // Standard Prague Update
         DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
         prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
