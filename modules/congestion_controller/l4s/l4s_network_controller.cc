@@ -1229,18 +1229,18 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   ApplyStateProbingPolicy(msg.at_time, &update);
 
   // Update time-based growth/decay in Prague estimator
-  prague_estimator_->OnTimeUpdate(msg.at_time, IsApplicationLimited() || !EncoderNeedsMoreHeadroom(1.1));
+// Update time-based growth/decay in Prague estimator
+  prague_estimator_->OnTimeUpdate(msg.at_time, IsApplicationLimited() || !EncoderNeedsMoreHeadroom(1.2));
   
-  // CRITICAL FIX: Push the autonomously grown rate into the Fusion Engine
-  // so the pacer actually speeds up between sparse RTCP packets.
-  if (prague_estimator_->GetDirectionFlag() == 1 && EncoderNeedsMoreHeadroom(1.1)) { 
-      double ecn_confidence = prague_estimator_->GetConfidence(msg.at_time);
-      bandwidth_fusion_->UpdateEcnEstimate(
-          prague_estimator_->GetCurrentEstimate(), 
-          ecn_confidence, 
-          msg.at_time
-      );
-  }
+  // --- PRAGUE DICTATOR MODE ---
+  // Unconditionally push Prague's state to the Fusion Engine every 100ms.
+  // Never hide Prague's estimate just because we are in ALR or Reduction.
+  double ecn_confidence = prague_estimator_->GetConfidence(msg.at_time);
+  bandwidth_fusion_->UpdateEcnEstimate(
+      prague_estimator_->GetCurrentEstimate(), 
+      ecn_confidence, 
+      msg.at_time
+  );
 
   // State-owned fusion policy
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time);

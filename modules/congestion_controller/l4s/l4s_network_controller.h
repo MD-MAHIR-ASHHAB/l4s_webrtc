@@ -46,7 +46,6 @@ struct L4SControllerConfig {
   
   // Bandwidth Estimation Components
   bool enable_probing = true;
-  bool enable_delay_estimation = true;
   bool enable_acked_estimation = true;
   bool enable_alr_detection = true;
   TimeDelta probe_interval = TimeDelta::Seconds(8);
@@ -161,17 +160,14 @@ class L4SBandwidthFusion {
 public:
   struct BandwidthSources {
     DataRate ecn_estimate = DataRate::Zero();
-    DataRate delay_estimate = DataRate::Zero();
     DataRate probe_estimate = DataRate::Zero();
     DataRate acked_estimate = DataRate::Zero();
     
     double ecn_confidence = 0.0;
-    double delay_confidence = 0.0;
     double probe_confidence = 0.0;
     double acked_confidence = 0.0;
     
     Timestamp last_ecn_update = Timestamp::MinusInfinity();
-    Timestamp last_delay_update = Timestamp::MinusInfinity();
     Timestamp last_probe_update = Timestamp::MinusInfinity();
     Timestamp last_acked_update = Timestamp::MinusInfinity();
   };
