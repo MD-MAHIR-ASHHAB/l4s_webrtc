@@ -787,7 +787,7 @@ bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timest
   }
   // In a sparse-RTCP setup, data is considered valid for up to 12 seconds 
   // (to survive periodic reporting gaps) before being flagged as stale.
-  return (now - last_update) < TimeDelta::Seconds(12);
+  return (now - last_update) < TimeDelta::Seconds(60);
 }
 
 
