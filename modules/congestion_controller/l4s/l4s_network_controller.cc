@@ -1949,9 +1949,20 @@ bool webrtc::L4SNetworkController::EncoderNeedsMoreHeadroom(double multiplier) c
   if (actual_throughput <= DataRate::Zero()) {
     return true; // Don't block probes if we have no data yet
   }
-  if (current_estimate > actual_throughput * multiplier) {
-    return false;
+  
+  // --- HYBRID HEADROOM FIX ---
+  // Calculate both relative (e.g., 20%) and absolute (e.g., +1.5 Mbps) headroom.
+  // Use whichever provides MORE room, ensuring resolution jumps (720p -> 1080p) 
+  // always have enough absolute runway without requiring massive multipliers.
+  DataRate relative_cap = actual_throughput * multiplier;
+  DataRate absolute_cap = actual_throughput + DataRate::KilobitsPerSec(1500); // 1.5 Mbps flat buffer
+  
+  DataRate allowed_target = std::max(relative_cap, absolute_cap);
+  
+  if (current_estimate > allowed_target) {
+    return false; // Cap exceeded, freeze growth
   }
+  
   return true;
 }
 
