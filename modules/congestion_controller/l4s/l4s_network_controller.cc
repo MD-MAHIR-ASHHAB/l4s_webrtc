@@ -1286,15 +1286,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
 
 // State-owned fusion policy
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // or msg.feedback_time
-
-  // --- CRITICAL FIX: The Global Headroom Clamp ---
-  if (IsApplicationLimited() && last_actual_bitrate_ > DataRate::Zero()) {
-      DataRate absolute_ceiling = last_actual_bitrate_ * 1.2;
-      if (fused_rate > absolute_ceiling) {
-          fused_rate = absolute_ceiling; 
-      }
-  }
-
   target_rate_ = fused_rate;
 
 
@@ -1447,15 +1438,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   
 // State-owned fusion policy
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // or msg.feedback_time
-
-  // --- CRITICAL FIX: The Global Headroom Clamp ---
-  if (IsApplicationLimited() && last_actual_bitrate_ > DataRate::Zero()) {
-      DataRate absolute_ceiling = last_actual_bitrate_ * 1.2;
-      if (fused_rate > absolute_ceiling) {
-          fused_rate = absolute_ceiling; 
-      }
-  }
-
   target_rate_ = fused_rate;
   // Update throughput calculation
   UpdateThroughputWindow(msg);
