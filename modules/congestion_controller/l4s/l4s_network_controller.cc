@@ -807,7 +807,7 @@ webrtc::L4SMetricsCollector::L4SMetricsCollector(
 
 
 
-// webrtc::L4SMetricsCollector::~L4SMetricsCollector() = default;
+webrtc::L4SMetricsCollector::~L4SMetricsCollector() = default;
 
 //old code, new code is below
 
