@@ -2027,13 +2027,10 @@ webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp no
   temp_sources.ecn_confidence = 0.0;
   
   // Use weighted combination of delay, probe, and acked estimates as base
-  double total_weight = temp_sources.delay_confidence + 
-                       temp_sources.probe_confidence + 
-                       temp_sources.acked_confidence;
+  double total_weight = temp_sources.probe_confidence + temp_sources.acked_confidence;
   if (total_weight > 0.01) {  // Very low threshold - almost always use weighted combination
     DataRate weighted_estimate = 
-        (temp_sources.delay_estimate * temp_sources.delay_confidence + 
-         temp_sources.probe_estimate * temp_sources.probe_confidence +
+        (temp_sources.probe_estimate * temp_sources.probe_confidence +
          temp_sources.acked_estimate * temp_sources.acked_confidence) / total_weight;
     
     RTC_LOG(LS_VERBOSE) << "L4S: Base fused estimate (no ECN): " << weighted_estimate.bps() << " bps";
@@ -2043,11 +2040,6 @@ webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp no
   // Fallback to most confident non-ECN estimate
   DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
   double best_confidence = 0.0;
-  
-  if (temp_sources.delay_confidence > best_confidence) {
-    best_estimate = temp_sources.delay_estimate;
-    best_confidence = temp_sources.delay_confidence;
-  }
   
   if (temp_sources.acked_confidence > best_confidence) {
     best_estimate = temp_sources.acked_estimate;
