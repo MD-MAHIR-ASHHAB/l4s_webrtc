@@ -1793,7 +1793,6 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
                    << ", final_decision=" << should_probe;
   
   if (should_probe) {
-    RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe!";
     InitiateProbing(now, update);
     last_probe_time_ = now;
   }
@@ -1918,6 +1917,8 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
     RTC_LOG(LS_VERBOSE) << "L4S: Skipping periodic probe due to headroom cap (2x actual throughput).";
     return;
   }
+  
+  RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe!";
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   double micro_probe_multiplier = 1.05;
   if (IsApplicationLimited()) {
