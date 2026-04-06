@@ -99,9 +99,9 @@ class GCCMetricsCollector {
 
   
   // Minimum intervals between logs
-  static constexpr TimeDelta kAckedRateLogInterval = TimeDelta::Millis(1);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(1);
-  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kAckedRateLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(50);
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 };
 
@@ -217,7 +217,7 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   std::unique_ptr<GCCMetricsCollector> metrics_collector_;
   bool metrics_enabled_ = true;
   Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(1);
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(50);
   
   std::deque<std::pair<Timestamp, int>> throughput_window_;
 
