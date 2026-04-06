@@ -1284,10 +1284,20 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
       msg.at_time
   );
 
-  // State-owned fusion policy
-  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time);
+// State-owned fusion policy
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // or msg.feedback_time
+
+  // --- CRITICAL FIX: The Global Headroom Clamp ---
+  if (IsApplicationLimited() && last_actual_bitrate_ > DataRate::Zero()) {
+      DataRate absolute_ceiling = last_actual_bitrate_ * 1.2;
+      if (fused_rate > absolute_ceiling) {
+          fused_rate = absolute_ceiling; 
+      }
+  }
+
   target_rate_ = fused_rate;
-  
+
+
   // --- CRITICAL FIX 1B: CLOSE THE FUSION GAP ---
   // The Driver (Prague) must always steer from the actual enforced limit. 
   // If Fusion bounded the rate (e.g., max limits, probe ceilings), 
@@ -1435,10 +1445,18 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   // State-owned probing policy
   ApplyStateProbingPolicy(msg.feedback_time, &update);
   
-  // State-owned fusion policy
-  DataRate fused_rate = ApplyStateFusionPolicy(msg.feedback_time);
+// State-owned fusion policy
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // or msg.feedback_time
+
+  // --- CRITICAL FIX: The Global Headroom Clamp ---
+  if (IsApplicationLimited() && last_actual_bitrate_ > DataRate::Zero()) {
+      DataRate absolute_ceiling = last_actual_bitrate_ * 1.2;
+      if (fused_rate > absolute_ceiling) {
+          fused_rate = absolute_ceiling; 
+      }
+  }
+
   target_rate_ = fused_rate;
-  
   // Update throughput calculation
   UpdateThroughputWindow(msg);
   
@@ -2503,6 +2521,8 @@ bool webrtc::L4SNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
          (ecn_supported_ && (now - last_congestion_signal_) < TimeDelta::Seconds(5));
 }
 
+
+
 void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
   constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
 
@@ -2515,10 +2535,7 @@ void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPackets
   }
 
   // Evict using the newest receive_time as reference so the subtraction stays
-  // within the receiver clock domain.  The original code used feedback_time
-  // (sender clock) which crosses clock domains: any NTP offset between sender
-  // and receiver made the difference wrong, causing the window to grow
-  // unbounded and turning the 500 ms average into a session-long average.
+  // within the receiver clock domain.
   if (!throughput_window_.empty()) {
     Timestamp latest_receive = throughput_window_.back().first;
     while (!throughput_window_.empty() &&
@@ -2537,12 +2554,15 @@ void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPackets
     }
     
     TimeDelta window_interval = window_end - window_start;
-    if (window_interval > TimeDelta::Millis(1)) {
+    
+    // THE PURE FIX: Do not calculate a rate until the window is statistically significant.
+    // We hold the previous valid estimate until we have at least 200ms of new data.
+    if (window_interval >= TimeDelta::Millis(200)) {
       last_actual_bitrate_ = DataRate::BitsPerSec(
           static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
-    } else {
-      last_actual_bitrate_ = DataRate::Zero();
-    }
+    } 
+    // If < 200ms, we simply do nothing and retain the existing last_actual_bitrate_.
+    // DO NOT set it to Zero here, otherwise the headroom checks will break!
   }
 }
 
