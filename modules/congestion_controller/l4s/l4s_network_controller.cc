@@ -1321,13 +1321,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     last_estimated_round_trip_time_ = msg.round_trip_time;
   }
 
-  // Log RTT metrics
-  if (metrics_enabled_ && metrics_collector_ && msg.round_trip_time.IsFinite() &&
-      !msg.round_trip_time.IsZero()) {
-    metrics_collector_->LogDelayMetrics(
-        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
-  }
+  // // Log RTT metrics
+  // if (metrics_enabled_ && metrics_collector_ && msg.round_trip_time.IsFinite() &&
+  //     !msg.round_trip_time.IsZero()) {
+  //   metrics_collector_->LogDelayMetrics(
+  //       Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+  //       msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
+  // }
 
   RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
                       << " ms";
