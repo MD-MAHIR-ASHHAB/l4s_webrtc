@@ -76,18 +76,22 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                        << ce_ratio << ")";
     }
     
-    constexpr double g = 1.0 / 16.0;  // RFC 9330 standard gain
-    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-    
-    if (direction_flag_ == 1) {
-      direction_flag_ = -1;
+      // --- PILLAR 2A: WebRTC-Tuned Gain ---
+      // Standard 1/16 is too slow for 50ms WebRTC feedback batches. Use 1/8.
+      constexpr double g = 1.0 / 8.0; 
+      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
+      if (direction_flag_ == 1) {
+        direction_flag_ = -1;
+        
       double reduction_factor = 1.0 - alpha_ / 2.0;
 
+      // --- PILLAR 2B: The Panic Drain ---
+      // If we hit CE, we MUST cut by at least 5% (0.95) to physically drain the queue.
+      reduction_factor = std::min(reduction_factor, 0.95);
 
-      // --- CRITICAL FIX 3: Protect the video encoder ---
-      // Never cut more than 20% of the bitrate in a single RTT, regardless of alpha.
+      // ... but never crash the video by cutting more than 20% (0.80) in a single step.
       reduction_factor = std::max(reduction_factor, 0.80);
-
 
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
