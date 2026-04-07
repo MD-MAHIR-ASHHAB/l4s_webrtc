@@ -1529,6 +1529,7 @@ void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
 
 // 
 
+
 //time-driven AI 
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
@@ -1588,8 +1589,18 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       }
       else {
-        // Standard Prague Update
+        // --- PILLAR 1: THE REALITY ANCHOR ---
         DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
+        
+        // If the Target is floating more than 30% above the Actual throughput, 
+        // the Pacer was barely working. Snap the Target down to reality before cutting.
+        if (!last_actual_bitrate_.IsZero() && prague_input_rate > last_actual_bitrate_ * 1.3) {
+            prague_input_rate = last_actual_bitrate_ * 1.1; // Snap to actual + 10% breathing room
+            RTC_LOG(LS_INFO) << "L4S: Snapping Target from " << prague_estimator_->GetCurrentEstimate().kbps() 
+                             << "k down to " << prague_input_rate.kbps() << "k before applying CE cut.";
+        }
+
+        // Now apply the mathematical cut to the anchored rate
         prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
 
         // Safety Floor to prevent total collapse
@@ -1618,7 +1629,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   // 5. Recovery logic always sees the raw batch info
   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
 }
-
 
 webrtc::DataRate webrtc::L4SNetworkController::DetermineBottleneckAwareTarget(DataRate fused_rate) {
   // During discovery mode, bypass bottleneck constraints to allow aggressive growth
