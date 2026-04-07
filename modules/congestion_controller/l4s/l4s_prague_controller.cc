@@ -1105,7 +1105,7 @@
 //         ai_step_bps = std::min(ai_step_bps, static_cast<int64_t>(2000000 * elapsed_s)); // Cap burst
 //       } else {
 //         // Apply context-aware logic
-//         ai_step_bps = CalculateContextAwareAiStep(ai_step_bps, congestion_based_estimate_, current_time);
+//         ai_step_bps = CalculateContextAwareAiStep(ai_step_bps, congestion_based_estimate_, current_time, elapsed_s);
 //       }
 
 //       if (ai_step_bps > 0) {
@@ -1277,6 +1277,104 @@
 //     RTC_LOG(LS_VERBOSE) << "L4S: Micro-Probe requested at " << probe_rate.bps() << " bps";
 //   }
 // }
+
+
+
+// int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(
+//     int64_t time_scaled_ai_step, 
+//     DataRate current_rate, 
+//     Timestamp current_time, 
+//     double elapsed_s) {
+  
+//   // Safety checks - fallback scales with time (e.g., 1 Mbps per second of elapsed time)
+//   int64_t time_scaled_fallback = static_cast<int64_t>(1000000 * elapsed_s);
+  
+//   if (time_scaled_ai_step <= 0 || !current_rate.IsFinite() || current_time.IsInfinite() || elapsed_s <= 0.0) {
+//     RTC_LOG(LS_WARNING) << "Prague: Invalid input parameters to CalculateContextAwareAiStep";
+//     return time_scaled_fallback; 
+//   }
+  
+//   double context_multiplier = 1.0;
+  
+//   // 1. Time since last congestion signal
+//   TimeDelta since_congestion = current_time - last_congestion_signal_;
+//   if (!last_congestion_signal_.IsInfinite()) {
+//     if (since_congestion < TimeDelta::Seconds(1)) {
+//       context_multiplier *= 0.3;
+//     } else if (since_congestion < TimeDelta::Seconds(5)) {
+//       context_multiplier *= 0.6;
+//     } else if (since_congestion > TimeDelta::Seconds(10)) {
+//       context_multiplier *= 1.5;
+//     }
+//   }
+  
+//   // 2. Alpha value (congestion severity)
+//   if (alpha_ > 0.5) {
+//     context_multiplier *= 0.2;
+//   } else if (alpha_ > 0.1) {
+//     context_multiplier *= 0.5;
+//   } else if (alpha_ < 0.01) {
+//     context_multiplier *= 1.3;
+//   }
+  
+//   // 3. Rate magnitude
+//   int64_t current_bps = current_rate.bps();
+//   if (current_bps > 50000000) {        // > 50 Mbps
+//     context_multiplier *= 0.1;
+//   } else if (current_bps > 10000000) { // > 10 Mbps
+//     context_multiplier *= 0.2;
+//   } else if (current_bps > 5000000) {  // > 5 Mbps
+//     context_multiplier *= 0.3;
+//   } else if (current_bps > 1000000) {  // > 1 Mbps
+//     context_multiplier *= 0.6;
+//   } else if (current_bps < 300000) {   // < 300 Kbps
+//     context_multiplier *= 1.5;
+//   }
+  
+//   // 4. Direction flag stability
+//   if (direction_flag_ == 1 && non_ce_packet_count_ > kNonCeThreshold * 2) {
+//     context_multiplier *= 1.2;
+//   }
+  
+//   // 5. RTT-based scaling
+//   double rtt_seconds = current_rtt_.IsFinite() ? current_rtt_.seconds<double>() : 0.05;
+//   if (rtt_seconds < 0.01) {
+//     context_multiplier *= 0.1;
+//   } else if (rtt_seconds < 0.05) {
+//     context_multiplier *= 0.3;
+//   } else if (rtt_seconds > 0.1) {
+//     context_multiplier *= std::min(2.0, rtt_seconds / 0.05);
+//   }
+  
+//   // 6. Apply multiplier to the ALREADY time-scaled step
+//   int64_t context_ai_bps = static_cast<int64_t>(time_scaled_ai_step * context_multiplier);
+  
+//   // 7. Time-scaled bounding
+//   int64_t min_step_bps = time_scaled_ai_step / 20; 
+  
+//   // The rate-based cap limits the step to 10% of current rate PER SECOND of elapsed time
+//   int64_t rate_based_max_step = std::max(
+//       static_cast<int64_t>(current_bps * 0.1 * elapsed_s), 
+//       time_scaled_fallback 
+//   );
+  
+//   int64_t max_step_bps = std::min(
+//       time_scaled_ai_step * 2,  
+//       rate_based_max_step       
+//   );
+  
+//   context_ai_bps = std::max(min_step_bps, std::min(context_ai_bps, max_step_bps));
+  
+//   if (context_ai_bps <= 0 || context_ai_bps > 1000000000 || !std::isfinite(context_ai_bps)) {
+//     RTC_LOG(LS_WARNING) << "Prague: Invalid context AI step calculated: " << context_ai_bps;
+//     context_ai_bps = time_scaled_fallback; 
+//   }
+  
+//   return context_ai_bps;
+// }
+
+
+
 
 
 

@@ -94,7 +94,7 @@ void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
   // feedback path.  SendFeedback() already clamps 'now' to
   // next_possible_feedback_send_time_ internally so RTCP NTP timestamps
   // remain monotonically increasing.
-  RTC_LOG(LS_INFO) << "L4S: Sending immediate RTCP feedback due to CE detection";
+  RTC_LOG(LS_VERBOSE) << "L4S: Sending immediate RTCP feedback due to CE detection";
   SendFeedback(env_.clock().CurrentTime());
 }
 
