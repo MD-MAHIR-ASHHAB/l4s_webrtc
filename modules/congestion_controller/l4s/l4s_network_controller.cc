@@ -62,13 +62,11 @@ PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 
 //time driven AI
 
-
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   last_feedback_time_ = current_time; // Track the last time we heard from the network
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
     non_ce_packet_count_ = 0;
-    
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
       first_ce_mark_detected_ = true;
@@ -76,28 +74,29 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                        << ce_ratio << ")";
     }
     
-      // --- PILLAR 2A: WebRTC-Tuned Gain ---
-      // Standard 1/16 is too slow for 50ms WebRTC feedback batches. Use 1/8.
-      constexpr double g = 1.0 / 8.0; 
-      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+    // --- PILLAR 2A: WebRTC-Tuned Gain ---
+    // RFC 9330 standard gain is 1/16, but WebRTC batches feedback. 
+    // Use 1/8 to make alpha grow fast enough to matter.
+    constexpr double g = 1.0 / 8.0; 
+    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
-      if (direction_flag_ == 1) {
-        direction_flag_ = -1;
-        
+    if (direction_flag_ == 1) {
+      direction_flag_ = -1;
       double reduction_factor = 1.0 - alpha_ / 2.0;
 
       // --- PILLAR 2B: The Panic Drain ---
-      // If we hit CE, we MUST cut by at least 5% (0.95) to physically drain the queue.
+      // Force at least a 5% cut to physically drain the bloated queue.
       reduction_factor = std::min(reduction_factor, 0.95);
 
-      // ... but never crash the video by cutting more than 20% (0.80) in a single step.
+      // Never cut more than 20% of the bitrate in a single step to protect the encoder.
       reduction_factor = std::max(reduction_factor, 0.80);
 
+      // Apply to the securely anchored current_rate
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
-
-      last_md_time_ = current_time; 
+      
+      last_md_time_ = current_time;
       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
       RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
@@ -107,8 +106,16 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
       bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
       if (gate_open) {
-        double additional_reduction = 1.0 - alpha_ / 4.0; 
-        DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
+        double additional_reduction = 1.0 - alpha_ / 4.0;
+        
+        // Panic drain for continuous, unbroken congestion
+        additional_reduction = std::min(additional_reduction, 0.95);
+        additional_reduction = std::max(additional_reduction, 0.80);
+
+        // --- CRITICAL FIX: Use current_rate here! ---
+        // If the Reality Anchor snapped the rate down, we MUST cut from that snapped rate, 
+        // not the old ghost estimate.
+        DataRate further_reduced = std::max(current_rate * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
 
@@ -117,7 +124,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       }
     }
     last_congestion_signal_ = current_time;
-                      
   } else {  // No CE marks in this batch
     non_ce_packet_count_++;
     if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
@@ -126,7 +132,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       RTC_LOG(LS_INFO) << "Prague: Switched to additive mode after " << kNonCeThreshold 
                        << " consecutive non-CE packets";
     }
-    // AI logic is entirely removed from here!
   }
 }
 
@@ -1593,18 +1598,23 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       }
       else {
-        // --- PILLAR 1: THE REALITY ANCHOR ---
         DataRate prague_input_rate = prague_estimator_->GetCurrentEstimate();
         
-        // If the Target is floating more than 30% above the Actual throughput, 
-        // the Pacer was barely working. Snap the Target down to reality before cutting.
-        if (!last_actual_bitrate_.IsZero() && prague_input_rate > last_actual_bitrate_ * 1.3) {
-            prague_input_rate = last_actual_bitrate_ * 1.1; // Snap to actual + 10% breathing room
-            RTC_LOG(LS_INFO) << "L4S: Snapping Target from " << prague_estimator_->GetCurrentEstimate().kbps() 
-                             << "k down to " << prague_input_rate.kbps() << "k before applying CE cut.";
+        // --- CRITICAL FIX: Only snap when we actually hit congestion! ---
+        if (window_ce_count_ > 0) {
+            // If the Target is floating more than 30% above the Actual throughput, 
+            // the Pacer was barely working. Snap the Target down to reality before cutting.
+            if (!last_actual_bitrate_.IsZero() && prague_input_rate > last_actual_bitrate_ * 1.3) {
+                prague_input_rate = last_actual_bitrate_ * 1.1; // Snap to actual + 10% breathing room
+                RTC_LOG(LS_INFO) << "L4S: Snapping Target from " << prague_estimator_->GetCurrentEstimate().kbps() 
+                                 << "k down to " << prague_input_rate.kbps() << "k before applying CE cut.";
+                
+                // Force Prague to adopt this snapped reality immediately
+                prague_estimator_->SetCurrentEstimate(prague_input_rate);
+            }
         }
 
-        // Now apply the mathematical cut to the anchored rate
+        // Now apply the math (if ce_ratio > 0, it cuts. If ce_ratio == 0, it grows).
         prague_estimator_->UpdateFromCongestionSignal(prague_input_rate, ce_ratio, feedback.feedback_time);
 
         // Safety Floor to prevent total collapse
