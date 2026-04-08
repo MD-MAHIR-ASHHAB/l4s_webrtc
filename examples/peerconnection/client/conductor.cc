@@ -198,7 +198,7 @@ class DummySetSessionDescriptionObserver
 
 
 
-clock_720p.yuv file generator capturer
+// clock_720p.yuv file generator capturer
 
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
