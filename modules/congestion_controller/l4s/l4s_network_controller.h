@@ -132,6 +132,7 @@ private:
   //time-driven AI
   Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
   Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
+  TimeDelta baseline_rtt_ = TimeDelta::PlusInfinity();
 
 
   // State machine for direction control

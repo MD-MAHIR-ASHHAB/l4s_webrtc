@@ -144,6 +144,12 @@ void webrtc::PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) 
 void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   if (rtt.IsFinite() && !rtt.IsZero()) {
     current_rtt_ = rtt;
+    
+    // --- STEP 1: Track the physical baseline ---
+    // If this is the lowest RTT we've seen, or if we haven't set one yet, record it.
+    if (baseline_rtt_.IsInfinite() || rtt < baseline_rtt_) {
+        baseline_rtt_ = rtt;
+    }
   }
 }
 
