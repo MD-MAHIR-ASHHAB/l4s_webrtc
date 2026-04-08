@@ -1379,6 +1379,11 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(Strea
                                           probes.begin(), probes.end());
     }
   }
+
+  // --- CRITICAL FIX: Capture padding constraints ---
+  if (msg.max_padding_rate) {
+      max_padding_rate_ = *msg.max_padding_rate;
+  }
   return update;
 }
 

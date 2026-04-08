@@ -428,6 +428,9 @@ private:
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
 
+  //Pading the pacer
+  std::optional<DataRate> max_padding_rate_; in your l4s_network_controller.h
+
   // Metrics
   bool metrics_enabled_ = true;
   std::unique_ptr<L4SMetricsCollector> metrics_collector_;
