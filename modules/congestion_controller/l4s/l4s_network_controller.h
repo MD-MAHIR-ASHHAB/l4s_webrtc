@@ -429,7 +429,7 @@ private:
   std::optional<DataRate> last_acked_bitrate_;
 
   //Pading the pacer
-  std::optional<DataRate> max_padding_rate_; in your l4s_network_controller.h
+  std::optional<DataRate> max_padding_rate_;
 
   // Metrics
   bool metrics_enabled_ = true;
