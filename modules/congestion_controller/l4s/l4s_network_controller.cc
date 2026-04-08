@@ -1319,32 +1319,30 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport
   return update;
 }
 
+
+//smoothed rtt update handler with EMA and safety floor
+
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
   NetworkControlUpdate update;
-
-  // Follow GCC behavior: ignore explicitly smoothed RTT updates and consume
-  // raw RTT samples from RTCP transport reports.
   if (msg.smoothed) {
     return update;
   }
 
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
-    prague_estimator_->UpdateFromRtt(msg.round_trip_time);
-    last_rtt_ = msg.round_trip_time;
-    last_estimated_round_trip_time_ = msg.round_trip_time;
+    // --- CRITICAL FIX: Apply the same EMA smoothing here ---
+    if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      last_rtt_ = (last_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
+    } else {
+      last_rtt_ = msg.round_trip_time;
+    }
+    
+    // Enforce the 20ms safety floor
+    TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
+    last_estimated_round_trip_time_ = safe_rtt;
+    prague_estimator_->UpdateFromRtt(safe_rtt);
   }
 
-  // // Log RTT metrics
-  // if (metrics_enabled_ && metrics_collector_ && msg.round_trip_time.IsFinite() &&
-  //     !msg.round_trip_time.IsZero()) {
-  //   metrics_collector_->LogDelayMetrics(
-  //       Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-  //       msg.round_trip_time, TimeDelta::PlusInfinity(), TimeDelta::Zero());
-  // }
-
-  RTC_LOG(LS_VERBOSE) << "L4S: RTT updated to " << msg.round_trip_time.ms()
-                      << " ms";
-
+  RTC_LOG(LS_VERBOSE) << "L4S: RTCP RTT updated/smoothed to " << last_rtt_.ms() << " ms";
   return update;
 }
 
