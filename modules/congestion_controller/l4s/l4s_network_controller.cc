@@ -70,8 +70,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
       first_ce_mark_detected_ = true;
-      RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" 
-                       << ce_ratio << ")";
+      // RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" 
+      //                  << ce_ratio << ")";
     }
     
     // --- PILLAR 2A: WebRTC-Tuned Gain ---
@@ -80,36 +80,39 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     constexpr double g = 1.0 / 8.0; 
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
+
+    double dynamic_floor = 0.80; // Default safe encoder limit
+
+    if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
+        TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
+        if (rtt_delta > TimeDelta::Zero()) {
+            // Map the bloat to a penalty factor (0.0 to 1.0)
+            // 150.0ms represents a total 10:1 path collapse.
+            double penalty_factor = std::min(rtt_delta.ms() / 150.0, 1.0);
+            
+            // Slide the floor: 0.80 - (0.60 * penalty)
+            // e.g., 75ms bloat = 0.5 penalty = 0.50 floor
+            dynamic_floor = 0.80 - (0.60 * penalty_factor);
+            
+            if (penalty_factor > 0.1) {
+                RTC_LOG(LS_VERBOSE) << "L4S Circuit Breaker: RTT bloat " << rtt_delta.ms() 
+                                    << "ms. Dynamic floor scaled to " << dynamic_floor;
+            }
+        }
+    }
+
     if (direction_flag_ == 1) {
       direction_flag_ = -1;
       double reduction_factor = 1.0 - alpha_ / 2.0;
 
       // --- PILLAR 2B: The Panic Drain ---
-      // Force at least a 5% cut to physically drain the bloated queue.
-    reduction_factor = std::min(reduction_factor, 0.95);
+      // Apply the dynamic floor to the primary cut
+      reduction_factor = std::min(reduction_factor, 0.95);
+      reduction_factor = std::max(reduction_factor, dynamic_floor);
 
-      // --- STEP 2 & 3: The Delay-Gradient Circuit Breaker ---
-      bool is_catastrophic_collapse = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() && 
-                                      (current_rtt_ > baseline_rtt_ + TimeDelta::Millis(75));
-
-      if (is_catastrophic_collapse) {
-          // The reverse-path starvation delayed our feedback. The pipe collapsed. 
-          // Override the encoder protection and allow up to a 50% violent cut.
-          reduction_factor = std::max(reduction_factor, 0.50);
-          RTC_LOG(LS_WARNING) << "L4S Circuit Breaker Engaged! RTT spiked to " 
-                              << current_rtt_.ms() << "ms (Baseline: " << baseline_rtt_.ms() 
-                              << "ms). Allowing deep cut.";
-      } else {
-          // Normal L4S congestion. Protect the encoder with a 20% max cut.
-          reduction_factor = std::max(reduction_factor, 0.80);
-      }
-
-
-      // Apply to the securely anchored current_rate
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
-      
       last_md_time_ = current_time;
       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
@@ -123,24 +126,14 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         double additional_reduction = 1.0 - alpha_ / 4.0;
         
         // Panic drain for continuous, unbroken congestion
+        // Apply the exact same dynamic floor to continuous cuts
         additional_reduction = std::min(additional_reduction, 0.95);
+        additional_reduction = std::max(additional_reduction, dynamic_floor);
 
-        // --- Circuit Breaker for continuous cuts ---
-        bool is_catastrophic_collapse = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() && 
-                                        (current_rtt_ > baseline_rtt_ + TimeDelta::Millis(75));
-
-        if (is_catastrophic_collapse) {
-            additional_reduction = std::max(additional_reduction, 0.50);
-        } else {
-            additional_reduction = std::max(additional_reduction, 0.80);
-        }
-        // --- CRITICAL FIX: Use current_rate here! ---
-        // If the Reality Anchor snapped the rate down, we MUST cut from that snapped rate, 
-        // not the old ghost estimate.
         DataRate further_reduced = std::max(current_rate * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
-
+        
         last_md_time_ = current_time;
         last_ai_update_time_ = current_time; // Reset AI clock on cut
       }
