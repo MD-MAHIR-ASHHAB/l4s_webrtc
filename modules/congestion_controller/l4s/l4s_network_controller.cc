@@ -1384,6 +1384,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnStreamsConfig(Strea
   if (msg.max_padding_rate) {
       max_padding_rate_ = *msg.max_padding_rate;
   }
+
   return update;
 }
 
@@ -2165,8 +2166,15 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   update.pacer_config = PacerConfig();
   update.pacer_config->at_time = at_time;
   update.pacer_config->time_window = TimeDelta::Millis(10);
+  
+  // Pacing Window (1.0x multiplier is correct for L4S to avoid CE micro-bursts)
   update.pacer_config->data_window = current_rate * update.pacer_config->time_window;
-  update.pacer_config->pad_window = DataSize::Zero();
+  
+  // --- CRITICAL FIX: Enable Padding ---
+  // Allow padding up to the app's limit, but never exceed the current L4S target rate
+  DataRate padding_rate = max_padding_rate_.value_or(DataRate::Zero());
+  padding_rate = std::min(padding_rate, current_rate);
+  update.pacer_config->pad_window = padding_rate * update.pacer_config->time_window;
   
   return update;
 }
