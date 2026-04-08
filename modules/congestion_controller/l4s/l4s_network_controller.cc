@@ -86,10 +86,24 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
       // --- PILLAR 2B: The Panic Drain ---
       // Force at least a 5% cut to physically drain the bloated queue.
-      reduction_factor = std::min(reduction_factor, 0.95);
+    reduction_factor = std::min(reduction_factor, 0.95);
 
-      // Never cut more than 20% of the bitrate in a single step to protect the encoder.
-      reduction_factor = std::max(reduction_factor, 0.80);
+      // --- STEP 2 & 3: The Delay-Gradient Circuit Breaker ---
+      bool is_catastrophic_collapse = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() && 
+                                      (current_rtt_ > baseline_rtt_ + TimeDelta::Millis(75));
+
+      if (is_catastrophic_collapse) {
+          // The reverse-path starvation delayed our feedback. The pipe collapsed. 
+          // Override the encoder protection and allow up to a 50% violent cut.
+          reduction_factor = std::max(reduction_factor, 0.50);
+          RTC_LOG(LS_WARNING) << "L4S Circuit Breaker Engaged! RTT spiked to " 
+                              << current_rtt_.ms() << "ms (Baseline: " << baseline_rtt_.ms() 
+                              << "ms). Allowing deep cut.";
+      } else {
+          // Normal L4S congestion. Protect the encoder with a 20% max cut.
+          reduction_factor = std::max(reduction_factor, 0.80);
+      }
+
 
       // Apply to the securely anchored current_rate
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
@@ -99,7 +113,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       last_md_time_ = current_time;
       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
-      RTC_LOG(LS_INFO) << "Prague: Switched to reduction mode (alpha=" << alpha_
+      RTC_LOG(LS_VERBOSE) << "Prague: Switched to reduction mode (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
     } else {
@@ -110,8 +124,16 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         
         // Panic drain for continuous, unbroken congestion
         additional_reduction = std::min(additional_reduction, 0.95);
-        additional_reduction = std::max(additional_reduction, 0.80);
 
+        // --- Circuit Breaker for continuous cuts ---
+        bool is_catastrophic_collapse = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() && 
+                                        (current_rtt_ > baseline_rtt_ + TimeDelta::Millis(75));
+
+        if (is_catastrophic_collapse) {
+            additional_reduction = std::max(additional_reduction, 0.50);
+        } else {
+            additional_reduction = std::max(additional_reduction, 0.80);
+        }
         // --- CRITICAL FIX: Use current_rate here! ---
         // If the Reality Anchor snapped the rate down, we MUST cut from that snapped rate, 
         // not the old ghost estimate.
@@ -129,8 +151,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
-      RTC_LOG(LS_INFO) << "Prague: Switched to additive mode after " << kNonCeThreshold 
-                       << " consecutive non-CE packets";
+      RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+                           << " consecutive non-CE packets";
     }
   }
 }
