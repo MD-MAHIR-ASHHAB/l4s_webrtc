@@ -133,7 +133,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         DataRate further_reduced = std::max(current_rate * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
-        
+
         last_md_time_ = current_time;
         last_ai_update_time_ = current_time; // Reset AI clock on cut
       }
@@ -878,20 +878,19 @@ void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
   
   last_bandwidth_log_ = at_time;
 
-  // --- CRITICAL FIX: Use Physical Reality for Graphs ---
-  // We ignore the broken acked_bitrate and plot the actual physical throughput.
-  DataRate rate_to_log = actual_bitrate; 
+  // --- TELEMETRY PLANE FIX: Use the smoothed Kalman filter for graphs ---
+  // We use the Acked Bitrate (GCC's filter) for logging to guarantee apples-to-apples 
+  // comparison graphs. The internal control plane math still uses actual_bitrate.
+  DataRate rate_to_log = acked_bitrate.value_or(DataRate::Zero()); 
   UpdateThroughputStats(rate_to_log);
 
-  // Note: Keeping the string name "acked_rate_mbps" so your external python/plotting 
-  // scripts don't break, but it's now fed with ACTUAL data.
   logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
                                 rate_to_log.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 
-  // Let's also log the Target Budget so you can graph them side-by-side!
+  // Log the Target Budget so you can graph them side-by-side
   if (target_bitrate.IsFinite()) {
       logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
                                     target_bitrate.bps() / 1e6,
@@ -899,9 +898,8 @@ void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
                                     webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                     {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
-
-  (void)acked_bitrate; // Throw the broken one in the trash instead
 }
+
 
 
 
