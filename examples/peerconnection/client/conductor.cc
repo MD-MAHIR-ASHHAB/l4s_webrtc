@@ -181,7 +181,7 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
 
   // 3. File Generator Logic using ResourcePath
   // This looks for "ballons.yuv" inside your resources folder
-  auto file_path = webrtc::test::ResourcePath("ballons_24s", "yuv");
+  auto file_path = webrtc::test::ResourcePath("ballons_4s", "yuv");
   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
 
 
