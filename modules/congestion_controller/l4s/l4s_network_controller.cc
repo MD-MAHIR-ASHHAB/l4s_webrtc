@@ -1896,7 +1896,6 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
   }
 }
 
-
 std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
   if (!probe_bitrate_estimator_) {
     return std::nullopt;
