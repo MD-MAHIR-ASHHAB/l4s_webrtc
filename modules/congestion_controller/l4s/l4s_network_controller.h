@@ -155,9 +155,6 @@ private:
   double probe_constraint_confidence_ = 0.0;
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
 
-  // Pacer transmission tracking
-  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
-  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
 
 
 };
@@ -218,7 +215,7 @@ public:
                            DataRate actual_bitrate,
                            std::optional<DataRate> acked_bitrate,
                            std::optional<DataRate> send_rate);
-                           
+
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);
@@ -368,6 +365,11 @@ private:
 
   // Metrics
   void LogPeriodicMetrics(Timestamp at_time);
+
+  
+  // Pacer transmission tracking
+  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
+  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
 
   // Environment and configuration
   const Environment env_;
