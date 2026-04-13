@@ -154,6 +154,12 @@ private:
   DataRate probe_constraint_ = DataRate::Zero();
   double probe_constraint_confidence_ = 0.0;
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
+
+  // Pacer transmission tracking
+  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
+  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
+
+
 };
 
 // Bandwidth source fusion engine
