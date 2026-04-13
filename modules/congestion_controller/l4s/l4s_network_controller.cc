@@ -623,13 +623,15 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   if (prague_confident) {
     fused_rate = prague_rate;
     
-    // Micro-Probe Uplift: If a probe cleanly found higher capacity, allow it to 
-    // pull the time-based AI forward, but cap the jump (e.g., 1.5x) to prevent runaway AQM overshoot.
-    if (probe_confident && probe_rate > prague_rate) {
-      DataRate max_uplift = prague_rate * 1.5;
-      fused_rate = std::min(probe_rate, max_uplift);
-      RTC_LOG(LS_VERBOSE) << "L4S Fusion: Steady State Probe Uplift applied -> " << fused_rate.bps() << " bps";
-    }
+
+    //turning off the uplift for testing
+    // // Micro-Probe Uplift: If a probe cleanly found higher capacity, allow it to 
+    // // pull the time-based AI forward, but cap the jump (e.g., 1.5x) to prevent runaway AQM overshoot.
+    // if (probe_confident && probe_rate > prague_rate) {
+    //   DataRate max_uplift = prague_rate * 1.5;
+    //   fused_rate = std::min(probe_rate, max_uplift);
+    //   RTC_LOG(LS_VERBOSE) << "L4S Fusion: Steady State Probe Uplift applied -> " << fused_rate.bps() << " bps";
+    // }
   } 
   // 3. Fallbacks if ECN feedback is completely dead
   else if (probe_confident) {
@@ -2828,6 +2830,13 @@ void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, Networ
 double webrtc::L4SNetworkController::CalculateProbeConfidence(Timestamp now) const {
   if (last_probe_time_.IsInfinite()) {
     return 0.0;
+  }
+
+  // --- CAUSALITY CHECK ---
+  // If we received a CE congestion signal AFTER this probe was measured,
+  // the network queue has filled. The probe's capacity measurement is dead.
+  if (!last_congestion_signal_.IsInfinite() && last_congestion_signal_ >= last_probe_time_) {
+    return 0.0; 
   }
 
   TimeDelta since_probe = now - last_probe_time_;
