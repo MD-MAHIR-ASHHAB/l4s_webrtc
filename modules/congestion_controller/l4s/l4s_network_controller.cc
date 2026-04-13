@@ -199,7 +199,7 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
     return;
   }
   
-  TimeDelta elapsed = current_time - last_update_time_;
+  // TimeDelta elapsed = current_time - last_update_time_;
   TimeDelta ai_elapsed = current_time - last_ai_update_time_;
 
   if (ai_elapsed < TimeDelta::Millis(1)) {
