@@ -242,7 +242,10 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
 
   // --- CRITICAL FIX 2A: Stop the ALR Decay Spiral ---
   // If the application is underutilizing the link, the network is NOT congested,
-  // it is just idle. We must freeze the 5% decay so the encoder has a stable platform.
+  // it is just idle.
+  // We must freeze the 5% decay so the encoder has a stable platform.
+
+  /* ---> COMMENT THIS ENTIRE BLOCK OUT <---
   if (elapsed >= kDecayInterval) {
     if (!is_app_limited) {
       congestion_based_estimate_ = std::max(congestion_based_estimate_ * 0.95, min_target_rate_);
@@ -251,6 +254,7 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
     // Always reset the timer so we don't build up "decay debt" while frozen
     last_update_time_ = current_time;
   }
+  */
   
   // 3. Mode Escapes & Alpha Decay
   if (first_ce_mark_detected_ && !discovery_mode_active_) {
@@ -1700,7 +1704,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
                                  << "% CE). Snapping Target from " 
                                  << prague_estimator_->GetCurrentEstimate().kbps() 
                                  << "k down to " << prague_input_rate.kbps() << "k.";
-                                 
+
                 // Force Prague to adopt this snapped reality immediately
                 prague_estimator_->SetCurrentEstimate(prague_input_rate);
             }
