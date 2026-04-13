@@ -1367,9 +1367,25 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
 
 
+// webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
+//   NetworkControlUpdate update;
+//   // Feed ALR detector so it can track application-limited periods.
+//   if (alr_detector_) {
+//     alr_detector_->OnBytesSent(msg.size.bytes(), msg.send_time.ms());
+//     if (acked_estimator_) {
+//       acked_estimator_->SetAlr(
+//           alr_detector_->GetApplicationLimitedRegionStartTime().has_value());
+//     }
+//   }
+//   return update;
+// }
+
+
+// new method with send rate tracking for better probe scheduling and fusion accuracy
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPacket msg) {
   NetworkControlUpdate update;
-  // Feed ALR detector so it can track application-limited periods.
+  
+  // 1. Feed ALR detector (existing logic)
   if (alr_detector_) {
     alr_detector_->OnBytesSent(msg.size.bytes(), msg.send_time.ms());
     if (acked_estimator_) {
@@ -1377,8 +1393,40 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnSentPacket(SentPack
           alr_detector_->GetApplicationLimitedRegionStartTime().has_value());
     }
   }
+
+  // --- 2. Calculate Pacer's Actual Send Rate ---
+  constexpr TimeDelta kSendWindow = TimeDelta::Millis(500); // 500ms smoothing window
+  
+  if (msg.send_time.IsFinite()) {
+    send_rate_window_.emplace_back(msg.send_time, msg.size.bytes());
+  }
+
+  // Evict packets older than the window
+  while (!send_rate_window_.empty() && 
+         (msg.send_time - send_rate_window_.front().first) > kSendWindow) {
+    send_rate_window_.pop_front();
+  }
+
+  // Calculate the transmission rate if we have a valid time gap
+  if (send_rate_window_.size() > 1) {
+    Timestamp window_start = send_rate_window_.front().first;
+    Timestamp window_end = send_rate_window_.back().first;
+    TimeDelta window_interval = window_end - window_start;
+
+    // Only update the rate if the window is statistically significant (e.g., > 100ms)
+    if (window_interval >= TimeDelta::Millis(100)) {
+      int64_t window_bytes = 0;
+      for (const auto& entry : send_rate_window_) {
+        window_bytes += entry.second;
+      }
+      last_send_rate_ = DataRate::BitsPerSec(
+          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    }
+  }
+
   return update;
 }
+
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnReceivedPacket(ReceivedPacket msg) {
   NetworkControlUpdate update;
