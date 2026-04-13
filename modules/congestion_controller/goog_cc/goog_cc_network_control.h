@@ -63,7 +63,11 @@ class GCCMetricsCollector {
                       Clock* clock);
   
   // Time-series metrics logging
-  void LogAckedRateMetrics(Timestamp at_time, DataRate acked_rate);
+  void LogBandwidthMetrics(Timestamp at_time,
+                           DataRate target_bitrate,
+                           DataRate actual_bitrate,
+                           std::optional<DataRate> acked_bitrate,
+                           std::optional<DataRate> send_rate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                       TimeDelta jitter = TimeDelta::Zero());
    void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
@@ -211,7 +215,8 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   DataRate last_acknowledged_rate_ = DataRate::Zero();
   DataRate last_delay_based_estimate_ = DataRate::Zero();
   
-  
+  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
+  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
   
   // Metrics collection
   std::unique_ptr<GCCMetricsCollector> metrics_collector_;

@@ -311,6 +311,35 @@ NetworkControlUpdate GoogCcNetworkController::OnSentPacket(
   }
   bandwidth_estimation_->OnSentPacket(sent_packet);
 
+  // --- NEW: Calculate Pacer's Actual Send Rate ---
+  constexpr TimeDelta kSendWindow = TimeDelta::Millis(500); 
+  
+  if (sent_packet.send_time.IsFinite()) {
+    send_rate_window_.emplace_back(sent_packet.send_time, sent_packet.size.bytes());
+  }
+
+  // Evict packets older than the window
+  while (!send_rate_window_.empty() && 
+         (sent_packet.send_time - send_rate_window_.front().first) > kSendWindow) {
+    send_rate_window_.pop_front();
+  }
+
+  // Calculate the transmission rate if we have a valid time gap
+  if (send_rate_window_.size() > 1) {
+    Timestamp window_start = send_rate_window_.front().first;
+    Timestamp window_end = send_rate_window_.back().first;
+    TimeDelta window_interval = window_end - window_start;
+
+    if (window_interval >= TimeDelta::Millis(100)) {
+      int64_t window_bytes = 0;
+      for (const auto& entry : send_rate_window_) {
+        window_bytes += entry.second;
+      }
+      last_send_rate_ = DataRate::BitsPerSec(
+          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    }
+  }
+
   if (congestion_window_pushback_controller_) {
     congestion_window_pushback_controller_->UpdateOutstandingData(
         sent_packet.data_in_flight.bytes());
@@ -831,25 +860,53 @@ webrtc::GCCMetricsCollector::GCCMetricsCollector(webrtc::test::MetricsLogger* lo
   RTC_LOG(LS_INFO) << "GCCMetricsCollector initialized for test case: " << test_case_name_;
 }
 
-
-void GCCMetricsCollector::LogAckedRateMetrics(Timestamp at_time,
-                                              DataRate acked_rate) {
+void GCCMetricsCollector::LogBandwidthMetrics(
+    Timestamp at_time,
+    DataRate target_bitrate,
+    DataRate actual_bitrate,
+    std::optional<DataRate> acked_bitrate,
+    std::optional<DataRate> send_rate) {
+    
   if (at_time - last_acked_rate_log_ < kAckedRateLogInterval) {
-    return; // Don't spam logs
+    return;
   }
-  
   last_acked_rate_log_ = at_time;
-  UpdateAckedRateStats(acked_rate);
-  
-  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
-                                acked_rate.bps() / 1e6,
+
+  // 1. Target Rate (The Software Budget)
+  if (target_bitrate.IsFinite()) {
+      logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
+                                    target_bitrate.bps() / 1e6,
+                                    webrtc::test::Unit::kUnitless,
+                                    webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                    {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+
+  // 2. Send Rate (The Pacer's Physical Exhaust)
+  DataRate tx_rate = send_rate.value_or(DataRate::Zero());
+  logger_->LogSingleValueMetric("send_rate_mbps", test_case_name_,
+                                tx_rate.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                 {{"timestamp_ms", std::to_string(at_time.ms())}});
 
-  RTC_LOG(LS_VERBOSE) << "GCC acked rate: " << acked_rate.bps() / 1e6
-                      << " Mbps";
+  // 3. Actual Rate (Raw Physical Throughput Window)
+  logger_->LogSingleValueMetric("actual_rate_mbps", test_case_name_,
+                                actual_bitrate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  // 4. Acked Rate (GCC-Parity Kalman Filtered Throughput)
+  DataRate filtered_acked_rate = acked_bitrate.value_or(DataRate::Zero());
+  UpdateAckedRateStats(filtered_acked_rate); 
+  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
+                                filtered_acked_rate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
+
+
 
 void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                                          TimeDelta jitter) {
@@ -961,31 +1018,34 @@ void GCCMetricsCollector::UpdateLossStats(double loss_fraction) {
   loss_stats_.AddSample(loss_fraction);
 }
 
-// GCCNetworkController metrics helper methods implementation
-void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+// GCCNetworkController metrics helper methods implementationvoid GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   if (!metrics_enabled_ || !metrics_collector_) {
     return;
   }
   
-  // Check if it's time to log metrics
   if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
     return;
   }
-  
   metrics_last_logged_ = at_time;
   
-  // Log throughput from GCC acknowledged bitrate estimator.
+  // Pull the Kalman-filtered acked rate
   DataRate acknowledged_rate =
       acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
-  metrics_collector_->LogAckedRateMetrics(at_time, acknowledged_rate);
+
+  // Log all 4 bandwidth metrics simultaneously
+  metrics_collector_->LogBandwidthMetrics(at_time, 
+                                          last_target_rate_,     // 1. Target
+                                          last_actual_bitrate_,  // 2. Actual
+                                          acknowledged_rate,     // 3. Acked
+                                          last_send_rate_);      // 4. Send
   
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
-    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); // Estimate one-way delay
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); 
   }
   
   // Log loss metrics
-  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); // TODO: Track packet count
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); 
 
   // Log periodic summary
   metrics_collector_->LogPeriodicSummary(at_time);
