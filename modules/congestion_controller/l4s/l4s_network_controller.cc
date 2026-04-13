@@ -1837,7 +1837,6 @@ void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPa
 // }
 
 //nudging logic to break ALR deadlock when a probe proves the path is clean
-
 void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacketsFeedback& feedback) {
   if (!probe_bitrate_estimator_) {
     return;
@@ -1862,23 +1861,24 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
       double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
       bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
 
-      // --- THE SAFE ESCALATION HANDSHAKE ---
-      // If the encoder is stuck (ALR) and a probe physically proved the path is CLEAN,
-      // nudge Prague up to invite the encoder to use more bandwidth.
-      if (IsApplicationLimited() && prague_estimator_ && !probe_packet_has_ce) {
+      // --- THE SAFE ESCALATION HANDSHAKE (Event-Driven) ---
+      // If a probe physically proved the path is CLEAN, nudge Prague up.
+      // This handles both ALR deadlock breaking AND fast congestion recovery.
+      if (prague_estimator_ && !probe_packet_has_ce) {
           DataRate current_prague = prague_estimator_->GetCurrentEstimate();
           
           // Accept the probe if it proves even a 5% capacity uplift
           if (*measured_probe_rate > (current_prague * 1.05)) {
               
-              // Take a cautious step toward the probe result
-              DataRate nudge_step = (*measured_probe_rate - current_prague) * 0.5;
-              DataRate new_target = current_prague + nudge_step;
+              // FAST RECOVERY: Pull Prague up to the probe rate, 
+              // but cap the jump at 1.5x per probe to prevent AQM shock.
+              DataRate max_uplift = current_prague * 1.5;
+              DataRate new_target = std::min(*measured_probe_rate, max_uplift);
 
-              RTC_LOG(LS_INFO) << "L4S: Safe Escalation! Probe proved " << measured_probe_rate->kbps() 
-                               << "k. Nudging Prague to " << new_target.kbps() 
-                               << "k to break ALR deadlock.";
-              
+              RTC_LOG(LS_INFO) << "L4S: Fast Recovery/Escalation! Probe proved " 
+                               << measured_probe_rate->kbps() 
+                               << "k. Nudging Prague to " << new_target.kbps() << "k.";
+                               
               prague_estimator_->SetCurrentEstimate(new_target);
               
               // Force the Fusion Engine and ALR Detector to sync immediately
