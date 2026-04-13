@@ -1688,13 +1688,19 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         
         // --- CRITICAL FIX: Only snap when we actually hit congestion! ---
         if (window_ce_count_ > 0) {
+            // L4S AQMs throw occasional CE marks to smooth out Pacer micro-bursts.
+            // We ONLY vaporize the headroom if congestion is severe (>10% marked).
+            bool is_severe_congestion = (ce_ratio > 0.10);
             // If the Target is floating more than 30% above the Actual throughput, 
             // the Pacer was barely working. Snap the Target down to reality before cutting.
-            if (!last_actual_bitrate_.IsZero() && prague_input_rate > last_actual_bitrate_ * 1.3) {
+            if (is_severe_congestion && !last_actual_bitrate_.IsZero() && 
+                prague_input_rate > last_actual_bitrate_ * 1.3){
                 prague_input_rate = last_actual_bitrate_ * 1.1; // Snap to actual + 10% breathing room
-                RTC_LOG(LS_INFO) << "L4S: Snapping Target from " << prague_estimator_->GetCurrentEstimate().kbps() 
-                                 << "k down to " << prague_input_rate.kbps() << "k before applying CE cut.";
-                
+                RTC_LOG(LS_INFO) << "L4S: Severe Congestion (" << (ce_ratio*100) 
+                                 << "% CE). Snapping Target from " 
+                                 << prague_estimator_->GetCurrentEstimate().kbps() 
+                                 << "k down to " << prague_input_rate.kbps() << "k.";
+                                 
                 // Force Prague to adopt this snapped reality immediately
                 prague_estimator_->SetCurrentEstimate(prague_input_rate);
             }
