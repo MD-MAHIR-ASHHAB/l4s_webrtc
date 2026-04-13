@@ -212,10 +212,13 @@ public:
                            const std::string& test_case_name);
   ~L4SMetricsCollector();
 
+
   void LogBandwidthMetrics(Timestamp at_time,
                            DataRate target_bitrate,
                            DataRate actual_bitrate,
-                           std::optional<DataRate> acked_bitrate);
+                           std::optional<DataRate> acked_bitrate,
+                           std::optional<DataRate> send_rate);
+                           
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);

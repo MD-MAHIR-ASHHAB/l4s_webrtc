@@ -871,26 +871,15 @@ void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
     Timestamp at_time,
     DataRate target_bitrate,
     DataRate actual_bitrate,
-    std::optional<DataRate> acked_bitrate) {
+    std::optional<DataRate> acked_bitrate,
+    std::optional<DataRate> send_rate) { // <-- New parameter
+    
   if (at_time - last_bandwidth_log_ < kBandwidthLogInterval) {
     return;
   }
-  
   last_bandwidth_log_ = at_time;
 
-  // --- TELEMETRY PLANE FIX: Use the smoothed Kalman filter for graphs ---
-  // We use the Acked Bitrate (GCC's filter) for logging to guarantee apples-to-apples 
-  // comparison graphs. The internal control plane math still uses actual_bitrate.
-  DataRate rate_to_log = acked_bitrate.value_or(DataRate::Zero()); 
-  UpdateThroughputStats(rate_to_log);
-
-  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
-                                rate_to_log.bps() / 1e6,
-                                webrtc::test::Unit::kUnitless,
-                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
-
-  // Log the Target Budget so you can graph them side-by-side
+  // 1. Target Rate (The Software Budget)
   if (target_bitrate.IsFinite()) {
       logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
                                     target_bitrate.bps() / 1e6,
@@ -898,6 +887,30 @@ void webrtc::L4SMetricsCollector::LogBandwidthMetrics(
                                     webrtc::test::ImprovementDirection::kBiggerIsBetter,
                                     {{"timestamp_ms", std::to_string(at_time.ms())}});
   }
+
+  // 2. Send Rate (The Pacer's Physical Exhaust)
+  DataRate tx_rate = send_rate.value_or(DataRate::Zero());
+  logger_->LogSingleValueMetric("send_rate_mbps", test_case_name_,
+                                tx_rate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  // 3. Actual Rate (L4S Raw Physical Throughput Window)
+  logger_->LogSingleValueMetric("actual_rate_mbps", test_case_name_,
+                                actual_bitrate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  // 4. Acked Rate (GCC-Parity Kalman Filtered Throughput)
+  DataRate filtered_acked_rate = acked_bitrate.value_or(DataRate::Zero());
+  UpdateThroughputStats(filtered_acked_rate); // Keep summary stats based on GCC's metric
+  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
+                                filtered_acked_rate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
 }
 
 
@@ -2672,11 +2685,13 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   
   metrics_last_logged_ = at_time;
   
-  // Log bandwidth metrics
+  // Log all 4 bandwidth metrics simultaneously
   DataRate target_rate = target_rate_.value_or(DataRate::Zero());
-  metrics_collector_->LogBandwidthMetrics(at_time, target_rate,
-                                          last_actual_bitrate_,
-                                          last_acked_bitrate_);
+  metrics_collector_->LogBandwidthMetrics(at_time, 
+                                          target_rate,           // 1. Target
+                                          last_actual_bitrate_,  // 2. Actual
+                                          last_acked_bitrate_,   // 3. Acked
+                                          last_send_rate_);      // 4. Send
   
   // Log delay metrics
   if (last_rtt_.IsFinite()) {
