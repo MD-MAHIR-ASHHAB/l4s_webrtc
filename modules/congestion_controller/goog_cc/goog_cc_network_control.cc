@@ -1018,7 +1018,8 @@ void GCCMetricsCollector::UpdateLossStats(double loss_fraction) {
   loss_stats_.AddSample(loss_fraction);
 }
 
-// GCCNetworkController metrics helper methods implementationvoid GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+// GCCNetworkController metrics helper methods implementation
+void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   if (!metrics_enabled_ || !metrics_collector_) {
     return;
   }
