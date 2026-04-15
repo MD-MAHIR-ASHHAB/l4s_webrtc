@@ -1205,6 +1205,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   // Route change must clear path-specific history. Keeping old recovery/fusion
   // state can cause immediate post-route transitions that reflect the previous
   // path rather than the new one.
+
+  // Route change must clear path-specific history.
+  base_rtt_ = TimeDelta::PlusInfinity(); // <--- ADD THIS LINE
   DataRate reset_starting_rate =
       starting_rate_.value_or(DataRate::KilobitsPerSec(300));
   DataRate reset_min_rate =
@@ -1583,6 +1586,10 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
       
       // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
       TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
+      // --- NEW: Track the physical baseline ---
+      if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) {
+          base_rtt_ = safe_rtt;
+      }
       
       prague_estimator_->UpdateFromRtt(safe_rtt);
       last_estimated_round_trip_time_ = safe_rtt;
@@ -1694,8 +1701,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         if (window_ce_count_ > 0) {
             // L4S AQMs throw occasional CE marks to smooth out Pacer micro-bursts.
             // We ONLY vaporize the headroom if congestion is severe (>10% marked).
-            bool is_severe_congestion = (ce_ratio > 0.10);
-            // If the Target is floating more than 30% above the Actual throughput, 
+            // --- CRITICAL FIX: Latency-Aware Micro-Burst Exemption ---
+            TimeDelta rtt_bloat = TimeDelta::Zero();
+            if (last_rtt_.IsFinite() && base_rtt_.IsFinite()) {
+                rtt_bloat = last_rtt_ - base_rtt_;
+            }
+
+            // A true micro-burst has low CE marks AND healthy latency.
+            // If the queue has grown by more than 15ms, it is a standing queue, not a burst!
+            bool is_severe_congestion = (ce_ratio > 0.10) || (rtt_bloat.ms() > 15);// If the Target is floating more than 30% above the Actual throughput, 
             // the Pacer was barely working. Snap the Target down to reality before cutting.
             if (is_severe_congestion && !last_actual_bitrate_.IsZero() && 
                 prague_input_rate > last_actual_bitrate_ * 1.3){
