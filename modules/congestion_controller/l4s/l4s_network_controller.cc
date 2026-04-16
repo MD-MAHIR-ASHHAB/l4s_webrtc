@@ -231,15 +231,43 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       }
     }
     last_congestion_signal_ = current_time;
-  } else {  // No CE marks in this batch
+  
+  }
+  else {  // No CE marks in this batch
     non_ce_packet_count_++;
-    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+    
+    // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
+    // Calculate a physical clearance window based on the bloated RTT
+    TimeDelta clearance_window = TimeDelta::Millis(200); // Safe default
+    if (current_rtt_.IsFinite()) {
+        // Enforce a strict minimum 2x RTT wait before allowing growth
+        clearance_window = current_rtt_ * 2.0; 
+    }
+    
+    bool clearance_time_met = last_md_time_.IsInfinite() || 
+                              (current_time - last_md_time_ > clearance_window);
+
+    // Only switch back to Additive Increase if enough PACKETS have passed 
+    // AND enough physical TIME has passed to flush the queue.
+    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold && clearance_time_met) {
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
-      RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
-                           << " consecutive non-CE packets";
+      RTC_LOG(LS_VERBOSE) << "Prague: Queue drained. Switched to additive mode after " 
+                          << clearance_window.ms() << "ms cooldown.";
     }
-  }
+  } 
+
+
+
+  // else {  // No CE marks in this batch
+  //   non_ce_packet_count_++;
+  //   if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+  //     direction_flag_ = 1;
+  //     non_ce_packet_count_ = 0;
+  //     RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+  //                          << " consecutive non-CE packets";
+  //   }
+  // }
 }
 
 
