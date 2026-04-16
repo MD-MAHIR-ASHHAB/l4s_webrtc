@@ -231,15 +231,15 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       }
     }
     last_congestion_signal_ = current_time;
-  // } else {  // No CE marks in this batch
-  //   non_ce_packet_count_++;
-  //   if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
-  //     direction_flag_ = 1;
-  //     non_ce_packet_count_ = 0;
-  //     RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
-  //                          << " consecutive non-CE packets";
-  //   }
-  // }
+  } else {  // No CE marks in this batch
+    non_ce_packet_count_++;
+    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+      direction_flag_ = 1;
+      non_ce_packet_count_ = 0;
+      RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+                           << " consecutive non-CE packets";
+    }
+  }
 }
 
 
