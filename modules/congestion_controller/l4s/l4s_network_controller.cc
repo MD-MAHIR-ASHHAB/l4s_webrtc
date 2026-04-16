@@ -231,15 +231,15 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       }
     }
     last_congestion_signal_ = current_time;
-  } else {  // No CE marks in this batch
-    non_ce_packet_count_++;
-    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
-      direction_flag_ = 1;
-      non_ce_packet_count_ = 0;
-      RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
-                           << " consecutive non-CE packets";
-    }
-  }
+  // } else {  // No CE marks in this batch
+  //   non_ce_packet_count_++;
+  //   if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+  //     direction_flag_ = 1;
+  //     non_ce_packet_count_ = 0;
+  //     RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+  //                          << " consecutive non-CE packets";
+  //   }
+  // }
 }
 
 
@@ -1805,14 +1805,12 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
             bool is_severe_congestion = (ce_ratio > 0.10) || (rtt_bloat.ms() > 15);// If the Target is floating more than 30% above the Actual throughput, 
             // the Pacer was barely working. Snap the Target down to reality before cutting.
             if (is_severe_congestion && !last_actual_bitrate_.IsZero() && 
-                prague_input_rate > last_actual_bitrate_ * 1.3){
-                prague_input_rate = last_actual_bitrate_ * 1.1; // Snap to actual + 10% breathing room
-                RTC_LOG(LS_INFO) << "L4S: Severe Congestion (" << (ce_ratio*100) 
-                                 << "% CE). Snapping Target from " 
-                                 << prague_estimator_->GetCurrentEstimate().kbps() 
-                                 << "k down to " << prague_input_rate.kbps() << "k.";
-
-                // Force Prague to adopt this snapped reality immediately
+                prague_input_rate > last_actual_bitrate_ * 1.3){// --- PLAN 1 FIX: The Drain Math ---
+                // We must UNDER-SEND the router's drain rate to flush the buffer.
+                // Change 1.1 to 0.90 to force a 10% starvation of the queue.
+                prague_input_rate = last_actual_bitrate_ * 0.90; 
+                
+                RTC_LOG(LS_INFO) << "L4S: Reality Anchor Snapped! Forcing starvation to clear queue.";
                 prague_estimator_->SetCurrentEstimate(prague_input_rate);
             }
         }
