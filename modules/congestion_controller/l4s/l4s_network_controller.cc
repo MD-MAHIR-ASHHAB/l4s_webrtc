@@ -2811,9 +2811,15 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
                                           last_acked_bitrate_,   // 3. Acked
                                           last_send_rate_);      // 4. Send
   
-  // Log delay metrics
-  if (last_rtt_.IsFinite()) {
+  // --- LOGGING FREQUENCY FIX ---
+  // Throttle RTT logging to 500ms (GCC RTCP speed) to prevent measurement bias
+  // on the scatter plots, while keeping the high-speed RTT for internal math.
+  static Timestamp last_delay_log_time = Timestamp::MinusInfinity();
+  if (last_rtt_.IsFinite() && (last_delay_log_time.IsInfinite() || 
+                              (at_time - last_delay_log_time) >= TimeDelta::Millis(500))) {
+      
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
+    last_delay_log_time = at_time;
   }
   
   // Log loss metrics
