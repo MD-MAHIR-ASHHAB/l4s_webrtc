@@ -62,42 +62,127 @@ PragueCapacityEstimator::~PragueCapacityEstimator() = default;
 
 //time driven AI
 
+// void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+//   last_feedback_time_ = current_time; // Track the last time we heard from the network
+
+//   if (ce_ratio > 0.0) {  // CE-marked packets detected
+//     non_ce_packet_count_ = 0;
+//     if (discovery_mode_active_ && !first_ce_mark_detected_) {
+//       discovery_mode_active_ = false;
+//       first_ce_mark_detected_ = true;
+//       // RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" 
+//       //                  << ce_ratio << ")";
+//     }
+    
+//     // --- PILLAR 2A: WebRTC-Tuned Gain ---
+//     // RFC 9330 standard gain is 1/16, but WebRTC batches feedback. 
+//     // Use 1/8 to make alpha grow fast enough to matter.
+//     constexpr double g = 1.0 / 8.0; 
+//     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
+
+//     double dynamic_floor = 0.80; // Default safe encoder limit
+
+//     if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
+//         TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
+//         if (rtt_delta > TimeDelta::Zero()) {
+//             // Map the bloat to a penalty factor (0.0 to 1.0)
+//             // 150.0ms represents a total 10:1 path collapse.
+//             double penalty_factor = std::min(rtt_delta.ms() / 150.0, 1.0);
+            
+//             // Slide the floor: 0.80 - (0.60 * penalty)
+//             // e.g., 75ms bloat = 0.5 penalty = 0.50 floor
+//             dynamic_floor = 0.80 - (0.60 * penalty_factor);
+            
+//             if (penalty_factor > 0.1) {
+//                 RTC_LOG(LS_VERBOSE) << "L4S Circuit Breaker: RTT bloat " << rtt_delta.ms() 
+//                                     << "ms. Dynamic floor scaled to " << dynamic_floor;
+//             }
+//         }
+//     }
+
+//     if (direction_flag_ == 1) {
+//       direction_flag_ = -1;
+//       double reduction_factor = 1.0 - alpha_ / 2.0;
+
+//       // --- PILLAR 2B: The Panic Drain ---
+//       // Apply the dynamic floor to the primary cut
+//       reduction_factor = std::min(reduction_factor, 0.95);
+//       reduction_factor = std::max(reduction_factor, dynamic_floor);
+
+//       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+//       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
+//       congestion_based_estimate_ = reduced;
+//       last_md_time_ = current_time;
+//       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
+
+//       RTC_LOG(LS_VERBOSE) << "Prague: Switched to reduction mode (alpha=" << alpha_
+//                        << ", reduction_factor=" << reduction_factor
+//                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+//     } else {
+//       TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
+//       bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
+//       if (gate_open) {
+//         double additional_reduction = 1.0 - alpha_ / 4.0;
+        
+//         // Panic drain for continuous, unbroken congestion
+//         // Apply the exact same dynamic floor to continuous cuts
+//         additional_reduction = std::min(additional_reduction, 0.95);
+//         additional_reduction = std::max(additional_reduction, dynamic_floor);
+
+//         DataRate further_reduced = std::max(current_rate * additional_reduction, min_target_rate_);
+//         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
+//         congestion_based_estimate_ = further_reduced;
+
+//         last_md_time_ = current_time;
+//         last_ai_update_time_ = current_time; // Reset AI clock on cut
+//       }
+//     }
+//     last_congestion_signal_ = current_time;
+//   } else {  // No CE marks in this batch
+//     non_ce_packet_count_++;
+//     if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold) {
+//       direction_flag_ = 1;
+//       non_ce_packet_count_ = 0;
+//       RTC_LOG(LS_VERBOSE) << "Prague: Switched to additive mode after " << kNonCeThreshold 
+//                            << " consecutive non-CE packets";
+//     }
+//   }
+// }
+
+
+
+
+
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-  last_feedback_time_ = current_time; // Track the last time we heard from the network
+  last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
     non_ce_packet_count_ = 0;
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
       first_ce_mark_detected_ = true;
-      // RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" 
-      //                  << ce_ratio << ")";
+      RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" << ce_ratio << ")";
     }
     
     // --- PILLAR 2A: WebRTC-Tuned Gain ---
-    // RFC 9330 standard gain is 1/16, but WebRTC batches feedback. 
     // Use 1/8 to make alpha grow fast enough to matter.
-    constexpr double g = 1.0 / 8.0; 
+    constexpr double g = 1.0 / 8.0;
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
-
-    double dynamic_floor = 0.80; // Default safe encoder limit
-
+    // --- STEP 2 FIX: The Active Circuit Breaker ---
+    double max_allowed_factor = 1.0; // By default, do not force a cut
+    
     if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
         TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
-        if (rtt_delta > TimeDelta::Zero()) {
-            // Map the bloat to a penalty factor (0.0 to 1.0)
-            // 150.0ms represents a total 10:1 path collapse.
-            double penalty_factor = std::min(rtt_delta.ms() / 150.0, 1.0);
+        if (rtt_delta > TimeDelta::Millis(25)) {
+            // The shallow AQM failed. We are building a classic standing queue.
+            // At 150ms of bloat, we FORCE a 50% cut (multiplier = 0.50), regardless of alpha.
+            double bloat_ratio = std::min(rtt_delta.ms() / 150.0, 1.0);
+            max_allowed_factor = 1.0 - (0.50 * bloat_ratio);
             
-            // Slide the floor: 0.80 - (0.60 * penalty)
-            // e.g., 75ms bloat = 0.5 penalty = 0.50 floor
-            dynamic_floor = 0.80 - (0.60 * penalty_factor);
-            
-            if (penalty_factor > 0.1) {
-                RTC_LOG(LS_VERBOSE) << "L4S Circuit Breaker: RTT bloat " << rtt_delta.ms() 
-                                    << "ms. Dynamic floor scaled to " << dynamic_floor;
-            }
+            RTC_LOG(LS_VERBOSE) << "L4S Circuit Breaker: RTT bloat " << rtt_delta.ms() 
+                                << "ms. Forcing max reduction factor to " << max_allowed_factor;
         }
     }
 
@@ -105,10 +190,13 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       direction_flag_ = -1;
       double reduction_factor = 1.0 - alpha_ / 2.0;
 
-      // --- PILLAR 2B: The Panic Drain ---
-      // Apply the dynamic floor to the primary cut
+      // --- PILLAR 2B: The Panic Drain (Fixed Math) ---
+      // Force the cut deeper if the Circuit Breaker demands it
+      reduction_factor = std::min(reduction_factor, max_allowed_factor);
+      
+      // Safety bounds (always cut at least 5%, never cut below 20%)
       reduction_factor = std::min(reduction_factor, 0.95);
-      reduction_factor = std::max(reduction_factor, dynamic_floor);
+      reduction_factor = std::max(reduction_factor, 0.20);
 
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
@@ -122,20 +210,24 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     } else {
       TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
       bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
+      
       if (gate_open) {
+        // Continuous reductions while still in congestion
         double additional_reduction = 1.0 - alpha_ / 4.0;
         
-        // Panic drain for continuous, unbroken congestion
-        // Apply the exact same dynamic floor to continuous cuts
-        additional_reduction = std::min(additional_reduction, 0.95);
-        additional_reduction = std::max(additional_reduction, dynamic_floor);
+        // Also apply the circuit breaker to continuous cuts!
+        // Make it slightly gentler than the initial cut to prevent over-draining
+        double continuous_breaker = 1.0 - ((1.0 - max_allowed_factor) * 0.5);
+        additional_reduction = std::min(additional_reduction, continuous_breaker);
 
-        DataRate further_reduced = std::max(current_rate * additional_reduction, min_target_rate_);
+        additional_reduction = std::min(additional_reduction, 0.95);
+        additional_reduction = std::max(additional_reduction, 0.20);
+
+        DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
         congestion_based_estimate_ = further_reduced;
-
         last_md_time_ = current_time;
-        last_ai_update_time_ = current_time; // Reset AI clock on cut
+        last_ai_update_time_ = current_time;
       }
     }
     last_congestion_signal_ = current_time;
@@ -149,6 +241,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     }
   }
 }
+
 
 
 void webrtc::PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) {
