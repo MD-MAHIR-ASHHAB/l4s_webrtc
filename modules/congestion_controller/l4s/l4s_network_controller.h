@@ -96,7 +96,7 @@ public:
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
-  void OnTimeUpdate(Timestamp current_time, bool is_app_limited);
+  void OnTimeUpdate(Timestamp current_time, bool is_app_limited, DataRate actual_bitrate);
 
   DataRate GetCurrentEstimate() const;
   // Directly seed the internal estimate (used by the actual-rate floor guard).
@@ -438,6 +438,7 @@ private:
   static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
 
   // Throughput calculation
+  double ai_bits_accumulator_ = 0.0;
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
