@@ -96,7 +96,7 @@ public:
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
-  void OnTimeUpdate(Timestamp current_time, bool is_app_limited, DataRate actual_bitrate);
+  void OnTimeUpdate(Timestamp current_time, bool is_app_limited);
 
   DataRate GetCurrentEstimate() const;
   // Directly seed the internal estimate (used by the actual-rate floor guard).
