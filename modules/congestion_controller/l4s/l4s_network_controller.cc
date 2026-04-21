@@ -461,22 +461,26 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   
   bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
                          IsRecentlyUpdated(sources_.last_probe_update, now);
+  bool probe_uplift_active = probe_confident && probe_rate > prague_rate;
                          
   DataRate fused_rate = prague_rate;
 
   // 1. PROBE UPLIFT (Controlled)
-  if (probe_confident && probe_rate > prague_rate) {
+  if (probe_uplift_active) {
       DataRate max_uplift = prague_rate * 1.5;
       fused_rate = std::min(probe_rate, max_uplift);
   }
 
   // 2. THE APPLICATION GUARD (The Reality Anchor moved here)
   if (actual_rate > DataRate::Zero()) {
-      DataRate app_cap = actual_rate * 1.5;
-      DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
-      DataRate growth_ceiling = std::max(app_cap, absolute_cap);
-      
-      fused_rate = std::min(fused_rate, growth_ceiling);
+      // If a fresh probe is driving uplift, let probe authority bypass
+      // the app-demand ceiling to break probe/ALR deadlocks.
+      if (!probe_uplift_active) {
+        DataRate app_cap = actual_rate * 1.5;
+        DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
+        DataRate growth_ceiling = std::max(app_cap, absolute_cap);
+        fused_rate = std::min(fused_rate, growth_ceiling);
+      }
       
       // 3. SAFETY FLOOR
       fused_rate = std::max(fused_rate, actual_rate);
@@ -1525,13 +1529,13 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
               // FAST RECOVERY: Pull Prague up to the probe rate, 
               // but cap the jump at 1.5x per probe to prevent AQM shock.
               DataRate max_uplift = current_prague * 1.5;
-              DataRate new_target = std::min(*measured_probe_rate, max_uplift);
+              DataRate new_target = std::min(*measured_probe_rate * 0.95, max_uplift);
 
               RTC_LOG(LS_INFO) << "L4S: Fast Recovery/Escalation! Probe proved " 
                                << measured_probe_rate->kbps() 
                                << "k. Nudging Prague to " << new_target.kbps() << "k.";
                                
-              // prague_estimator_->SetCurrentEstimate(new_target);
+              prague_estimator_->SetCurrentEstimate(new_target);
               
               // Force the Fusion Engine and ALR Detector to sync immediately
               bandwidth_fusion_->UpdateEcnEstimate(new_target, 0.95, feedback.feedback_time);
@@ -1611,6 +1615,14 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
 
   if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
+    return;
+  }
+
+  // Single-source arbitration: if any probe is already queued in this update,
+  // do not schedule an additional custom probe in the same cycle.
+  if (update && !update->probe_cluster_configs.empty()) {
+    RTC_LOG(LS_VERBOSE)
+        << "L4S: Skipping custom probe; a probe is already queued this update.";
     return;
   }
   
@@ -1958,7 +1970,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   // Set pacer config
   update.pacer_config = PacerConfig();
   update.pacer_config->at_time = at_time;
-  update.pacer_config->time_window = TimeDelta::Millis(10);
+  // Tight burst window to avoid token-bucket collisions on strict shapers.
+  update.pacer_config->time_window = TimeDelta::Millis(5);
   
   // Use a modest pacing headroom multiplier for L4S while avoiding large bursts.
   DataRate pacing_rate = current_rate * 1.15;
@@ -2014,6 +2027,11 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
         last_reported_bitrate_to_probe_controller_ = target_bitrate;
         if (!probes.empty()) {
           for (const auto& probe : probes) {
+            if (!update->probe_cluster_configs.empty()) {
+              RTC_LOG(LS_VERBOSE)
+                  << "L4S: Dropping bitrate-change probe due to existing queued probe";
+              break;
+            }
             TimeDelta since_last_probe =
                 last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity()
                                               : (at_time - last_probe_time_);
