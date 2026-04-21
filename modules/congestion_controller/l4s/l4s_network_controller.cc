@@ -1514,13 +1514,26 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
   if (measured_probe_rate) {
     // Reality Check Floor: Only accept probes that aren't mathematically impossible
     if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
+      bool in_reduction =
+          prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+      bool recent_congestion = HasRecentCongestionSignals(feedback.feedback_time);
+      bool block_probe_uplift = probe_packet_has_ce || in_reduction || recent_congestion;
+
       double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
+      if (block_probe_uplift) {
+        probe_confidence = 0.0;
+        RTC_LOG(LS_VERBOSE)
+            << "L4S: Suppressing probe authority during active congestion handling"
+            << " (probe_ce=" << probe_packet_has_ce
+            << ", reduction=" << in_reduction
+            << ", recent_congestion=" << recent_congestion << ")";
+      }
       bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
 
       // --- THE SAFE ESCALATION HANDSHAKE (Event-Driven) ---
       // If a probe physically proved the path is CLEAN, nudge Prague up.
       // This handles both ALR deadlock breaking AND fast congestion recovery.
-      if (prague_estimator_ && !probe_packet_has_ce) {
+        if (prague_estimator_ && !block_probe_uplift) {
           DataRate current_prague = prague_estimator_->GetCurrentEstimate();
           
           // Accept the probe if it proves even a 5% capacity uplift
