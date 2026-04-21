@@ -1796,7 +1796,7 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
   DataRate fused_rate =
       bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active,
-                                                  recovery_active);
+                                                  recovery_active,last_actual_bitrate_);
   
   // During discovery mode, still use Prague's estimate as it incorporates probe constraints
   if (discovery_active) {

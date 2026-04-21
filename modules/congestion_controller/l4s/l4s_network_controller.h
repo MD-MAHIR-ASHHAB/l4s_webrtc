@@ -183,7 +183,7 @@ public:
   void UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now);
   void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
 
-  DataRate GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const;
+  DataRate GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode, DataRate last_actual_bitrate) const;
   BandwidthSources GetCurrentSources() const { return sources_; }
 
 private:
