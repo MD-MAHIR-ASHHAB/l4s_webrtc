@@ -75,19 +75,19 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
     // --- STEP 2 FIX: The Active Circuit Breaker ---
-    double max_allowed_factor = 1.0; // By default, do not force a cut
+    // double max_allowed_factor = 1.0; // By default, do not force a cut
     
-    if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
-        TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
-        if (rtt_delta > TimeDelta::Millis(25)) {
-            // Stage 2: Aggressive Correction
-            double bloat_ratio = std::min(rtt_delta.ms() / 150.0, 1.0);
-            max_allowed_factor = 1.0 - (0.50 * bloat_ratio);
-        } else if (rtt_delta > TimeDelta::Millis(10)) {
-            // Stage 1: Mild Correction
-            max_allowed_factor = 0.90; 
-        }
-    }
+    // if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
+    //     TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
+    //     if (rtt_delta > TimeDelta::Millis(25)) {
+    //         // Stage 2: Aggressive Correction
+    //         double bloat_ratio = std::min(rtt_delta.ms() / 150.0, 1.0);
+    //         max_allowed_factor = 1.0 - (0.50 * bloat_ratio);
+    //     } else if (rtt_delta > TimeDelta::Millis(10)) {
+    //         // Stage 1: Mild Correction
+    //         max_allowed_factor = 0.90; 
+    //     }
+    // }
 
     if (direction_flag_ == 1) {
       direction_flag_ = -1;
@@ -119,9 +119,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         double additional_reduction = 1.0 - alpha_ / 4.0;
         
         // Also apply the circuit breaker to continuous cuts!
-        // Make it slightly gentler than the initial cut to prevent over-draining
-        double continuous_breaker = 1.0 - ((1.0 - max_allowed_factor) * 0.5);
-        additional_reduction = std::min(additional_reduction, continuous_breaker);
+        // // Make it slightly gentler than the initial cut to prevent over-draining
+        // double continuous_breaker = 1.0 - ((1.0 - max_allowed_factor) * 0.5);
+        // additional_reduction = std::min(additional_reduction, continuous_breaker);
 
         additional_reduction = std::min(additional_reduction, 0.95);
         additional_reduction = std::max(additional_reduction, 0.20);
@@ -1084,32 +1084,32 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
     
-    // --- HIGH-BDP FIX: Preemptive Slope Collapse ---
-    // If instantaneous RTT spikes significantly above our smoothed baseline, the bottleneck just dropped.
-    if (last_rtt_.IsFinite()) {
-        TimeDelta rtt_growth = msg.round_trip_time - last_rtt_;
+    // // --- HIGH-BDP FIX: Preemptive Slope Collapse ---
+    // // If instantaneous RTT spikes significantly above our smoothed baseline, the bottleneck just dropped.
+    // if (last_rtt_.IsFinite()) {
+    //     TimeDelta rtt_growth = msg.round_trip_time - last_rtt_;
         
-        if (rtt_growth > TimeDelta::Millis(5)) {
-            double drop_factor = 1.0;
+    //     if (rtt_growth > TimeDelta::Millis(5)) {
+    //         double drop_factor = 1.0;
             
-            if (rtt_growth > TimeDelta::Millis(20)) {
-                drop_factor = 0.50; // Severe spike (Bottleneck definitely dropped)
-                RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Severe). Jump: " << rtt_growth.ms() << "ms. Cut 50%.";
-            } else if (rtt_growth > TimeDelta::Millis(10)) {
-                drop_factor = 0.75; // Moderate spike (Queue building fast)
-                RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Moderate). Jump: " << rtt_growth.ms() << "ms. Cut 25%.";
-            } else {
-                drop_factor = 0.90; // Mild jitter (Caution)
-                RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Mild). Jump: " << rtt_growth.ms() << "ms. Cut 10%.";
-            }
+    //         if (rtt_growth > TimeDelta::Millis(20)) {
+    //             drop_factor = 0.50; // Severe spike (Bottleneck definitely dropped)
+    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Severe). Jump: " << rtt_growth.ms() << "ms. Cut 50%.";
+    //         } else if (rtt_growth > TimeDelta::Millis(10)) {
+    //             drop_factor = 0.75; // Moderate spike (Queue building fast)
+    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Moderate). Jump: " << rtt_growth.ms() << "ms. Cut 25%.";
+    //         } else {
+    //             drop_factor = 0.90; // Mild jitter (Caution)
+    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Mild). Jump: " << rtt_growth.ms() << "ms. Cut 10%.";
+    //         }
 
-            DataRate panic_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300)) * drop_factor;
-            target_rate_ = std::max(panic_rate, min_target_rate_.value_or(DataRate::KilobitsPerSec(20)));
+    //         DataRate panic_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300)) * drop_factor;
+    //         target_rate_ = std::max(panic_rate, min_target_rate_.value_or(DataRate::KilobitsPerSec(20)));
             
-            // Sync downward to Prague to prevent Phantom Budget
-            if (prague_estimator_) prague_estimator_->SetCurrentEstimate(target_rate_.value());
-        }
-    }
+    //         // Sync downward to Prague to prevent Phantom Budget
+    //         if (prague_estimator_) prague_estimator_->SetCurrentEstimate(target_rate_.value());
+    //     }
+    // }
 
     // Standard EMA Smoothing
     if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
@@ -1694,8 +1694,8 @@ std::optional<webrtc::ProbeClusterConfig> webrtc::L4SNetworkController::CreateCu
   custom_probe.at_time = now;
   custom_probe.target_data_rate = target_rate;
   // 15ms is the sweet spot: long enough to get a good read, short enough not to bloat the DualPI2 queue
-  custom_probe.target_duration = TimeDelta::Millis(15); 
-  custom_probe.target_probe_count = 5;
+  custom_probe.target_duration = TimeDelta::Millis(30); 
+  custom_probe.target_probe_count = 3; // Send 3 probe packets to get a more stable measurement
   custom_probe.id = next_custom_probe_id++;
 
   return custom_probe;
