@@ -77,9 +77,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     // --- STEP 2 FIX: The Active Circuit Breaker ---
     double max_allowed_factor = 1.0; // By default, do not force a cut
     
-    // --- STEP 2 FIX: The 2-Stage Circuit Breaker ---
-    double max_allowed_factor = 1.0; 
-    
     if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
         TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
         if (rtt_delta > TimeDelta::Millis(25)) {
@@ -460,7 +457,7 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   
   DataRate prague_rate = sources_.ecn_estimate;
   DataRate probe_rate = sources_.probe_estimate;
-  DataRate acked_rate = sources_.acked_estimate;
+  // DataRate acked_rate = sources_.acked_estimate;
   
   bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
                          IsRecentlyUpdated(sources_.last_probe_update, now);

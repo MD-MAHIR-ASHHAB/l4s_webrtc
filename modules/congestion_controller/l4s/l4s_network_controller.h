@@ -130,6 +130,7 @@ private:
   
 
   //time-driven AI
+  double ai_bits_accumulator_ = 0.0;
   Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
   Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
   TimeDelta baseline_rtt_ = TimeDelta::PlusInfinity();
@@ -438,7 +439,6 @@ private:
   static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
 
   // Throughput calculation
-  double ai_bits_accumulator_ = 0.0;
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
