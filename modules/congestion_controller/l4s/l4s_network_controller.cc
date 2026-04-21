@@ -1755,9 +1755,9 @@ std::optional<webrtc::ProbeClusterConfig> webrtc::L4SNetworkController::CreateCu
   ProbeClusterConfig custom_probe;
   custom_probe.at_time = now;
   custom_probe.target_data_rate = target_rate;
-  // 15ms is the sweet spot: long enough to get a good read, short enough not to bloat the DualPI2 queue
-  custom_probe.target_duration = TimeDelta::Millis(30); 
-  custom_probe.target_probe_count = 3; // Send 3 probe packets to get a more stable measurement
+  // Keep probe byte budget small to avoid token-bucket overflow on strict shapers.
+  custom_probe.target_duration = TimeDelta::Millis(10);
+  custom_probe.target_probe_count = 4;
   custom_probe.id = next_custom_probe_id++;
 
   return custom_probe;
@@ -1960,8 +1960,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   update.pacer_config->at_time = at_time;
   update.pacer_config->time_window = TimeDelta::Millis(10);
   
-  // Pacing Window (1.0x multiplier is correct for L4S to avoid CE micro-bursts)
-  update.pacer_config->data_window = current_rate * update.pacer_config->time_window;
+  // Use a modest pacing headroom multiplier for L4S while avoiding large bursts.
+  DataRate pacing_rate = current_rate * 1.15;
+  update.pacer_config->data_window = pacing_rate * update.pacer_config->time_window;
   
   // --- CRITICAL FIX: Enable Padding ---
   // Allow padding up to the app's limit, but never exceed the current L4S target rate
