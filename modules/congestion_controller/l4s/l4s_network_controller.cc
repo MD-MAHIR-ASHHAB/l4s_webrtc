@@ -2188,7 +2188,9 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
       return std::nullopt;
 
     case ControllerState::kCongestionAvoidance:
-      if (reduction_active) {
+      // Hysteresis: require minimum dwell before entering congestion_experienced
+      // to avoid rapid state flapping on short CE bursts.
+      if (reduction_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
