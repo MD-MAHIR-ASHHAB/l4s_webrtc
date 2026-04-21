@@ -1055,7 +1055,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   );
 
 // State-owned fusion policy
-  DataRate fused_rate = ApplyStateFusionPolicy(msg.feedback_time); // (or msg.at_time)
+  DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // (or msg.at_time)
   target_rate_ = fused_rate;
 
   // CHATGPT: Downward-only safety clamp. Never push probes up into Prague.
