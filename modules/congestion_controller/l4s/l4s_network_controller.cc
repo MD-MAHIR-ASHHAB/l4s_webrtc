@@ -1557,51 +1557,113 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
   return probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
 }
 
+// void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
+//   if (!config_.enable_probing || !probe_controller_) {
+//     RTC_LOG(LS_WARNING) << "L4S: Probing disabled - enable_probing=" << config_.enable_probing 
+//                         << ", probe_controller=" << (probe_controller_ ? "available" : "null");
+//     return;
+//   }
+
+//   if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
+//     RTC_LOG(LS_VERBOSE) << "L4S: Probe hold active, skipping probe scheduling";
+//     return;
+//   }
+  
+//   // Recovery probing has higher priority and frequency
+//   if (recovery_mode_active_) {
+//     TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
+//     int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
+//     RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
+//     // Use a dedicated recovery interval, slower than before to avoid CE bursts.
+//     TimeDelta recovery_interval = GetRttScaledInterval();
+//     if (since_last_probe >= recovery_interval) {
+//       RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
+//       InitiateRecoveryProbing(now, update);
+//       last_probe_time_ = now;
+//     }
+//     return;
+//   }
+  
+//   // Regular periodic probing
+//   bool interval_ok = last_probe_time_.IsInfinite() || (now - last_probe_time_) >= config_.probe_interval;
+//   bool probe_allowed = ShouldProbeNow(now);
+//   bool should_probe = interval_ok && probe_allowed;
+  
+//   // More detailed debug logging with INFO level (safe timestamp handling)
+//   int64_t time_since_last_ms = last_probe_time_.IsInfinite() ? -1 : (now - last_probe_time_).ms();
+//   RTC_LOG(LS_VERBOSE) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
+//                    << "ms, interval_req=" << config_.probe_interval.ms() 
+//                    << "ms, interval_ok=" << interval_ok 
+//                    << ", probe_allowed=" << probe_allowed 
+//                    << ", final_decision=" << should_probe;
+  
+//   if (should_probe) {
+//     InitiateProbing(now, update);
+//     last_probe_time_ = now;
+//   }
+// }
+
+// New method with smarter probe scheduling based on application demand, network conditions, and queue state
+
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
   if (!config_.enable_probing || !probe_controller_) {
-    RTC_LOG(LS_WARNING) << "L4S: Probing disabled - enable_probing=" << config_.enable_probing 
-                        << ", probe_controller=" << (probe_controller_ ? "available" : "null");
     return;
   }
 
   if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Probe hold active, skipping probe scheduling";
     return;
   }
   
-  // Recovery probing has higher priority and frequency
+  DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  DataRate send_rate = last_send_rate_.value_or(DataRate::Zero());
+  
+  // TRIGGER A: Is the application pushing against the ceiling? (Sending at least 85% of budget)
+  bool demand_is_high = send_rate > (current_target * 0.85);
+
+  // TRIGGER B: Is the network cleanly digesting the traffic?
+  bool network_is_clear = !last_actual_bitrate_.IsZero() && (last_actual_bitrate_ > send_rate * 0.90);
+  
+  // TRIGGER C: Is the physical queue completely drained?
+  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::Zero();
+  bool queue_is_empty = rtt_bloat < TimeDelta::Millis(10); // Very strict latency gate
+
+  TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
+
+  // --- 1. EVENT-DRIVEN RECOVERY PROBING ---
   if (recovery_mode_active_) {
-    TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-    int64_t probe_ms = since_last_probe.IsInfinite() ? -1 : since_last_probe.ms();
-    RTC_LOG(LS_VERBOSE) << "L4S: Recovery mode active, time since last probe: " << probe_ms << "ms";
-    // Use a dedicated recovery interval, slower than before to avoid CE bursts.
     TimeDelta recovery_interval = GetRttScaledInterval();
+    
     if (since_last_probe >= recovery_interval) {
-      RTC_LOG(LS_INFO) << "L4S: Initiating recovery probe!";
-      InitiateRecoveryProbing(now, update);
-      last_probe_time_ = now;
+        // The Event: We only probe if the queue is physically empty and the app wants it.
+        if (demand_is_high && network_is_clear && queue_is_empty) {
+            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! Queue is empty (" 
+                             << rtt_bloat.ms() << "ms bloat).";
+            InitiateRecoveryProbing(now, update);
+            last_probe_time_ = now;
+        } else {
+            RTC_LOG(LS_VERBOSE) << "L4S: Recovery Probe suppressed. Waiting for queue to drain. Bloat: " 
+                                << rtt_bloat.ms() << "ms.";
+        }
     }
     return;
   }
   
-  // Regular periodic probing
-  bool interval_ok = last_probe_time_.IsInfinite() || (now - last_probe_time_) >= config_.probe_interval;
-  bool probe_allowed = ShouldProbeNow(now);
-  bool should_probe = interval_ok && probe_allowed;
+  // --- 2. EVENT-DRIVEN PERIODIC PROBING ---
+  bool cooldown_ok = since_last_probe >= TimeDelta::Seconds(3); // Don't spam
   
-  // More detailed debug logging with INFO level (safe timestamp handling)
-  int64_t time_since_last_ms = last_probe_time_.IsInfinite() ? -1 : (now - last_probe_time_).ms();
-  RTC_LOG(LS_VERBOSE) << "L4S: Probe decision - time_since_last=" << time_since_last_ms
-                   << "ms, interval_req=" << config_.probe_interval.ms() 
-                   << "ms, interval_ok=" << interval_ok 
-                   << ", probe_allowed=" << probe_allowed 
-                   << ", final_decision=" << should_probe;
-  
-  if (should_probe) {
-    InitiateProbing(now, update);
-    last_probe_time_ = now;
+  if (cooldown_ok && ShouldProbeNow(now)) {
+      if (demand_is_high && network_is_clear && queue_is_empty) {
+          RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send (" 
+                           << send_rate.kbps() << "k) is pushing Target (" 
+                           << current_target.kbps() << "k). Network is clear.";
+          InitiateProbing(now, update);
+          last_probe_time_ = now;
+      }
   }
 }
+
+
+
 
 void webrtc::L4SNetworkController::ApplyStateProbingPolicy(
     Timestamp now,
