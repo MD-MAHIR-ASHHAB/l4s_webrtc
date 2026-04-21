@@ -94,8 +94,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       double reduction_factor = 1.0 - alpha_ / 2.0;
 
       // --- PILLAR 2B: The Panic Drain (Fixed Math) ---
-      // Force the cut deeper if the Circuit Breaker demands it
-      reduction_factor = std::min(reduction_factor, max_allowed_factor);
+      // // Force the cut deeper if the Circuit Breaker demands it
+      // reduction_factor = std::min(reduction_factor, max_allowed_factor);
       
       // Safety bounds (always cut at least 5%, never cut below 20%)
       reduction_factor = std::min(reduction_factor, 0.95);
