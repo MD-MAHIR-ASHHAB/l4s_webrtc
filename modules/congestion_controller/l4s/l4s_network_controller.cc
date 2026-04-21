@@ -1615,7 +1615,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
   
   DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  DataRate send_rate = last_send_rate_.value_or(DataRate::Zero());
+  DataRate send_rate = last_send_rate_;
   
   // TRIGGER A: Is the application pushing against the ceiling? (Sending at least 85% of budget)
   bool demand_is_high = send_rate > (current_target * 0.85);
