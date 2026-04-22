@@ -243,6 +243,12 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
                           (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
+  // Probe is a short-lived growth indicator, never a direct rate setter.
+  if (!probe_constraint_time_.IsInfinite() &&
+      (current_time - probe_constraint_time_) >= TimeDelta::Seconds(10)) {
+    ClearProbeConstraint();
+  }
+
   // 1. Growth Logic (ALR Aware)
   if (direction_flag_ == 1 && network_is_alive) {
     bool queue_is_clear = rtt_bloat < TimeDelta::Millis(15);
@@ -282,12 +288,23 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
         DataRate proposed_rate =
             congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
 
+        DataRate bounded_rate = proposed_rate;
+
         if (actual_throughput > DataRate::Zero()) {
           DataRate max_allowed = actual_throughput * 1.15;
-          congestion_based_estimate_ = std::min(proposed_rate, max_allowed);
-        } else {
-          congestion_based_estimate_ = proposed_rate;
+          bounded_rate = std::min(bounded_rate, max_allowed);
         }
+
+        bool probe_constraint_fresh =
+            !probe_constraint_time_.IsInfinite() &&
+            (current_time - probe_constraint_time_) < TimeDelta::Seconds(10);
+        if (probe_constraint_fresh &&
+            probe_constraint_confidence_ > 0.0 &&
+            probe_constraint_ > congestion_based_estimate_) {
+          bounded_rate = std::min(bounded_rate, probe_constraint_);
+        }
+
+        congestion_based_estimate_ = bounded_rate;
 
         congestion_based_estimate_ =
             std::min(congestion_based_estimate_, max_target_rate_);
@@ -447,9 +464,12 @@ int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(
 }
 
 
-void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate, double probe_confidence) {
+void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate,
+                                                         double probe_confidence,
+                                                         Timestamp now) {
   probe_constraint_ = probe_estimate;
   probe_constraint_confidence_ = probe_confidence;
+  probe_constraint_time_ = now;
   
   RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
                    << " bps with confidence " << probe_confidence;
@@ -458,6 +478,7 @@ void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate
 void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
   probe_constraint_ = DataRate::Zero();
   probe_constraint_confidence_ = 0.0;
+  probe_constraint_time_ = Timestamp::MinusInfinity();
   
   RTC_LOG(LS_VERBOSE) << "Prague: Cleared probe constraint";
 }
@@ -514,41 +535,25 @@ void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double c
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
     Timestamp now, bool discovery_mode, bool recovery_mode, bool in_reduction, DataRate actual_rate) const {
+  (void)now;
+  (void)discovery_mode;
+  (void)recovery_mode;
   
   DataRate prague_rate = sources_.ecn_estimate;
-  DataRate probe_rate = sources_.probe_estimate;
-  // DataRate acked_rate = sources_.acked_estimate;
-  
-  bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
-                         IsRecentlyUpdated(sources_.last_probe_update, now);
-  bool probe_uplift_active = probe_confident && probe_rate > prague_rate && !in_reduction;
-                         
+  // Probe is an indicator for additive growth, not a direct fused-rate determiner.
   DataRate fused_rate = prague_rate;
-
-  // 1. PROBE UPLIFT (Controlled)
-  if (probe_uplift_active) {
-      DataRate max_uplift = prague_rate * 1.5;
-      fused_rate = std::min(probe_rate, max_uplift);
-  }
 
   // 2. THE APPLICATION GUARD (The Reality Anchor moved here)
   if (actual_rate > DataRate::Zero()) {
-      // If a fresh probe is driving uplift, let probe authority bypass
-      // the app-demand ceiling to break probe/ALR deadlocks.
-      if (!probe_uplift_active) {
-        DataRate app_cap = actual_rate * 1.5;
-        DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
-        DataRate growth_ceiling = std::max(app_cap, absolute_cap);
-        fused_rate = std::min(fused_rate, growth_ceiling);
-      }
-      // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
-      // Allow Prague to cut below the actual rate to clear the physical queue bloat
-      if (!in_reduction) {
-          fused_rate = std::max(fused_rate, actual_rate);
-      }
-      
-      // // 3. SAFETY FLOOR
-      // fused_rate = std::max(fused_rate, actual_rate);
+    DataRate app_cap = actual_rate * 1.5;
+    DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
+    DataRate growth_ceiling = std::max(app_cap, absolute_cap);
+    fused_rate = std::min(fused_rate, growth_ceiling);
+    // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
+    // Allow Prague to cut below the actual rate to clear the physical queue bloat
+    if (!in_reduction) {
+      fused_rate = std::max(fused_rate, actual_rate);
+    }
   }
 
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
@@ -1584,35 +1589,30 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
             << " (probe_ce=" << probe_packet_has_ce
             << ", reduction=" << in_reduction
             << ", recent_congestion=" << recent_congestion << ")";
+        if (prague_estimator_) {
+          prague_estimator_->ClearProbeConstraint();
+        }
       }
       bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
 
-      // --- THE SAFE ESCALATION HANDSHAKE (Event-Driven) ---
-      // If a probe physically proved the path is CLEAN, nudge Prague up.
-      // This handles both ALR deadlock breaking AND fast congestion recovery.
-        if (prague_estimator_ && !block_probe_uplift) {
-          DataRate current_prague = prague_estimator_->GetCurrentEstimate();
-          
-          // Accept the probe if it proves even a 5% capacity uplift
-          if (*measured_probe_rate > (current_prague * 1.05)) {
-              
-              // FAST RECOVERY: Pull Prague up to the probe rate, 
-              // but cap the jump at 1.5x per probe to prevent AQM shock.
-              DataRate max_uplift = current_prague * 1.5;
-              DataRate new_target = std::min(*measured_probe_rate * 0.95, max_uplift);
+      // Probe indicates headroom; additive increase determines ramp speed.
+      if (prague_estimator_ && !block_probe_uplift) {
+        DataRate current_prague = prague_estimator_->GetCurrentEstimate();
 
-              RTC_LOG(LS_INFO) << "L4S: Fast Recovery/Escalation! Probe proved " 
-                               << measured_probe_rate->kbps() 
-                               << "k. Nudging Prague to " << new_target.kbps() << "k.";
-                               
-              prague_estimator_->SetCurrentEstimate(new_target);
-              
-              // Force the Fusion Engine and ALR Detector to sync immediately
-              bandwidth_fusion_->UpdateEcnEstimate(new_target, 0.95, feedback.feedback_time);
-              if (alr_detector_) {
-                alr_detector_->SetEstimatedBitrate(new_target.bps());
-              }
-          }
+        // Accept the probe as an upper growth indicator only if it proves uplift.
+        if (*measured_probe_rate > (current_prague * 1.05)) {
+          DataRate max_uplift = current_prague * 1.5;
+          DataRate probe_ceiling =
+              std::min(*measured_probe_rate * 0.95, max_uplift);
+
+          RTC_LOG(LS_INFO)
+              << "L4S: Probe indicator accepted. Probe="
+              << measured_probe_rate->kbps()
+              << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
+
+          prague_estimator_->SetProbeConstraint(probe_ceiling, probe_confidence,
+                                                feedback.feedback_time);
+        }
       }
     } else {
       RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
@@ -1946,7 +1946,8 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   if (discovery_active) {
     auto sources = bandwidth_fusion_->GetCurrentSources();
     if (sources.probe_confidence > 0.7) {
-      prague_estimator_->SetProbeConstraint(sources.probe_estimate, sources.probe_confidence);
+      prague_estimator_->SetProbeConstraint(sources.probe_estimate,
+                                            sources.probe_confidence, now);
     }
   }
   

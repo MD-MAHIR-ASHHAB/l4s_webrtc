@@ -112,7 +112,9 @@ public:
   double GetConfidence(Timestamp now) const;
   
   // Probe-aware rate limiting
-  void SetProbeConstraint(DataRate probe_estimate, double probe_confidence);
+  void SetProbeConstraint(DataRate probe_estimate,
+                          double probe_confidence,
+                          Timestamp now);
   void ClearProbeConstraint();
   void SetAdditiveHoldUntil(Timestamp hold_until);
   
@@ -161,6 +163,7 @@ private:
   // Probe constraint for discovery mode
   DataRate probe_constraint_ = DataRate::Zero();
   double probe_constraint_confidence_ = 0.0;
+  Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
 
 
