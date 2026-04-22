@@ -559,23 +559,12 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   (void)now;
   (void)discovery_mode;
   (void)recovery_mode;
+  (void)in_reduction;
+  (void)actual_rate;
   
   DataRate prague_rate = sources_.ecn_estimate;
-  // Probe is an indicator for additive growth, not a direct fused-rate determiner.
+  // Fusion acts as a thin safety guard around Prague, not as a co-equal estimator.
   DataRate fused_rate = prague_rate;
-
-  // // 2. THE APPLICATION GUARD (The Reality Anchor moved here)
-  // if (actual_rate > DataRate::Zero()) {
-  //   DataRate app_cap = actual_rate * 1.5;
-  //   DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
-  //   DataRate growth_ceiling = std::max(app_cap, absolute_cap);
-  //   fused_rate = std::min(fused_rate, growth_ceiling);
-  //   // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
-  //   // Allow Prague to cut below the actual rate to clear the physical queue bloat
-  //   if (!in_reduction) {
-  //     fused_rate = std::max(fused_rate, actual_rate);
-  //   }
-  // }
 
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
 }
@@ -1998,9 +1987,9 @@ void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControl
 webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp now) {
   bool discovery_signal = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
   bool discovery_active =
-      (controller_state_ == ControllerState::kSlowStart) && discovery_signal;
+  (controller_state_ == ControllerState::kSlowState) && discovery_signal;
 
-  // Bridge current and previous behavior during the phased refactor.
+  // Keep discovery semantics active during route reset until state machine settles.
   if (!discovery_active && discovery_signal &&
       controller_state_ != ControllerState::kCongestionRecovery) {
     discovery_active = true;
@@ -2016,31 +2005,20 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     discovery_active = false;
   }
   
-  // Update Prague with probe constraints during discovery
-  if (discovery_active) {
-    auto sources = bandwidth_fusion_->GetCurrentSources();
-    if (sources.probe_confidence > 0.7) {
-      prague_estimator_->SetProbeConstraint(sources.probe_estimate,
-                                            sources.probe_confidence, now);
-    }
-  }
-  
   // Determine if Prague is actively slashing the rate to clear a queue
   bool in_reduction = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
 
-  // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
-  DataRate fused_rate =
+  // Prague is the authority; fusion acts only as a guard layer.
+  DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
+  DataRate guard_rate =
       bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active,
                                                   recovery_active, in_reduction, last_actual_bitrate_);
+  DataRate fused_rate = std::min(prague_rate, guard_rate);
 
-  // During discovery mode, still use Prague's estimate as it incorporates probe constraints
-  if (discovery_active) {
-    DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
-    RTC_LOG(LS_VERBOSE) << "L4S: Discovery mode - Prague rate: " << prague_rate.bps() 
-                     << " bps, Fused rate: " << fused_rate.bps() << " bps";
-    // Use Prague rate if it's lower (respecting probe constraints)
-    fused_rate = std::min(prague_rate, fused_rate);
-  }
+  RTC_LOG(LS_VERBOSE) << "L4S: Prague authority with fusion guard - Prague: "
+                      << prague_rate.bps() << " bps, guard: "
+                      << guard_rate.bps() << " bps, selected: "
+                      << fused_rate.bps() << " bps";
   
   // Apply rate constraints
   if (min_target_rate_ && fused_rate < *min_target_rate_) {
@@ -2059,8 +2037,7 @@ webrtc::DataRate webrtc::L4SNetworkController::ApplyStateFusionPolicy(
     Timestamp now) {
   switch (controller_state_) {
     case ControllerState::kRouteReset:
-    case ControllerState::kSlowStart:
-    case ControllerState::kCongestionAvoidance:
+    case ControllerState::kSlowState:
     case ControllerState::kCongestionExperienced:
     case ControllerState::kCongestionRecovery:
       return FuseBandwidthEstimates(now);
@@ -2069,42 +2046,13 @@ webrtc::DataRate webrtc::L4SNetworkController::ApplyStateFusionPolicy(
 }
 
 webrtc::DataRate webrtc::L4SNetworkController::GetBaseFusedEstimate(Timestamp now) {
-  // Get fused estimate from non-ECN sources only (delay, probe, acked)
-  // This provides the base capacity estimate before Prague applies AI/MD
-  
-  L4SBandwidthFusion::BandwidthSources temp_sources = bandwidth_fusion_->GetCurrentSources();
-  
-  // Temporarily zero out ECN estimate for base fusion
-  temp_sources.ecn_estimate = DataRate::Zero();
-  temp_sources.ecn_confidence = 0.0;
-  
-  // Use weighted combination of delay, probe, and acked estimates as base
-  double total_weight = temp_sources.probe_confidence + temp_sources.acked_confidence;
-  if (total_weight > 0.01) {  // Very low threshold - almost always use weighted combination
-    DataRate weighted_estimate = 
-        (temp_sources.probe_estimate * temp_sources.probe_confidence +
-         temp_sources.acked_estimate * temp_sources.acked_confidence) / total_weight;
-    
-    RTC_LOG(LS_VERBOSE) << "L4S: Base fused estimate (no ECN): " << weighted_estimate.bps() << " bps";
-    return weighted_estimate;
+  (void)now;
+
+  // Keep ECN window sizing aligned with Prague to avoid cross-signal tug-of-war.
+  if (prague_estimator_) {
+    return prague_estimator_->GetCurrentEstimate();
   }
-  
-  // Fallback to most confident non-ECN estimate
-  DataRate best_estimate = DataRate::KilobitsPerSec(300);  // Fallback
-  double best_confidence = 0.0;
-  
-  if (temp_sources.acked_confidence > best_confidence) {
-    best_estimate = temp_sources.acked_estimate;
-    best_confidence = temp_sources.acked_confidence;
-  }
-  
-  if (temp_sources.probe_confidence > best_confidence) {
-    best_estimate = temp_sources.probe_estimate;
-    best_confidence = temp_sources.probe_confidence;
-  }
-  
-  RTC_LOG(LS_VERBOSE) << "L4S: Fallback base estimate: " << best_estimate.bps() << " bps";
-  return best_estimate;
+  return target_rate_.value_or(DataRate::KilobitsPerSec(300));
 }
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Timestamp at_time) const {
@@ -2308,11 +2256,7 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
 
   switch (controller_state_) {
     case ControllerState::kRouteReset:
-      if (discovery_active) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kInitComplete};
-      }
-      if (recovery_active) {
+      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
       }
@@ -2320,10 +2264,10 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
-      return TransitionDecision{ControllerState::kCongestionAvoidance,
+      return TransitionDecision{ControllerState::kSlowState,
                                 TransitionReason::kInitComplete};
 
-    case ControllerState::kSlowStart:
+    case ControllerState::kSlowState:
       if (recovery_active && recovery_cooldown_ok && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
@@ -2333,25 +2277,8 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
                                   TransitionReason::kPragueReduction};
       }
       if (!discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                  TransitionReason::kDiscoveryExit};
-      }
-      return std::nullopt;
-
-    case ControllerState::kCongestionAvoidance:
-      // Hysteresis: require minimum dwell before entering congestion_experienced
-      // to avoid rapid state flapping on short CE bursts.
-      if (reduction_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      if (discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kDiscoveryActive};
+                                  TransitionReason::kDiscoveryExit};
       }
       return std::nullopt;
 
@@ -2360,27 +2287,11 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
       }
-      if (discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kDiscoveryActive};
-      }
-      if (!reduction_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                  TransitionReason::kPragueAdditive};
-      }
       return std::nullopt;
 
     case ControllerState::kCongestionRecovery:
-      if (!recovery_active && reduction_active) {
+      if (!recovery_active && dwell_ok) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kSlowStart,
-                                  TransitionReason::kDiscoveryActive};
-      }
-      if (!recovery_active && !reduction_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kRecoveryExited};
       }
       return std::nullopt;
@@ -2392,10 +2303,8 @@ const char* webrtc::L4SNetworkController::StateToString(ControllerState state) {
   switch (state) {
     case ControllerState::kRouteReset:
       return "route_reset";
-    case ControllerState::kSlowStart:
-      return "slow_start";
-    case ControllerState::kCongestionAvoidance:
-      return "congestion_avoidance";
+    case ControllerState::kSlowState:
+      return "slow_state";
     case ControllerState::kCongestionExperienced:
       return "congestion_experienced";
     case ControllerState::kCongestionRecovery:
@@ -2411,14 +2320,10 @@ const char* webrtc::L4SNetworkController::TransitionReasonToString(
       return "route_change";
     case TransitionReason::kInitComplete:
       return "init_complete";
-    case TransitionReason::kDiscoveryActive:
-      return "discovery_active";
     case TransitionReason::kDiscoveryExit:
       return "discovery_exit";
     case TransitionReason::kPragueReduction:
       return "prague_reduction";
-    case TransitionReason::kPragueAdditive:
-      return "prague_additive";
     case TransitionReason::kRecoveryEntered:
       return "recovery_entered";
     case TransitionReason::kRecoveryExited:
@@ -2621,8 +2526,11 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
     return true;
   }
 
-  // Exit if Prague and Probe converged on capacity
-  if (CheckProbeAndPragueConvergence(now)) {
+  // Exit on convergence only after a small dwell and with no very recent CE signal.
+  bool dwell_met = state_entered_at_.IsInfinite() ||
+                   (now - state_entered_at_) >= TimeDelta::Seconds(2);
+  if (dwell_met && !HasRecentCongestionSignals(now) &&
+      CheckProbeAndPragueConvergence(now)) {
     return true;
   }
 
