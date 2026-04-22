@@ -1738,11 +1738,11 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   bool has_acked = acked_rate > DataRate::Zero();
   bool app_limited = IsApplicationLimited();
   
-  // TRIGGER A: Only probe when delivery indicates real demand near target.
-  bool demand_from_send = send_rate > (current_target * 0.90);
+  // TRIGGER A: Probe demand is delivery-driven (not sender burst-driven).
+  // If acked is not available/stable, rely on actual throughput only.
   bool demand_from_actual = !actual_rate.IsZero() && actual_rate > (current_target * 0.90);
-  bool demand_from_acked = acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.75);
-  bool demand_now = !app_limited && demand_from_actual && (demand_from_send || demand_from_acked);
+  bool demand_from_acked = has_acked && acked_rate > (current_target * 0.75);
+  bool demand_now = !app_limited && (demand_from_actual || demand_from_acked);
 
   TimeDelta effective_rtt =
       last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
