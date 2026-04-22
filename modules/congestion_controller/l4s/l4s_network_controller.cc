@@ -309,7 +309,11 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
               // STRICT TETHER: GCC-style 1.15x tether in steady state
               max_allowed = actual_throughput * 1.15; 
           }
-          bounded_rate = std::min(bounded_rate, max_allowed);
+          if (proposed_rate > max_allowed) {
+              bounded_rate = std::max(congestion_based_estimate_, max_allowed);
+          } else {
+              bounded_rate = proposed_rate;
+          }
         }
 
         bool probe_constraint_fresh =
@@ -332,14 +336,14 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
   last_ai_update_time_ = current_time;
 
-  // 2. Mode Escapes & Alpha Decay
-  if (first_ce_mark_detected_ && !discovery_mode_active_) {
-    TimeDelta since_congestion = current_time - last_congestion_signal_;
-    if (since_congestion > TimeDelta::Seconds(30)) {
-      discovery_mode_active_ = true;
-      first_ce_mark_detected_ = false;
-    }
-  }
+  // // 2. Mode Escapes & Alpha Decay
+  // if (first_ce_mark_detected_ && !discovery_mode_active_) {
+  //   TimeDelta since_congestion = current_time - last_congestion_signal_;
+  //   if (since_congestion > TimeDelta::Seconds(30)) {
+  //     discovery_mode_active_ = true;
+  //     first_ce_mark_detected_ = false;
+  //   }
+  // }
 
   if (alpha_ > 0.0) {
     TimeDelta since_last_ce = current_time - last_congestion_signal_;
