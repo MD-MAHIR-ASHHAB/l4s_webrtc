@@ -1,6 +1,7 @@
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <numeric>
 #include <utility>
@@ -56,6 +57,17 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRat
 }
 
 PragueCapacityEstimator::~PragueCapacityEstimator() = default;
+
+int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
+  double rtt_ms =
+      (current_rtt_.IsFinite() && !current_rtt_.IsZero()) ? current_rtt_.ms() : 120.0;
+  double rtt_factor = std::clamp(rtt_ms / 120.0, 0.8, 2.0);
+  double alpha_factor = 1.0 + std::clamp(alpha_ / 0.15, 0.0, 1.0);
+
+  int threshold = static_cast<int>(
+      std::lround(kNonCeThresholdBase * rtt_factor * alpha_factor));
+  return std::clamp(threshold, kNonCeThresholdMin, kNonCeThresholdMax);
+}
 
 
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
@@ -152,11 +164,18 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
     // Only switch back to Additive Increase if enough PACKETS have passed 
     // AND enough physical TIME has passed to flush the queue.
-    if (direction_flag_ == -1 && non_ce_packet_count_ >= kNonCeThreshold && clearance_time_met) {
+    int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
+    if (direction_flag_ == -1 &&
+        non_ce_packet_count_ >= adaptive_non_ce_threshold &&
+        clearance_time_met) {
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
-      RTC_LOG(LS_VERBOSE) << "Prague: Queue drained. Switched to additive mode after " 
-                          << clearance_window.ms() << "ms cooldown.";
+      RTC_LOG(LS_VERBOSE)
+          << "Prague: Queue drained. Switched to additive mode after "
+          << clearance_window.ms() << "ms cooldown (threshold="
+          << adaptive_non_ce_threshold << ", rtt_ms="
+          << (current_rtt_.IsFinite() ? current_rtt_.ms() : -1)
+          << ", alpha=" << alpha_ << ").";
     }
   } 
 
@@ -345,7 +364,8 @@ int64_t webrtc::PragueCapacityEstimator::CalculateContextAwareAiStep(
   }
   
   // 4. Direction flag stability
-  if (direction_flag_ == 1 && non_ce_packet_count_ > kNonCeThreshold * 2) {
+  if (direction_flag_ == 1 &&
+      non_ce_packet_count_ > ComputeAdaptiveNonCeThreshold() * 2) {
     context_multiplier *= 1.2;
   }
   

@@ -118,6 +118,7 @@ public:
 private:
   // Context-aware AI step calculation
   int64_t CalculateContextAwareAiStep(int64_t time_scaled_ai_step, DataRate current_rate, Timestamp current_time, double elapsed_s);
+  int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
@@ -139,7 +140,9 @@ private:
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
-  static constexpr int kNonCeThreshold = 7;  // Threshold to switch to additive mode
+  static constexpr int kNonCeThresholdBase = 10;
+  static constexpr int kNonCeThresholdMin = 8;
+  static constexpr int kNonCeThresholdMax = 28;
 
   // RFC 9330 §4.3: MD must be applied at most once per RTT.
   // last_md_time_ tracks when the most recent multiplicative decrease was
