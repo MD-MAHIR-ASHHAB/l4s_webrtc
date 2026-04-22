@@ -2554,13 +2554,13 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
     return true;
   }
 
-  // Exit on convergence only after a small dwell and with no very recent CE signal.
-  bool dwell_met = state_entered_at_.IsInfinite() ||
-                   (now - state_entered_at_) >= TimeDelta::Seconds(2);
-  if (dwell_met && !HasRecentCongestionSignals(now) &&
-      CheckProbeAndPragueConvergence(now)) {
-    return true;
-  }
+  // // Exit on convergence only after a small dwell and with no very recent CE signal.
+  // bool dwell_met = state_entered_at_.IsInfinite() ||
+  //                  (now - state_entered_at_) >= TimeDelta::Seconds(2);
+  // if (dwell_met && !HasRecentCongestionSignals(now) &&
+  //     CheckProbeAndPragueConvergence(now)) {
+  //   return true;
+  // }
 
   // Fallback: Exit at higher rate threshold (10 Mbps instead of 5 Mbps)
   DataRate current_rate = prague_estimator_->GetCurrentEstimate();
