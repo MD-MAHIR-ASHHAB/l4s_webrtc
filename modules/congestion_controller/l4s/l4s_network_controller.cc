@@ -1717,7 +1717,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
       if (demand_is_high && network_is_clear && queue_is_empty) {
           RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send (" 
                            << send_rate.kbps() << "k) is pushing Target (" 
-                           << current_target.kbps() << "k). Network is clear.";
+                           << current_target.kbps() << "k). Network is clear. Queue is empty (" 
+                             << rtt_bloat.ms() << "ms bloat).";
           InitiateProbing(now, update);
           last_probe_time_ = now;
       }
