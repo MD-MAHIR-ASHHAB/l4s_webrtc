@@ -289,7 +289,16 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
           max_step_bps = std::max(1000.0, current_bps * 0.03 * elapsed_s);
       }
       
-      double bounded_step_bps = std::min(desired_step_bps, max_step_bps);
+      // double bounded_step_bps = std::min(desired_step_bps, max_step_bps);
+      double bounded_step_bps;
+      if (discovery_mode_active_) {
+          // In discovery, use the fast exponential step directly!
+          bounded_step_bps = max_step_bps; 
+      } else {
+          // In steady-state, take the minimum to ensure a smooth, slow glide
+          bounded_step_bps = std::min(desired_step_bps, max_step_bps);
+      }
+
 
       ai_bits_accumulator_ += bounded_step_bps;
       if (ai_bits_accumulator_ >= 1.0) {
