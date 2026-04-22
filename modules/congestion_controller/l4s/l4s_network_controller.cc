@@ -221,7 +221,14 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
 }
 
 
-void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool is_app_limited) {
+void webrtc::PragueCapacityEstimator::OnAckedUpdate(
+    Timestamp current_time,
+    bool is_app_limited,
+    DataRate actual_throughput,
+    TimeDelta rtt_bloat) {
+  // Feedback-driven update: this marks the connection as alive for growth logic.
+  last_feedback_time_ = current_time;
+
   if (last_update_time_.IsInfinite() || last_ai_update_time_.IsInfinite()) {
     last_update_time_ = current_time;
     last_ai_update_time_ = current_time;
@@ -238,26 +245,53 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
 
   // 1. Growth Logic (ALR Aware)
   if (direction_flag_ == 1 && network_is_alive) {
-    if (!is_app_limited && (additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_)) {
-      double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_.seconds<double>() : 0.05;
+    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(15);
+    bool past_hold_time = additive_hold_until_.IsInfinite() ||
+                          current_time >= additive_hold_until_;
+
+    if (!is_app_limited && queue_is_clear && past_hold_time) {
+      double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
+                         ? current_rtt_.seconds<double>()
+                         : 0.05;
       double elapsed_s = ai_elapsed.seconds<double>();
-      
-      constexpr double mss_bits = 1440.0 * 8.0;
-      double theoretical_increase_bits = (mss_bits / rtt_s) * (elapsed_s / rtt_s);
+      double current_bps = static_cast<double>(congestion_based_estimate_.bps());
 
-      // --- HIGH-BDP FIX: Gentle AI Boost ---
-      // If RTT is massive (e.g., 180ms), standard AI crawls. Give it a gentle boost.
-      if (rtt_s > 0.10) { 
-          theoretical_increase_bits *= 1.5; 
-      }
+      // GCC-like additive slope model: min 4 kbps/s, response time = 2*(RTT+100ms).
+      constexpr double kFrameIntervalSeconds = 1.0 / 30.0;
+      constexpr double kPacketSizeBytes = 1200.0;
+      constexpr double kMinIncreaseBpsPerSec = 4000.0;
 
-      // The Accumulator: Trickle the bits in to create a smooth diagonal ramp
-      ai_bits_accumulator_ += theoretical_increase_bits;
+      double frame_size_bytes =
+          std::max(1.0, (current_bps / 8.0) * kFrameIntervalSeconds);
+      double packets_per_frame =
+          std::max(1.0, std::ceil(frame_size_bytes / kPacketSizeBytes));
+      double avg_packet_size_bytes = frame_size_bytes / packets_per_frame;
 
+      double response_time_s = std::max(0.02, 2.0 * (rtt_s + 0.1));
+      double increase_rate_bps_per_s =
+          std::max(kMinIncreaseBpsPerSec,
+                   (avg_packet_size_bytes * 8.0) / response_time_s);
+
+      double desired_step_bps = increase_rate_bps_per_s * elapsed_s;
+      double max_step_bps = std::max(1000.0, current_bps * 0.03 * elapsed_s);
+      double bounded_step_bps = std::min(desired_step_bps, max_step_bps);
+
+      ai_bits_accumulator_ += bounded_step_bps;
       if (ai_bits_accumulator_ >= 1.0) {
-        int64_t whole_bits = static_cast<int64_t>(ai_bits_accumulator_);
-        congestion_based_estimate_ += DataRate::BitsPerSec(whole_bits);
-        ai_bits_accumulator_ -= whole_bits;
+        int64_t whole_bits_per_sec = static_cast<int64_t>(ai_bits_accumulator_);
+        DataRate proposed_rate =
+            congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
+
+        if (actual_throughput > DataRate::Zero()) {
+          DataRate max_allowed = actual_throughput * 1.15;
+          congestion_based_estimate_ = std::min(proposed_rate, max_allowed);
+        } else {
+          congestion_based_estimate_ = proposed_rate;
+        }
+
+        congestion_based_estimate_ =
+            std::min(congestion_based_estimate_, max_target_rate_);
+        ai_bits_accumulator_ -= whole_bits_per_sec;
       }
     }
   }
@@ -283,6 +317,12 @@ void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool 
       }
     }
   }
+}
+
+void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time,
+                                                    bool is_app_limited) {
+  OnAckedUpdate(current_time, is_app_limited, DataRate::Zero(),
+                TimeDelta::Zero());
 }
 
 webrtc::DataRate webrtc::PragueCapacityEstimator::GetCurrentEstimate() const {
@@ -617,9 +657,8 @@ bool webrtc::L4SBandwidthFusion::IsRecentlyUpdated(Timestamp last_update, Timest
   if (last_update.IsInfinite() || now.IsInfinite()) {
     return false;
   }
-  // In a sparse-RTCP setup, data is considered valid for up to 60 seconds 
-  // (to survive periodic reporting gaps) before being flagged as stale.
-  return (now - last_update) < TimeDelta::Seconds(60);
+  // Keep probe authority short-lived so stale estimates cannot override Prague.
+  return (now - last_update) < TimeDelta::Seconds(10);
 }
 
 
@@ -1070,9 +1109,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   // State-owned probing policy
   ApplyStateProbingPolicy(msg.at_time, &update);
 
-  // Update time-based growth/decay in Prague estimator
-// Update time-based growth/decay in Prague estimator
-  prague_estimator_->OnTimeUpdate(msg.at_time, IsApplicationLimited());  
+  // Growth is feedback-driven via OnTransportPacketsFeedback.
   // --- PRAGUE DICTATOR MODE ---
   // Unconditionally push Prague's state to the Fusion Engine every 100ms.
   // Never hide Prague's estimate just because we are in ALR or Reduction.
@@ -1250,6 +1287,16 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   NetworkControlUpdate update;
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
+
+  TimeDelta rtt_bloat =
+      (last_rtt_.IsFinite() && base_rtt_.IsFinite())
+          ? (last_rtt_ - base_rtt_)
+          : TimeDelta::Zero();
+
+  if (prague_estimator_ && !msg.packet_feedbacks.empty()) {
+    prague_estimator_->OnAckedUpdate(msg.feedback_time, IsApplicationLimited(),
+                                     last_actual_bitrate_, rtt_bloat);
+  }
 
   // if (throughput_estimator_) {
   //   last_actual_bitrate_ = throughput_estimator_->GetCurrentEstimate();
@@ -1675,8 +1722,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
         // The Event: We only probe if the queue is physically empty and the app wants it.
         if (demand_is_high && network_is_clear && queue_is_empty) {
             RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! base rtt (" 
-                             << base_rtt_.ms() << "ms bloat). last rtt (" 
-                             << last_rtt_.ms() << "ms bloat). Queue is empty (" 
+                             << base_rtt_.ms() << "ms ). last rtt (" 
+                             << last_rtt_.ms() << "ms ). Queue is empty (" 
                              << rtt_bloat.ms() << "ms bloat).";
             InitiateRecoveryProbing(now, update);
             last_probe_time_ = now;
@@ -1696,8 +1743,8 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
           RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send (" 
                            << send_rate.kbps() << "k) is pushing Target (" 
                            << current_target.kbps() << "k). Network is clear. base rtt (" 
-                             << base_rtt_.ms() << "ms bloat). last rtt (" 
-                             << last_rtt_.ms() << "ms bloat). Queue is empty (" 
+                             << base_rtt_.ms() << "ms ). last rtt (" 
+                             << last_rtt_.ms() << "ms ). Queue is empty (" 
                              << rtt_bloat.ms() << "ms bloat).";
           InitiateProbing(now, update);
           last_probe_time_ = now;
