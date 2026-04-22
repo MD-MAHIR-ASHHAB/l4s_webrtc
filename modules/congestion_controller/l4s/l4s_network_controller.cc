@@ -473,7 +473,7 @@ void webrtc::L4SBandwidthFusion::UpdateAckedEstimate(DataRate estimate, double c
 
 
 webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
-    Timestamp now, bool discovery_mode, bool recovery_mode, DataRate actual_rate) const {
+    Timestamp now, bool discovery_mode, bool recovery_mode, bool in_reduction, DataRate actual_rate) const {
   
   DataRate prague_rate = sources_.ecn_estimate;
   DataRate probe_rate = sources_.probe_estimate;
@@ -481,7 +481,7 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   
   bool probe_confident = sources_.probe_confidence > config_.probe_confidence_threshold && 
                          IsRecentlyUpdated(sources_.last_probe_update, now);
-  bool probe_uplift_active = probe_confident && probe_rate > prague_rate;
+  bool probe_uplift_active = probe_confident && probe_rate > prague_rate && !in_reduction;
                          
   DataRate fused_rate = prague_rate;
 
@@ -501,9 +501,14 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
         DataRate growth_ceiling = std::max(app_cap, absolute_cap);
         fused_rate = std::min(fused_rate, growth_ceiling);
       }
+      // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
+      // Allow Prague to cut below the actual rate to clear the physical queue bloat
+      if (!in_reduction) {
+          fused_rate = std::max(fused_rate, actual_rate);
+      }
       
-      // 3. SAFETY FLOOR
-      fused_rate = std::max(fused_rate, actual_rate);
+      // // 3. SAFETY FLOOR
+      // fused_rate = std::max(fused_rate, actual_rate);
   }
 
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
@@ -1897,11 +1902,14 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
     }
   }
   
+  // Determine if Prague is actively slashing the rate to clear a queue
+  bool in_reduction = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+
   // Use mode-aware fusion (discovery/recovery modes use probe-weighted fusion)
   DataRate fused_rate =
       bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active,
-                                                  recovery_active,last_actual_bitrate_);
-  
+                                                  recovery_active, in_reduction, last_actual_bitrate_);
+                                                  
   // During discovery mode, still use Prague's estimate as it incorporates probe constraints
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
