@@ -1141,12 +1141,17 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     // }
 
     // Standard EMA Smoothing
-    if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
-      last_rtt_ = (last_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
-    } else {
-      last_rtt_ = msg.round_trip_time;
-    }
+    // if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+    //   last_rtt_ = (last_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
+    // } else {
+    //   last_rtt_ = msg.round_trip_time;
+    // }
     
+    //disabling EMA smoothing for now to preserve Prague's native responsiveness to RTT changes, which is critical for accurate ECN-based control. We can revisit adding a more sophisticated smoothing mechanism later if needed, but for now we want to ensure that Prague's RTT updates reflect the true network conditions as closely as possible without being dampened by an EMA.
+
+    last_rtt_ = msg.round_trip_time;
+
+
     TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
     if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) base_rtt_ = safe_rtt;
     
@@ -1316,13 +1321,17 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
     if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
       // --- CRITICAL FIX 1A: Smooth the RTT ---
       // Never feed raw, instantaneous RTT into Prague. 
-      if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
-          // Exponential moving average: 80% old, 20% new
-          last_rtt_ = (last_rtt_ * 0.8) + (feedback_min_rtt * 0.2);
-      } else {
-          last_rtt_ = feedback_min_rtt;
-      }
+      // if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      //     // Exponential moving average: 80% old, 20% new
+      //     last_rtt_ = (last_rtt_ * 0.8) + (feedback_min_rtt * 0.2);
+      // } else {
+      //     last_rtt_ = feedback_min_rtt;
+      // }
       
+      // --- CRITICAL FIX 1B: Remove RTT Smoothing for Now ---
+      last_rtt_ = feedback_min_rtt;
+
+
       // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
       TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
       // --- NEW: Track the physical baseline ---
@@ -1909,7 +1918,7 @@ webrtc::DataRate webrtc::L4SNetworkController::FuseBandwidthEstimates(Timestamp 
   DataRate fused_rate =
       bandwidth_fusion_->GetFusedEstimateWithMode(now, discovery_active,
                                                   recovery_active, in_reduction, last_actual_bitrate_);
-                                                  
+
   // During discovery mode, still use Prague's estimate as it incorporates probe constraints
   if (discovery_active) {
     DataRate prague_rate = prague_estimator_->GetCurrentEstimate();
