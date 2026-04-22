@@ -1021,6 +1021,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
 
   last_probe_time_ = Timestamp::MinusInfinity();
   probe_hold_until_ = Timestamp::MinusInfinity();
+  next_probe_allowed_at_ = Timestamp::MinusInfinity();
+  demand_high_since_ = Timestamp::MinusInfinity();
+  probe_reject_streak_ = 0;
   initial_probes_sent_ = false;
   last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
   previously_in_alr_ = false;
@@ -1605,6 +1608,9 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           DataRate probe_ceiling =
               std::min(*measured_probe_rate * 0.95, max_uplift);
 
+          probe_reject_streak_ = 0;
+          next_probe_allowed_at_ = Timestamp::MinusInfinity();
+
           RTC_LOG(LS_INFO)
               << "L4S: Probe indicator accepted. Probe="
               << measured_probe_rate->kbps()
@@ -1615,9 +1621,15 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
         }
       }
     } else {
+      probe_reject_streak_ = std::min(probe_reject_streak_ + 1, 4);
+      int64_t backoff_seconds =
+          std::min<int64_t>(12, 3 * (1LL << (probe_reject_streak_ - 1)));
+      next_probe_allowed_at_ = feedback.feedback_time + TimeDelta::Seconds(backoff_seconds);
+
       RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
                        << measured_probe_rate->bps() << " bps < actual throughput "
-                       << last_actual_bitrate_.bps() << " bps";
+                       << last_actual_bitrate_.bps() << " bps"
+                       << ", backoff_s=" << backoff_seconds;
     }
   }
 }
@@ -1684,6 +1696,12 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     return;
   }
 
+  if (!next_probe_allowed_at_.IsInfinite() && now < next_probe_allowed_at_) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Probe suppressed by backoff window. next_allowed_in_ms="
+                        << (next_probe_allowed_at_ - now).ms();
+    return;
+  }
+
   if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
     return;
   }
@@ -1698,38 +1716,69 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   
   DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
   DataRate send_rate = last_send_rate_;
+  DataRate actual_rate = last_actual_bitrate_;
+  DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::Zero());
+  bool app_limited = IsApplicationLimited();
   
-  // TRIGGER A: Is the application pushing against the ceiling? (Sending at least 85% of budget)
-  bool demand_is_high = send_rate > (current_target * 0.85);
+  // TRIGGER A: Only probe when delivery indicates real demand near target.
+  bool demand_from_send = send_rate > (current_target * 0.90);
+  bool demand_from_actual = !actual_rate.IsZero() && actual_rate > (current_target * 0.90);
+  bool demand_from_acked = acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.75);
+  bool demand_now = !app_limited && demand_from_actual && (demand_from_send || demand_from_acked);
 
-  // TRIGGER B: Is the network cleanly digesting the traffic?
-  bool network_is_clear = !last_actual_bitrate_.IsZero() && (last_actual_bitrate_ > send_rate * 0.90);
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
+  TimeDelta demand_hold_time = std::clamp(effective_rtt * 2.0,
+                                          TimeDelta::Millis(300),
+                                          TimeDelta::Seconds(3));
+
+  if (demand_now) {
+    if (demand_high_since_.IsInfinite()) {
+      demand_high_since_ = now;
+    }
+  } else {
+    demand_high_since_ = Timestamp::MinusInfinity();
+  }
+
+  bool demand_is_sustained = !demand_high_since_.IsInfinite() &&
+                             (now - demand_high_since_) >= demand_hold_time;
+
+  // TRIGGER B: Is delivery supporting target (avoid probing on sender bursts alone)?
+  bool delivery_supports_target =
+      (!actual_rate.IsZero() && actual_rate > (current_target * 0.80)) ||
+      (acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.70));
   
   // TRIGGER C: Is the physical queue completely drained?
   // FIX: Fail closed. If we don't know the baseline, assume the queue is bloated.
   TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ?
                         (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-  bool queue_is_empty = rtt_bloat < TimeDelta::Millis(10);
-  // Very strict latency gate
+  bool queue_is_empty_recovery = rtt_bloat < TimeDelta::Millis(5);
+  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(8);
 
   TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
 
   // --- 1. EVENT-DRIVEN RECOVERY PROBING ---
   if (recovery_mode_active_) {
-    TimeDelta recovery_interval = GetRttScaledInterval();
+    TimeDelta recovery_interval = std::max(GetRttScaledInterval(), TimeDelta::Seconds(3));
     
     if (since_last_probe >= recovery_interval) {
-        // The Event: We only probe if the queue is physically empty and the app wants it.
-        if (demand_is_high && network_is_clear && queue_is_empty) {
-            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! base rtt (" 
+        // Probe only if app demand is sustained, delivery supports it, and queue is truly clear.
+        if (demand_is_sustained && delivery_supports_target && queue_is_empty_recovery) {
+            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! Send(" 
+                             << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
+                             << "k) Acked(" << acked_rate.kbps() << "k) Target("
+                             << current_target.kbps() << "k). base rtt (" 
                              << base_rtt_.ms() << "ms ). last rtt (" 
                              << last_rtt_.ms() << "ms ). Queue is empty (" 
                              << rtt_bloat.ms() << "ms bloat).";
             InitiateRecoveryProbing(now, update);
             last_probe_time_ = now;
         } else {
-            RTC_LOG(LS_VERBOSE) << "L4S: Recovery Probe suppressed. Waiting for queue to drain. Bloat: " 
-                                << rtt_bloat.ms() << "ms.";
+            RTC_LOG(LS_VERBOSE)
+                << "L4S: Recovery probe suppressed. app_limited=" << app_limited
+                << ", demand_sustained=" << demand_is_sustained
+                << ", delivery_supports_target=" << delivery_supports_target
+                << ", bloat_ms=" << rtt_bloat.ms();
         }
     }
     return;
@@ -1739,13 +1788,14 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   bool cooldown_ok = since_last_probe >= TimeDelta::Seconds(3); // Don't spam
   
   if (cooldown_ok && ShouldProbeNow(now)) {
-      if (demand_is_high && network_is_clear && queue_is_empty) {
-          RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send (" 
-                           << send_rate.kbps() << "k) is pushing Target (" 
-                           << current_target.kbps() << "k). Network is clear. base rtt (" 
-                             << base_rtt_.ms() << "ms ). last rtt (" 
-                             << last_rtt_.ms() << "ms ). Queue is empty (" 
-                             << rtt_bloat.ms() << "ms bloat).";
+      if (demand_is_sustained && delivery_supports_target && queue_is_empty_periodic) {
+          RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send(" 
+                           << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
+                           << "k) Acked(" << acked_rate.kbps() << "k) Target("
+                           << current_target.kbps() << "k). base rtt (" 
+                           << base_rtt_.ms() << "ms ). last rtt (" 
+                           << last_rtt_.ms() << "ms ). Queue is empty (" 
+                           << rtt_bloat.ms() << "ms bloat).";
           InitiateProbing(now, update);
           last_probe_time_ = now;
       }

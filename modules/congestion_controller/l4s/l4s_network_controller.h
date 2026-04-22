@@ -432,6 +432,9 @@ private:
   // Probing state
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
   Timestamp probe_hold_until_ = Timestamp::MinusInfinity();
+  Timestamp next_probe_allowed_at_ = Timestamp::MinusInfinity();
+  Timestamp demand_high_since_ = Timestamp::MinusInfinity();
+  int probe_reject_streak_ = 0;
   bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
   // Last bitrate reported to ProbeController via SetEstimatedBitrate.  Used to
   // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
