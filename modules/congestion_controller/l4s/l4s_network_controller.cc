@@ -1683,8 +1683,11 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   bool network_is_clear = !last_actual_bitrate_.IsZero() && (last_actual_bitrate_ > send_rate * 0.90);
   
   // TRIGGER C: Is the physical queue completely drained?
-  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::Zero();
-  bool queue_is_empty = rtt_bloat < TimeDelta::Millis(10); // Very strict latency gate
+  // FIX: Fail closed. If we don't know the baseline, assume the queue is bloated.
+  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ?
+                        (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
+  bool queue_is_empty = rtt_bloat < TimeDelta::Millis(10);
+  // Very strict latency gate
 
   TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
 
@@ -1753,12 +1756,20 @@ void webrtc::L4SNetworkController::StartProbeHold(Timestamp now) {
 }
 
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
-  // --- HIGH-BDP FIX: Global Latency Gate ---
+  if (last_rtt_.IsFinite() && last_rtt_ > TimeDelta::Millis(250)) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to ABSOLUTE high RTT: " << last_rtt_.ms() << "ms";
+      return false;
+  }
+
+  // --- HIGH-BDP FIX: Global Latency Gate (Fail Closed) ---
   if (last_rtt_.IsFinite() && base_rtt_.IsFinite()) {
       if (last_rtt_ - base_rtt_ > TimeDelta::Millis(15)) {
           RTC_LOG(LS_VERBOSE) << "L4S: Blocking periodic probe due to standing queue bloat.";
           return false;
       }
+  } else {
+      // If we don't have a baseline yet, we can't prove the path is clear.
+      return false;
   }
 
   // Avoid periodic probing at very low rates where measurements are noisy.
