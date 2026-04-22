@@ -1106,57 +1106,33 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRemoteBitrateReport
 }
 
 
-//smoothed rtt update handler with EMA and safety floor
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate(RoundTripTimeUpdate msg) {
   NetworkControlUpdate update;
   if (msg.smoothed) return update;
 
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
     
-    // // --- HIGH-BDP FIX: Preemptive Slope Collapse ---
-    // // If instantaneous RTT spikes significantly above our smoothed baseline, the bottleneck just dropped.
-    // if (last_rtt_.IsFinite()) {
-    //     TimeDelta rtt_growth = msg.round_trip_time - last_rtt_;
-        
-    //     if (rtt_growth > TimeDelta::Millis(5)) {
-    //         double drop_factor = 1.0;
-            
-    //         if (rtt_growth > TimeDelta::Millis(20)) {
-    //             drop_factor = 0.50; // Severe spike (Bottleneck definitely dropped)
-    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Severe). Jump: " << rtt_growth.ms() << "ms. Cut 50%.";
-    //         } else if (rtt_growth > TimeDelta::Millis(10)) {
-    //             drop_factor = 0.75; // Moderate spike (Queue building fast)
-    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Moderate). Jump: " << rtt_growth.ms() << "ms. Cut 25%.";
-    //         } else {
-    //             drop_factor = 0.90; // Mild jitter (Caution)
-    //             RTC_LOG(LS_INFO) << "L4S: RTT Slope Breaker (Mild). Jump: " << rtt_growth.ms() << "ms. Cut 10%.";
-    //         }
-
-    //         DataRate panic_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300)) * drop_factor;
-    //         target_rate_ = std::max(panic_rate, min_target_rate_.value_or(DataRate::KilobitsPerSec(20)));
-            
-    //         // Sync downward to Prague to prevent Phantom Budget
-    //         if (prague_estimator_) prague_estimator_->SetCurrentEstimate(target_rate_.value());
-    //     }
-    // }
-
-    // Standard EMA Smoothing
-    // if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
-    //   last_rtt_ = (last_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
-    // } else {
-    //   last_rtt_ = msg.round_trip_time;
-    // }
+    // 1. Standard EMA Smoothing for WebRTC Core
+    if (last_smoothed_rtt_.IsFinite() && !last_smoothed_rtt_.IsZero()) {
+      last_smoothed_rtt_ = (last_smoothed_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
+    } else {
+      last_smoothed_rtt_ = msg.round_trip_time;
+    }
     
-    //disabling EMA smoothing for now to preserve Prague's native responsiveness to RTT changes, which is critical for accurate ECN-based control. We can revisit adding a more sophisticated smoothing mechanism later if needed, but for now we want to ensure that Prague's RTT updates reflect the true network conditions as closely as possible without being dampened by an EMA.
-
+    // 2. Raw RTT for L4S Reflexes
     last_rtt_ = msg.round_trip_time;
 
-
-    TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
-    if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) base_rtt_ = safe_rtt;
+    // 3. Base RTT Tracking (Must use RAW to find the absolute speed-of-light floor)
+    TimeDelta raw_safe_floor = std::max(last_rtt_, TimeDelta::Millis(20));
+    if (base_rtt_.IsInfinite() || raw_safe_floor < base_rtt_) {
+        base_rtt_ = raw_safe_floor;
+    }
     
-    prague_estimator_->UpdateFromRtt(safe_rtt);
-    last_estimated_round_trip_time_ = safe_rtt;
+    // 4. Feed the separate signals to their respective engines
+    prague_estimator_->UpdateFromRtt(last_rtt_); // Fast
+    
+    TimeDelta smoothed_safe_rtt = std::max(last_smoothed_rtt_, TimeDelta::Millis(20));
+    last_estimated_round_trip_time_ = smoothed_safe_rtt; // Stable
   }
   return update;
 }
@@ -1698,7 +1674,9 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     if (since_last_probe >= recovery_interval) {
         // The Event: We only probe if the queue is physically empty and the app wants it.
         if (demand_is_high && network_is_clear && queue_is_empty) {
-            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! Queue is empty (" 
+            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! base rtt (" 
+                             << base_rtt_.ms() << "ms bloat). last rtt (" 
+                             << last_rtt_.ms() << "ms bloat). Queue is empty (" 
                              << rtt_bloat.ms() << "ms bloat).";
             InitiateRecoveryProbing(now, update);
             last_probe_time_ = now;
@@ -1717,7 +1695,9 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
       if (demand_is_high && network_is_clear && queue_is_empty) {
           RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send (" 
                            << send_rate.kbps() << "k) is pushing Target (" 
-                           << current_target.kbps() << "k). Network is clear. Queue is empty (" 
+                           << current_target.kbps() << "k). Network is clear. base rtt (" 
+                             << base_rtt_.ms() << "ms bloat). last rtt (" 
+                             << last_rtt_.ms() << "ms bloat). Queue is empty (" 
                              << rtt_bloat.ms() << "ms bloat).";
           InitiateProbing(now, update);
           last_probe_time_ = now;
