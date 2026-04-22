@@ -564,18 +564,18 @@ webrtc::DataRate webrtc::L4SBandwidthFusion::GetFusedEstimateWithMode(
   // Probe is an indicator for additive growth, not a direct fused-rate determiner.
   DataRate fused_rate = prague_rate;
 
-  // 2. THE APPLICATION GUARD (The Reality Anchor moved here)
-  if (actual_rate > DataRate::Zero()) {
-    DataRate app_cap = actual_rate * 1.5;
-    DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
-    DataRate growth_ceiling = std::max(app_cap, absolute_cap);
-    fused_rate = std::min(fused_rate, growth_ceiling);
-    // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
-    // Allow Prague to cut below the actual rate to clear the physical queue bloat
-    if (!in_reduction) {
-      fused_rate = std::max(fused_rate, actual_rate);
-    }
-  }
+  // // 2. THE APPLICATION GUARD (The Reality Anchor moved here)
+  // if (actual_rate > DataRate::Zero()) {
+  //   DataRate app_cap = actual_rate * 1.5;
+  //   DataRate absolute_cap = actual_rate + DataRate::KilobitsPerSec(1000);
+  //   DataRate growth_ceiling = std::max(app_cap, absolute_cap);
+  //   fused_rate = std::min(fused_rate, growth_ceiling);
+  //   // FIX 3: THE SAFETY FLOOR (Disabled during reduction)
+  //   // Allow Prague to cut below the actual rate to clear the physical queue bloat
+  //   if (!in_reduction) {
+  //     fused_rate = std::max(fused_rate, actual_rate);
+  //   }
+  // }
 
   return std::max(fused_rate, DataRate::KilobitsPerSec(20));
 }
@@ -1153,10 +1153,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   DataRate fused_rate = ApplyStateFusionPolicy(msg.at_time); // (or msg.at_time)
   target_rate_ = fused_rate;
 
-  // CHATGPT: Downward-only safety clamp. Never push probes up into Prague.
-  if (prague_estimator_ && fused_rate < prague_estimator_->GetCurrentEstimate()) {
-      prague_estimator_->SetCurrentEstimate(fused_rate);
-  }
+  // // CHATGPT: Downward-only safety clamp. Never push probes up into Prague.
+  // if (prague_estimator_ && fused_rate < prague_estimator_->GetCurrentEstimate()) {
+  //     prague_estimator_->SetCurrentEstimate(fused_rate);
+  // }
 
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
@@ -1314,6 +1314,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFeedback(TransportPacketsFeedback msg) {
   NetworkControlUpdate update;
+
+    // Update throughput calculation
+  UpdateThroughputWindow(msg);
+  
   // Update all bandwidth estimators
   UpdateAllBandwidthEstimators(msg);
 
@@ -1337,9 +1341,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 // State-owned fusion policy
   DataRate fused_rate = ApplyStateFusionPolicy(msg.feedback_time); // or msg.feedback_time
   target_rate_ = fused_rate;
-  // Update throughput calculation
-  UpdateThroughputWindow(msg);
-  
+
   // Create rate update
   MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
 
