@@ -2571,13 +2571,6 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
   //   return true;
   // }
 
-  // 2. THE ALR DEADLOCK BREAKER
-  // If the video encoder maxes out and cannot push enough traffic to find
-  // the network ceiling, exit discovery and transition to steady-state.
-  if (IsApplicationLimited()) {
-    RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - Application is the bottleneck (ALR)";
-    return true;
-  }
 
   // Fallback: Exit at higher rate threshold (10 Mbps instead of 5 Mbps)
   DataRate current_rate = prague_estimator_->GetCurrentEstimate();
