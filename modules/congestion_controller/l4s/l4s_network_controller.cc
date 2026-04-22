@@ -220,7 +220,6 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   last_update_time_ = current_time;
 }
 
-
 void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     Timestamp current_time,
     bool is_app_limited,
@@ -279,7 +278,17 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
                    (avg_packet_size_bytes * 8.0) / response_time_s);
 
       double desired_step_bps = increase_rate_bps_per_s * elapsed_s;
-      double max_step_bps = std::max(1000.0, current_bps * 0.03 * elapsed_s);
+      
+      // --- THE SLOW START BYPASS ---
+      double max_step_bps;
+      if (discovery_mode_active_) {
+          // FAST GROWTH: Allow 50% growth per second during discovery
+          max_step_bps = std::max(10000.0, current_bps * 0.50 * elapsed_s);
+      } else {
+          // SMOOTH GLIDE: Strict 3% growth per second during congestion avoidance
+          max_step_bps = std::max(1000.0, current_bps * 0.03 * elapsed_s);
+      }
+      
       double bounded_step_bps = std::min(desired_step_bps, max_step_bps);
 
       ai_bits_accumulator_ += bounded_step_bps;
@@ -290,8 +299,16 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
         DataRate bounded_rate = proposed_rate;
 
+        // --- THE DYNAMIC THROUGHPUT TETHER ---
         if (actual_throughput > DataRate::Zero()) {
-          DataRate max_allowed = actual_throughput * 1.15;
+          DataRate max_allowed;
+          if (discovery_mode_active_) {
+              // LOOSE TETHER: Allow 2.0x gap to break the chicken-and-egg deadlock
+              max_allowed = actual_throughput * 2.0; 
+          } else {
+              // STRICT TETHER: GCC-style 1.15x tether in steady state
+              max_allowed = actual_throughput * 1.15; 
+          }
           bounded_rate = std::min(bounded_rate, max_allowed);
         }
 
@@ -1718,6 +1735,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   DataRate send_rate = last_send_rate_;
   DataRate actual_rate = last_actual_bitrate_;
   DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::Zero());
+  bool has_acked = acked_rate > DataRate::Zero();
   bool app_limited = IsApplicationLimited();
   
   // TRIGGER A: Only probe when delivery indicates real demand near target.
