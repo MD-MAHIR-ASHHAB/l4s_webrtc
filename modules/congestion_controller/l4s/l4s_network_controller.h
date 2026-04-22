@@ -288,6 +288,7 @@ private:
   enum class ControllerState {
     kRouteReset,
     kSlowState,
+    kCongestionAvoidance,
     kCongestionExperienced,
     kCongestionRecovery,
   };
@@ -297,6 +298,7 @@ private:
     kInitComplete,
     kDiscoveryExit,
     kPragueReduction,
+    kPragueAdditive,
     kRecoveryEntered,
     kRecoveryExited,
   };

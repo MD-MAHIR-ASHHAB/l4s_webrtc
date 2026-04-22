@@ -2038,6 +2038,7 @@ webrtc::DataRate webrtc::L4SNetworkController::ApplyStateFusionPolicy(
   switch (controller_state_) {
     case ControllerState::kRouteReset:
     case ControllerState::kSlowState:
+    case ControllerState::kCongestionAvoidance:
     case ControllerState::kCongestionExperienced:
     case ControllerState::kCongestionRecovery:
       return FuseBandwidthEstimates(now);
@@ -2264,7 +2265,11 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
         return TransitionDecision{ControllerState::kCongestionExperienced,
                                   TransitionReason::kPragueReduction};
       }
-      return TransitionDecision{ControllerState::kSlowState,
+      if (discovery_active) {
+        return TransitionDecision{ControllerState::kSlowState,
+                                  TransitionReason::kInitComplete};
+      }
+      return TransitionDecision{ControllerState::kCongestionAvoidance,
                                 TransitionReason::kInitComplete};
 
     case ControllerState::kSlowState:
@@ -2277,8 +2282,19 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
                                   TransitionReason::kPragueReduction};
       }
       if (!discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionExperienced,
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kDiscoveryExit};
+      }
+      return std::nullopt;
+
+    case ControllerState::kCongestionAvoidance:
+      if (reduction_active && dwell_ok) {
+        return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
+        return TransitionDecision{ControllerState::kCongestionRecovery,
+                                  TransitionReason::kRecoveryEntered};
       }
       return std::nullopt;
 
@@ -2287,11 +2303,19 @@ webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
         return TransitionDecision{ControllerState::kCongestionRecovery,
                                   TransitionReason::kRecoveryEntered};
       }
+      if (!reduction_active && dwell_ok) {
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
+                                  TransitionReason::kPragueAdditive};
+      }
       return std::nullopt;
 
     case ControllerState::kCongestionRecovery:
-      if (!recovery_active && dwell_ok) {
+      if (!recovery_active && reduction_active) {
         return TransitionDecision{ControllerState::kCongestionExperienced,
+                                  TransitionReason::kPragueReduction};
+      }
+      if (!recovery_active && !reduction_active && dwell_ok) {
+        return TransitionDecision{ControllerState::kCongestionAvoidance,
                                   TransitionReason::kRecoveryExited};
       }
       return std::nullopt;
@@ -2305,6 +2329,8 @@ const char* webrtc::L4SNetworkController::StateToString(ControllerState state) {
       return "route_reset";
     case ControllerState::kSlowState:
       return "slow_state";
+    case ControllerState::kCongestionAvoidance:
+      return "congestion_avoidance";
     case ControllerState::kCongestionExperienced:
       return "congestion_experienced";
     case ControllerState::kCongestionRecovery:
@@ -2324,6 +2350,8 @@ const char* webrtc::L4SNetworkController::TransitionReasonToString(
       return "discovery_exit";
     case TransitionReason::kPragueReduction:
       return "prague_reduction";
+    case TransitionReason::kPragueAdditive:
+      return "prague_additive";
     case TransitionReason::kRecoveryEntered:
       return "recovery_entered";
     case TransitionReason::kRecoveryExited:
