@@ -262,11 +262,37 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
       if (discovery_mode_active_) {
         // --- GCC Multiplicative Increase (Discovery State) ---
         // 8% growth per second (1.08^t), capped at 1.0s elapsed time per update.
-        double alpha = 1.08;
-        alpha = std::pow(alpha, std::min(elapsed_s, 1.0)); 
+        double growth_factor = 1.08;
+        growth_factor = std::pow(growth_factor, std::min(elapsed_s, 1.0)); 
         // GCC floor of 1000 bps increase
-        final_step_bps = std::max(current_bps * (alpha - 1.0), 1000.0);
-      } else {
+        final_step_bps = std::max(current_bps * (growth_factor - 1.0), 1000.0);
+      } 
+      
+      
+      // if (discovery_mode_active_) {
+      //   // --- TCP Prague Slow Start (Discovery State) ---
+      //   // Rate doubles every RTT.
+      //   double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
+      //                      ? current_rtt_.seconds<double>() : 0.05;
+        
+      //   // Clamp RTT to prevent mathematical explosions on localhost
+      //   rtt_s = std::clamp(rtt_s, 0.02, 0.200);
+
+      //   // Calculate how many RTTs have elapsed in this update tick
+      //   double rtts_elapsed = elapsed_s / rtt_s;
+
+      //   // Growth factor: 2.0 ^ (rtts_elapsed)
+      //   double growth_factor = std::pow(2.0, rtts_elapsed); 
+        
+      //   // Floor of 1000 bps increase
+      //   final_step_bps = std::max(current_bps * (growth_factor - 1.0), 1000.0);
+      // }
+      
+      
+      
+      
+      
+      else {
         // --- GCC Additive Increase (Stable State) ---
         double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
                            ? current_rtt_.seconds<double>() : 0.05;
