@@ -255,95 +255,81 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
                           current_time >= additive_hold_until_;
 
     if (!is_app_limited && queue_is_clear && past_hold_time) {
-      double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
-                         ? current_rtt_.seconds<double>()
-                         : 0.05;
       double elapsed_s = ai_elapsed.seconds<double>();
       double current_bps = static_cast<double>(congestion_based_estimate_.bps());
+      double final_step_bps = 0.0;
 
-      // GCC-like additive slope model: min 4 kbps/s, response time = 2*(RTT+100ms).
-      constexpr double kFrameIntervalSeconds = 1.0 / 30.0;
-      constexpr double kPacketSizeBytes = 1200.0;
-      constexpr double kMinIncreaseBpsPerSec = 4000.0;
-
-      double frame_size_bytes =
-          std::max(1.0, (current_bps / 8.0) * kFrameIntervalSeconds);
-      double packets_per_frame =
-          std::max(1.0, std::ceil(frame_size_bytes / kPacketSizeBytes));
-      double avg_packet_size_bytes = frame_size_bytes / packets_per_frame;
-
-      double response_time_s = std::max(0.02, 2.0 * (rtt_s + 0.1));
-      double increase_rate_bps_per_s =
-          std::max(kMinIncreaseBpsPerSec,
-                   (avg_packet_size_bytes * 8.0) / response_time_s);
-
-      double desired_step_bps = increase_rate_bps_per_s * elapsed_s;
-      
-      // --- THE SLOW START BYPASS ---
-      double max_step_bps;
       if (discovery_mode_active_) {
-          // FAST GROWTH: Allow 50% growth per second during discovery
-          max_step_bps = std::max(10000.0, current_bps * 0.50 * elapsed_s);
+        // --- GCC Multiplicative Increase (Discovery State) ---
+        // 8% growth per second (1.08^t), capped at 1.0s elapsed time per update.
+        double alpha = 1.08;
+        alpha = std::pow(alpha, std::min(elapsed_s, 1.0)); 
+        // GCC floor of 1000 bps increase
+        final_step_bps = std::max(current_bps * (alpha - 1.0), 1000.0);
       } else {
-          // SMOOTH GLIDE: Strict 3% growth per second during congestion avoidance
-          max_step_bps = std::max(1000.0, current_bps * 0.03 * elapsed_s);
-      }
-      
-      // double bounded_step_bps = std::min(desired_step_bps, max_step_bps);
-      double bounded_step_bps;
-      if (discovery_mode_active_) {
-          // In discovery, use the fast exponential step directly!
-          bounded_step_bps = max_step_bps; 
-      } else {
-          // In steady-state, take the minimum to ensure a smooth, slow glide
-          bounded_step_bps = std::min(desired_step_bps, max_step_bps);
+        // --- GCC Additive Increase (Stable State) ---
+        double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
+                           ? current_rtt_.seconds<double>() : 0.05;
+
+        // Estimate packet sizes based on 30fps
+        constexpr double kFrameIntervalSeconds = 1.0 / 30.0;
+        constexpr double kPacketSizeBytes = 1200.0;
+        double frame_size_bytes = std::max(1.0, (current_bps / 8.0) * kFrameIntervalSeconds);
+        double packets_per_frame = std::max(1.0, std::ceil(frame_size_bytes / kPacketSizeBytes));
+        double avg_packet_size_bytes = frame_size_bytes / packets_per_frame;
+
+        // Response time = 2 * (RTT + 100ms)
+        double response_time_s = std::max(0.02, 2.0 * (rtt_s + 0.1)); 
+        double increase_rate_bps_per_s = std::max(4000.0, (avg_packet_size_bytes * 8.0) / response_time_s);
+        
+        final_step_bps = increase_rate_bps_per_s * elapsed_s;
       }
 
-
-      ai_bits_accumulator_ += bounded_step_bps;
+      // Smooth the fractional bits using your existing accumulator
+      ai_bits_accumulator_ += final_step_bps;
+      
       if (ai_bits_accumulator_ >= 1.0) {
         int64_t whole_bits_per_sec = static_cast<int64_t>(ai_bits_accumulator_);
-        DataRate proposed_rate =
-            congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
-
+        DataRate proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
         DataRate bounded_rate = proposed_rate;
 
         // --- THE DYNAMIC THROUGHPUT TETHER ---
         if (actual_throughput > DataRate::Zero()) {
           DataRate max_allowed;
           if (discovery_mode_active_) {
-              // LOOSE TETHER: Allow 2.0x gap to break the chicken-and-egg deadlock
+              // LOOSE TETHER: Allow 2.0x gap to break the chicken-and-egg deadlock 
               max_allowed = actual_throughput * 2.0; 
           } else {
-              // STRICT TETHER: GCC-style 1.15x tether in steady state
+              // STRICT TETHER: GCC-style 1.15x tether in steady state 
               max_allowed = actual_throughput * 1.15; 
           }
           if (proposed_rate > max_allowed) {
-              bounded_rate = std::max(congestion_based_estimate_, max_allowed);
+              bounded_rate = std::max(congestion_based_estimate_, max_allowed); 
           } else {
-              bounded_rate = proposed_rate;
+              bounded_rate = proposed_rate; 
           }
         }
 
+        // --- PROBE CONSTRAINT CHECK ---
         bool probe_constraint_fresh =
             !probe_constraint_time_.IsInfinite() &&
-            (current_time - probe_constraint_time_) < TimeDelta::Seconds(10);
+            (current_time - probe_constraint_time_) < TimeDelta::Seconds(10); 
+        
         if (probe_constraint_fresh &&
             probe_constraint_confidence_ > 0.0 &&
-            probe_constraint_ > congestion_based_estimate_) {
-          bounded_rate = std::min(bounded_rate, probe_constraint_);
+            probe_constraint_ > congestion_based_estimate_) { 
+          bounded_rate = std::min(bounded_rate, probe_constraint_); 
         }
 
-        congestion_based_estimate_ = bounded_rate;
-
-        congestion_based_estimate_ =
-            std::min(congestion_based_estimate_, max_target_rate_);
-        ai_bits_accumulator_ -= whole_bits_per_sec;
+        congestion_based_estimate_ = bounded_rate; 
+        congestion_based_estimate_ = std::min(congestion_based_estimate_, max_target_rate_); 
+        
+        ai_bits_accumulator_ -= whole_bits_per_sec; 
       }
     }
   }
 
-  last_ai_update_time_ = current_time;
+  last_ai_update_time_ = current_time; 
 
   // // 2. Mode Escapes & Alpha Decay
   // if (first_ce_mark_detected_ && !discovery_mode_active_) {
