@@ -250,9 +250,11 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
   // 1. Growth Logic (ALR Aware)
   if (direction_flag_ == 1 && network_is_alive) {
-    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(15);
+    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(30); // 30ms bloat threshold for "clear queue" - tuned for L4S low-latency targets
     bool past_hold_time = additive_hold_until_.IsInfinite() ||
                           current_time >= additive_hold_until_;
+
+    DataRate proposed_rate = congestion_based_estimate_;
 
     if (!is_app_limited && queue_is_clear && past_hold_time) {
       double elapsed_s = ai_elapsed.seconds<double>();
@@ -316,43 +318,34 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
       
       if (ai_bits_accumulator_ >= 1.0) {
         int64_t whole_bits_per_sec = static_cast<int64_t>(ai_bits_accumulator_);
-        DataRate proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
-        DataRate bounded_rate = proposed_rate;
-
-        // --- THE DYNAMIC THROUGHPUT TETHER ---
-        if (actual_throughput > DataRate::Zero()) {
-          DataRate max_allowed;
-          if (discovery_mode_active_) {
-              // LOOSE TETHER: Allow 2.0x gap to break the chicken-and-egg deadlock 
-              max_allowed = actual_throughput * 2.0; 
-          } else {
-              // STRICT TETHER: GCC-style 1.15x tether in steady state 
-              max_allowed = actual_throughput * 1.15; 
-          }
-          if (proposed_rate > max_allowed) {
-              bounded_rate = std::max(congestion_based_estimate_, max_allowed); 
-          } else {
-              bounded_rate = proposed_rate; 
-          }
-        }
-
-        // --- PROBE CONSTRAINT CHECK ---
-        bool probe_constraint_fresh =
-            !probe_constraint_time_.IsInfinite() &&
-            (current_time - probe_constraint_time_) < TimeDelta::Seconds(10); 
-        
-        if (probe_constraint_fresh &&
-            probe_constraint_confidence_ > 0.0 &&
-            probe_constraint_ > congestion_based_estimate_) { 
-          bounded_rate = std::min(bounded_rate, probe_constraint_); 
-        }
-
-        congestion_based_estimate_ = bounded_rate; 
-        congestion_based_estimate_ = std::min(congestion_based_estimate_, max_target_rate_); 
-        
+        proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
         ai_bits_accumulator_ -= whole_bits_per_sec; 
       }
     }
+
+    // Apply throughput tether even during ALR to avoid target growth freezes.
+    // CE-only reduction invariant: never decrease estimate here.
+    if (actual_throughput > DataRate::Zero()) {
+      DataRate max_allowed = discovery_mode_active_ ? (actual_throughput * 2.0)
+                                                    : (actual_throughput * 1.15);
+      if (proposed_rate > max_allowed) {
+        proposed_rate = std::max(congestion_based_estimate_, max_allowed);
+      }
+    }
+
+    // --- PROBE CONSTRAINT CHECK ---
+    bool probe_constraint_fresh =
+        !probe_constraint_time_.IsInfinite() &&
+        (current_time - probe_constraint_time_) < TimeDelta::Seconds(10);
+
+    if (probe_constraint_fresh &&
+        probe_constraint_confidence_ > 0.0 &&
+        probe_constraint_ > congestion_based_estimate_) {
+      proposed_rate = std::min(proposed_rate, probe_constraint_);
+    }
+
+    congestion_based_estimate_ = proposed_rate;
+    congestion_based_estimate_ = std::min(congestion_based_estimate_, max_target_rate_);
   }
 
   last_ai_update_time_ = current_time; 
@@ -2573,6 +2566,35 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
   // Exit if CE marks detected (already handled in Prague estimator)
   if (prague_estimator_->GetDirectionFlag() == -1) {
     return true;
+  }
+
+  // Sustained ALR timeout to avoid infinite discovery when application-limited.
+  // This only changes state mode; it does not reduce rate.
+  if (alr_detector_) {
+    std::optional<int64_t> alr_start_ms =
+        alr_detector_->GetApplicationLimitedRegionStartTime();
+    if (alr_start_ms.has_value()) {
+      Timestamp alr_start = Timestamp::Millis(*alr_start_ms);
+      TimeDelta in_alr = now - alr_start;
+
+      TimeDelta effective_rtt =
+          last_rtt_.IsFinite() && !last_rtt_.IsZero()
+              ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
+              : TimeDelta::Millis(100);
+      TimeDelta exit_after = std::clamp(
+          std::max(effective_rtt * 8.0, TimeDelta::Seconds(3)),
+          TimeDelta::Seconds(3), TimeDelta::Seconds(12));
+
+      bool no_ce_during_alr =
+          last_congestion_signal_.IsInfinite() || last_congestion_signal_ < alr_start;
+      if (in_alr >= exit_after && no_ce_during_alr) {
+        RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - sustained ALR timeout "
+                         << "(" << in_alr.seconds<double>() << "s >= "
+                         << exit_after.seconds<double>() << "s, rtt_ms="
+                         << effective_rtt.ms() << ")";
+        return true;
+      }
+    }
   }
 
   // // Exit on convergence only after a small dwell and with no very recent CE signal.
