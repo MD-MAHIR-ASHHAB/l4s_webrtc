@@ -250,7 +250,9 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
   // 1. Growth Logic (ALR Aware)
   if (direction_flag_ == 1 && network_is_alive) {
-    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(30); // 30ms bloat threshold for "clear queue" - tuned for L4S low-latency targets
+    // Slightly more permissive queue-clear threshold to avoid stalling growth on
+    // moderate jitter while still requiring low queue pressure.
+    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(35);
     bool past_hold_time = additive_hold_until_.IsInfinite() ||
                           current_time >= additive_hold_until_;
     double elapsed_s = ai_elapsed.seconds<double>();
@@ -1775,7 +1777,9 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   
   // TRIGGER A: Probe demand is delivery-driven (not sender burst-driven).
   // If acked is not available/stable, rely on actual throughput only.
-  bool demand_from_actual = !actual_rate.IsZero() && actual_rate > (current_target * 0.90);
+  // Relax demand gate a bit (90% -> 85%) so probing can proceed when delivery
+  // is close to target but mildly below due to normal VBR fluctuations.
+  bool demand_from_actual = !actual_rate.IsZero() && actual_rate > (current_target * 0.85);
   bool demand_from_acked = has_acked && acked_rate > (current_target * 0.75);
   bool demand_now = !app_limited && (demand_from_actual || demand_from_acked);
 
@@ -1806,7 +1810,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ?
                         (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
   bool queue_is_empty_recovery = rtt_bloat < TimeDelta::Millis(5);
-  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(8);
+  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(10);
 
   TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
 
