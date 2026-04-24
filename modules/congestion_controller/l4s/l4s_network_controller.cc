@@ -2568,32 +2568,18 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
     return true;
   }
 
-  // Sustained ALR timeout to avoid infinite discovery when application-limited.
+  // Hard discovery timeout (flicker-proof): exit after fixed time in state.
   // This only changes state mode; it does not reduce rate.
-  if (alr_detector_) {
-    std::optional<int64_t> alr_start_ms =
-        alr_detector_->GetApplicationLimitedRegionStartTime();
-    if (alr_start_ms.has_value()) {
-      Timestamp alr_start = Timestamp::Millis(*alr_start_ms);
-      TimeDelta in_alr = now - alr_start;
+  if (state_entered_at_.IsFinite()) {
+    TimeDelta time_in_state = now - state_entered_at_;
+    constexpr TimeDelta kDiscoveryHardTimeout = TimeDelta::Seconds(50);
+    // constexpr TimeDelta kDiscoverySoftTimeout = TimeDelta::Seconds(25);
 
-      TimeDelta effective_rtt =
-          last_rtt_.IsFinite() && !last_rtt_.IsZero()
-              ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
-              : TimeDelta::Millis(100);
-      TimeDelta exit_after = std::clamp(
-          std::max(effective_rtt * 8.0, TimeDelta::Seconds(3)),
-          TimeDelta::Seconds(3), TimeDelta::Seconds(12));
-
-      bool no_ce_during_alr =
-          last_congestion_signal_.IsInfinite() || last_congestion_signal_ < alr_start;
-      if (in_alr >= exit_after && no_ce_during_alr) {
-        RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - sustained ALR timeout "
-                         << "(" << in_alr.seconds<double>() << "s >= "
-                         << exit_after.seconds<double>() << "s, rtt_ms="
-                         << effective_rtt.ms() << ")";
-        return true;
-      }
+    if (time_in_state >= kDiscoveryHardTimeout) {
+      RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - hard timeout "
+                       << "(" << time_in_state.seconds<double>() << "s >= "
+                       << kDiscoveryHardTimeout.seconds<double>() << "s)";
+      return true;
     }
   }
 
