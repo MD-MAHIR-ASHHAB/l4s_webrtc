@@ -253,12 +253,12 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     bool queue_is_clear = rtt_bloat < TimeDelta::Millis(30); // 30ms bloat threshold for "clear queue" - tuned for L4S low-latency targets
     bool past_hold_time = additive_hold_until_.IsInfinite() ||
                           current_time >= additive_hold_until_;
+    double elapsed_s = ai_elapsed.seconds<double>();
+    double current_bps = static_cast<double>(congestion_based_estimate_.bps());
 
     DataRate proposed_rate = congestion_based_estimate_;
 
     if (!is_app_limited && queue_is_clear && past_hold_time) {
-      double elapsed_s = ai_elapsed.seconds<double>();
-      double current_bps = static_cast<double>(congestion_based_estimate_.bps());
       double final_step_bps = 0.0;
 
       if (discovery_mode_active_) {
@@ -320,6 +320,32 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
         int64_t whole_bits_per_sec = static_cast<int64_t>(ai_bits_accumulator_);
         proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
         ai_bits_accumulator_ -= whole_bits_per_sec; 
+      }
+    } else if (is_app_limited && !discovery_mode_active_ && queue_is_clear &&
+               past_hold_time && actual_throughput > DataRate::Zero()) {
+      // ALR-safe upward nudge: hold-or-grow only, never reduce outside CE.
+      // This addresses long plateaus when the app is limited but still pushing
+      // close to target on a clear queue.
+      bool near_target_delivery =
+          actual_throughput >= (congestion_based_estimate_ * 0.90);
+      if (near_target_delivery) {
+        constexpr double kAlrNudgeMinBpsPerSec = 2000.0;
+        constexpr double kAlrNudgeMaxBpsPerSec = 10000.0;
+        constexpr double kAlrNudgeFractionPerSec = 0.002;  // 0.2%/s
+
+        double alr_nudge_bps_per_s = std::clamp(
+            current_bps * kAlrNudgeFractionPerSec,
+            kAlrNudgeMinBpsPerSec,
+            kAlrNudgeMaxBpsPerSec);
+        ai_bits_accumulator_ += alr_nudge_bps_per_s * elapsed_s;
+
+        if (ai_bits_accumulator_ >= 1.0) {
+          int64_t whole_bits_per_sec =
+              static_cast<int64_t>(ai_bits_accumulator_);
+          proposed_rate =
+              congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
+          ai_bits_accumulator_ -= whole_bits_per_sec;
+        }
       }
     }
 
