@@ -128,7 +128,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       
       if (gate_open) {
         // Continuous reductions while still in congestion
-        double additional_reduction = 1.0 - alpha_ / 4.0;
+        // double additional_reduction = 1.0 - alpha_ / 4.0;
+        double additional_reduction = 1.0 - (alpha_ * 0.05);
         
         // Also apply the circuit breaker to continuous cuts!
         // // Make it slightly gentler than the initial cut to prevent over-draining
@@ -252,7 +253,7 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   if (direction_flag_ == 1 && network_is_alive) {
     // Slightly more permissive queue-clear threshold to avoid stalling growth on
     // moderate jitter while still requiring low queue pressure.
-    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(35);
+    bool queue_is_clear = rtt_bloat < TimeDelta::Millis(30);
     bool past_hold_time = additive_hold_until_.IsInfinite() ||
                           current_time >= additive_hold_until_;
     double elapsed_s = ai_elapsed.seconds<double>();
@@ -1519,7 +1520,8 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
       // Safety Floor to prevent total collapse
       if (!last_actual_bitrate_.IsZero()) {
-        DataRate floor = last_actual_bitrate_ * 0.5;
+        // DataRate floor = last_actual_bitrate_ * 0.5;
+        DataRate floor = last_actual_bitrate_ * 0.85;
         if (prague_estimator_->GetCurrentEstimate() < floor) {
           prague_estimator_->SetCurrentEstimate(floor);
         }
@@ -2779,8 +2781,8 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
         !recovery_mode_active_ &&
         !prague_estimator_->IsDiscoveryModeActive() &&
         cooldown_expired &&
-        !IsApplicationLimited() && 
-        rtt_bloat < TimeDelta::Millis(15)) { // <--- THE LATENCY GATE
+        // !IsApplicationLimited() && 
+        rtt_bloat < TimeDelta::Millis(30)) { // <--- THE LATENCY GATE
 
         recovery_mode_active_ = true;
         recovery_probe_bootstrapped_ = false;
