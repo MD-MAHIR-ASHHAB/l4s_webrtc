@@ -92,7 +92,7 @@ public:
   ~PragueCapacityEstimator();
 
   // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time, DataRate last_actual_bitrate);
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
@@ -459,6 +459,7 @@ private:
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
+  DataRate congestion_baseline_ = DataRate::Zero();
 
   //Pading the pacer
   std::optional<DataRate> max_padding_rate_;
