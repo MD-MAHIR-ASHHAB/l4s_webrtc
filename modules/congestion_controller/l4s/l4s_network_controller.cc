@@ -184,101 +184,6 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 
 //hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
 
-// void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-//   last_feedback_time_ = current_time;
-
-//   if (ce_ratio > 0.0) {  // CE-marked packets detected
-//     non_ce_packet_count_ = 0;
-//     if (discovery_mode_active_ && !first_ce_mark_detected_) {
-//       discovery_mode_active_ = false;
-//       first_ce_mark_detected_ = true;
-//       RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" << ce_ratio << ")";
-//     }
-    
-//     // --- PILLAR 2A: WebRTC-Tuned Gain ---
-//     // Use 1/8 to make alpha grow fast enough to matter.
-//     constexpr double g = 1.0 / 8.0;
-//     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-
-//     // 1. Calculate the dynamic Pipeline Delay
-//     // This is the time it takes for a rate cut to reach the router, plus the time
-//     // it takes for the already-marked queue to flush to the receiver.
-//     TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
-//                             ? (current_rtt_ - baseline_rtt_) 
-//                             : TimeDelta::Millis(0);
-//     TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    
-//     // Ensure minimum safe cooldown
-//     pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
-
-//     // 2. Check the Cooldown Gate
-//     bool gate_open = last_md_time_.IsInfinite() || 
-//                      (current_time - last_md_time_ >= pipeline_delay);
-
-//     if (gate_open) {
-//       // 3. Make the Pure L4S Multiplicative Decrease
-//       direction_flag_ = -1;
-//       double reduction_factor = 1.0 - (alpha_ / 2.0);
-
-//       // Safety bounds (always cut at least 5%, never cut below 20%)
-//       reduction_factor = std::min(reduction_factor, 0.95);
-//       reduction_factor = std::max(reduction_factor, 0.20);
-
-//       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-//       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
-//       congestion_based_estimate_ = reduced;
-      
-//       // 4. Reset the Cooldown Gate
-//       last_md_time_ = current_time;
-//       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
-
-//       RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
-//                        << ", reduction_factor=" << reduction_factor
-//                        << "), new rate=" << congestion_based_estimate_.bps() 
-//                        << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
-//     } else {
-//       // 5. During the cooldown, we do nothing to the target rate. 
-//       // We are waiting for the network to digest the previous cut.
-//       // (alpha_ is still being updated dynamically at the top of the function).
-//     }
-    
-//     last_congestion_signal_ = current_time;
-  
-//   }
-//   else {  // No CE marks in this batch
-//     non_ce_packet_count_++;
-    
-//     // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
-//     // Calculate a physical clearance window based on the bloated RTT
-//     TimeDelta clearance_window = TimeDelta::Millis(200); // Safe default
-//     if (current_rtt_.IsFinite()) {
-//         // Enforce a strict minimum 2x RTT wait before allowing growth
-//         clearance_window = current_rtt_ * 2.0; 
-//     }
-    
-//     bool clearance_time_met = last_md_time_.IsInfinite() || 
-//                               (current_time - last_md_time_ > clearance_window);
-
-//     // Only switch back to Additive Increase if enough PACKETS have passed 
-//     // AND enough physical TIME has passed to flush the queue.
-//     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-//     if (direction_flag_ == -1 &&
-//         non_ce_packet_count_ >= adaptive_non_ce_threshold &&
-//         clearance_time_met) {
-//       direction_flag_ = 1;
-//       non_ce_packet_count_ = 0;
-//       RTC_LOG(LS_VERBOSE)
-//           << "Prague: Queue drained. Switched to additive mode after "
-//           << clearance_window.ms() << "ms cooldown (threshold="
-//           << adaptive_non_ce_threshold << ", rtt_ms="
-//           << (current_rtt_.IsFinite() ? current_rtt_.ms() : -1)
-//           << ", alpha=" << alpha_ << ").";
-//     }
-//   } 
-// }
-
-
-
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   last_feedback_time_ = current_time;
 
@@ -291,10 +196,13 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     }
     
     // --- PILLAR 2A: WebRTC-Tuned Gain ---
+    // Use 1/8 to make alpha grow fast enough to matter.
     constexpr double g = 1.0 / 8.0;
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
     // 1. Calculate the dynamic Pipeline Delay
+    // This is the time it takes for a rate cut to reach the router, plus the time
+    // it takes for the already-marked queue to flush to the receiver.
     TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
                             ? (current_rtt_ - baseline_rtt_) 
                             : TimeDelta::Millis(0);
@@ -308,19 +216,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                      (current_time - last_md_time_ >= pipeline_delay);
 
     if (gate_open) {
+      // 3. Make the Pure L4S Multiplicative Decrease
       direction_flag_ = -1;
-      
-      // --- THE QOS SURVIVAL CURVE ---
-      double reduction_percentage = alpha_ / 2.0;
-
-      // If the target rate is being crushed below a minimum viable media quality (e.g., 2.5 Mbps),
-      // scale down responsiveness to AQM noise so we don't get completely starved by UDP flows.
-      if (current_rate < DataRate::KilobitsPerSec(2500)) {
-          double scaling = static_cast<double>(current_rate.kbps()) / 2500.0;
-          reduction_percentage *= std::max(scaling, 0.10); // Never scale the cut below 10% of alpha
-      }
-
-      double reduction_factor = 1.0 - reduction_percentage;
+      double reduction_factor = 1.0 - (alpha_ / 2.0);
 
       // Safety bounds (always cut at least 5%, never cut below 20%)
       reduction_factor = std::min(reduction_factor, 0.95);
@@ -332,42 +230,41 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       
       // 4. Reset the Cooldown Gate
       last_md_time_ = current_time;
-      last_ai_update_time_ = current_time; 
+      last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
-      RTC_LOG(LS_VERBOSE) << "Prague: Executed QoS L4S Cut (alpha=" << alpha_
+      RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
                        << "), new rate=" << congestion_based_estimate_.bps() 
                        << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
     } else {
-      // During the cooldown, we do nothing to the target rate. 
+      // 5. During the cooldown, we do nothing to the target rate. 
+      // We are waiting for the network to digest the previous cut.
+      // (alpha_ is still being updated dynamically at the top of the function).
     }
     
     last_congestion_signal_ = current_time;
   
-  } else {  // No CE marks in this batch
+  }
+  else {  // No CE marks in this batch
     non_ce_packet_count_++;
     
     // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
-    TimeDelta clearance_window = TimeDelta::Millis(200); 
+    // Calculate a physical clearance window based on the bloated RTT
+    TimeDelta clearance_window = TimeDelta::Millis(200); // Safe default
     if (current_rtt_.IsFinite()) {
+        // Enforce a strict minimum 2x RTT wait before allowing growth
         clearance_window = current_rtt_ * 2.0; 
     }
     
     bool clearance_time_met = last_md_time_.IsInfinite() || 
                               (current_time - last_md_time_ > clearance_window);
 
-    // --- THE LOW-BITRATE ESCAPE HATCH ---
-    // If the bitrate is crushed, packet counts take too long to accumulate. 
-    // If we have had absolutely zero CE marks for 2 full seconds, force recovery.
-    bool sustained_clean_time = !last_congestion_signal_.IsInfinite() && 
-                                (current_time - last_congestion_signal_ > TimeDelta::Seconds(2));
-
+    // Only switch back to Additive Increase if enough PACKETS have passed 
+    // AND enough physical TIME has passed to flush the queue.
     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-    
     if (direction_flag_ == -1 &&
-        (non_ce_packet_count_ >= adaptive_non_ce_threshold || sustained_clean_time) &&
+        non_ce_packet_count_ >= adaptive_non_ce_threshold &&
         clearance_time_met) {
-        
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
       RTC_LOG(LS_VERBOSE)
@@ -1658,93 +1555,6 @@ void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
 // 
 
 
-// void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
-//   if (feedback.packet_feedbacks.empty()) {
-//     return;
-//   }
-
-//   TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
-
-//   int batch_ect_count = 0;
-//   int batch_ce_count = 0;
-//   bool probe_caused_congestion = false;
-
-//   // 1. Extract Batch Info
-//   for (const auto& packet : feedback.packet_feedbacks) {
-//     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
-//       batch_ect_count++;
-//     }
-//     if (packet.ecn == EcnMarking::kCe) {
-//       batch_ce_count++;
-//       last_congestion_signal_ = feedback.feedback_time;
-//       if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
-//         probe_caused_congestion = true;
-//       }
-//     }
-//   }
-
-//   // 2. Heartbeat/Activity Update
-//   if (batch_ect_count > 0 || batch_ce_count > 0) {
-//     ecn_supported_ = true;
-//     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
-//   }
-
-//   // 3. Accumulate Window
-//   window_ce_count_ += batch_ce_count;
-//   window_ect_count_ += batch_ect_count;
-
-//   // 4. THE WINDOW GATE (Dynamic BDP-Aware processing)
-//   double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
-//   double rate_bps = current_fused_rate.bps();
-//   double pkt_size_bits = 1400.0 * 8.0;
-
-//   // Clamp between 10 (prevent divide-by-zero on low rates) and 200 (prevent waiting forever)
-//   int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
-
-//   bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
-//   int window_total = window_ce_count_ + window_ect_count_;
-
-//   if (window_expired || window_total >= dynamic_threshold) {
-//     double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
-
-//     if (window_total >= 3) {
-//       if (window_ce_count_ > 0 && probe_caused_congestion) {
-//         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
-//         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
-//       } else {
-//         // Pure CE math only. Reality Anchor is handled in Fusion.
-//         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
-//       }
-
-//       // Safety Floor to prevent total collapse
-//       if (!last_actual_bitrate_.IsZero()) {
-//         // DataRate floor = last_actual_bitrate_ * 0.5;
-//         DataRate floor = last_actual_bitrate_ * 0.85;
-//         if (prague_estimator_->GetCurrentEstimate() < floor) {
-//           prague_estimator_->SetCurrentEstimate(floor);
-//         }
-//       }
-//     }
-
-//     // Sync confidence with Fusion Engine
-//     double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
-//     if (prague_estimator_->GetDirectionFlag() == -1) {
-//       ecn_confidence = std::max(ecn_confidence, 0.95);
-//     }
-//     bandwidth_fusion_->UpdateEcnEstimate(prague_estimator_->GetCurrentEstimate(), ecn_confidence, feedback.feedback_time);
-
-//     // RESET WINDOW
-//     window_ce_count_ = 0;
-//     window_ect_count_ = 0;
-//     window_start_time_ = feedback.feedback_time;
-//   }
-
-//   // 5. Recovery logic always sees the raw batch info
-//   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
-// }
-
-
-
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
     return;
@@ -1784,14 +1594,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
   double rate_bps = current_fused_rate.bps();
   double pkt_size_bits = 1400.0 * 8.0;
-  
+
+  // Clamp between 10 (prevent divide-by-zero on low rates) and 200 (prevent waiting forever)
   int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
+
   bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
   int window_total = window_ce_count_ + window_ect_count_;
 
   if (window_expired || window_total >= dynamic_threshold) {
-    double ce_ratio = (window_total > 0) ?
-        static_cast<double>(window_ce_count_) / window_total : 0.0;
+    double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
 
     if (window_total >= 3) {
       if (window_ce_count_ > 0 && probe_caused_congestion) {
@@ -1799,8 +1610,16 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       } else {
         // Pure CE math only. Reality Anchor is handled in Fusion.
-        // Toxic 85% floor removed. Handled cleanly by the QoS Survival Curve.
         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
+      }
+
+      // Safety Floor to prevent total collapse
+      if (!last_actual_bitrate_.IsZero()) {
+        // DataRate floor = last_actual_bitrate_ * 0.5;
+        DataRate floor = last_actual_bitrate_ * 0.85;
+        if (prague_estimator_->GetCurrentEstimate() < floor) {
+          prague_estimator_->SetCurrentEstimate(floor);
+        }
       }
     }
 
