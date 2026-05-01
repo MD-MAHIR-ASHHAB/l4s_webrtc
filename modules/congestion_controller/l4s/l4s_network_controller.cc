@@ -185,6 +185,7 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 //hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
 
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time, DataRate last_actual_bitrate) {
+  DataRate actual_throughput = last_actual_bitrate;
   last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
