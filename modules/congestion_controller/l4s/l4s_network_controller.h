@@ -92,7 +92,7 @@ public:
   ~PragueCapacityEstimator();
 
   // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time, DataRate last_actual_bitrate);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
@@ -155,6 +155,8 @@ private:
   // applied so that subsequent CE-containing batches within the same RTT
   // only update alpha without re-applying the rate reduction.
   Timestamp last_md_time_ = Timestamp::MinusInfinity();
+
+  double last_cut_ce_ratio_ = 0.0;
 
   // Discovery mode for fast startup
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup

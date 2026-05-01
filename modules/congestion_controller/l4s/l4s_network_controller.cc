@@ -184,8 +184,7 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 
 //hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
 
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time, DataRate last_actual_bitrate) {
-  DataRate actual_throughput = last_actual_bitrate;
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
@@ -200,30 +199,26 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     // Use 1/8 to make alpha grow fast enough to matter.
     constexpr double g = 1.0 / 8.0;
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-
-    // 1. Calculate the dynamic Pipeline Delay
-    // This is the time it takes for a rate cut to reach the router, plus the time
-    // it takes for the already-marked queue to flush to the receiver.
+// 1. Calculate dynamic Pipeline Delay (Network flush time)
     TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
                             ? (current_rtt_ - baseline_rtt_) 
                             : TimeDelta::Millis(0);
     TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    
-    // Ensure minimum safe cooldown
     pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
 
-    // 2. Check the Cooldown Gate
-    bool gate_open = last_md_time_.IsInfinite() || 
-                     (current_time - last_md_time_ >= pipeline_delay);
+    // 2. The Rational WebRTC Adaptation: VBR Settle Time
+    // The video encoder needs ~1 second to successfully drop its output bitrate.
+    TimeDelta vbr_settle_time = TimeDelta::Millis(1000); 
 
-    // THE RATIONAL L4S FIX: The Drain-State Gate
-    // If our target rate is already 5% below what the network is physically delivering, 
-    // we are under-pacing the bottleneck. The queue is mathematically guaranteed to be draining.
-    bool is_actively_draining = (actual_throughput > DataRate::Zero()) &&
-                                (current_rate < actual_throughput * 0.95);
+    bool pipeline_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
+    bool vbr_settled = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= vbr_settle_time);
+    
+    // 3. The Worsening Gate: Allow an early cut ONLY if congestion is violently increasing
+    bool congestion_worsening = ce_ratio > (last_cut_ce_ratio_ + 0.15);
 
-    if (gate_open && !is_actively_draining) {
-      // 3. Make the Pure L4S Multiplicative Decrease
+    // 4. THE DECISION
+    if (pipeline_open && (vbr_settled || congestion_worsening)) {
+      
       direction_flag_ = -1;
       double reduction_factor = 1.0 - (alpha_ / 2.0);
 
@@ -235,22 +230,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
       
-      // 4. Reset the Cooldown Gate
+      // Reset the Cooldown Gates
       last_md_time_ = current_time;
-      last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
+      last_ai_update_time_ = current_time;
+      last_cut_ce_ratio_ = ce_ratio; // Snapshot the severity
 
       RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
-                       << ", reduction_factor=" << reduction_factor
-                       << "), new rate=" << congestion_based_estimate_.bps() 
-                       << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
-    } else if (is_actively_draining) {
-      // We are already paced below the bottleneck. Hold the rate and let the physical queue clear.
-      // Reset the cooldown timer so we don't instantly cut the moment it finishes draining.
-      last_md_time_ = current_time; 
-      RTC_LOG(LS_VERBOSE) << "Prague: Holding rate. Queue is actively draining (Target: " 
-                          << current_rate.kbps() << "k < Actual: " << actual_throughput.kbps() << "k)";
-    }
-    
+                       << "), new rate=" << congestion_based_estimate_.bps() << " bps.";
+    } else {
+      // Do nothing. We are waiting for the VBR encoder to settle, 
+      // or for the network pipeline to flush. The target rate holds steady.
+    }    
     last_congestion_signal_ = current_time;
   
   }
@@ -1619,7 +1609,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       } else {
         // Pure CE math only. Reality Anchor is handled in Fusion.
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time, last_actual_bitrate_);
+        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
       }
 
       // Safety Floor to prevent total collapse (turned off for now to let the fusion engine handle it, but can be re-enabled if needed)
