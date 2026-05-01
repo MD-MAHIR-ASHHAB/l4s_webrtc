@@ -156,8 +156,6 @@ private:
   // only update alpha without re-applying the rate reduction.
   Timestamp last_md_time_ = Timestamp::MinusInfinity();
 
-  double last_cut_ce_ratio_ = 0.0;
-
   // Discovery mode for fast startup
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
@@ -461,7 +459,6 @@ private:
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
-  DataRate congestion_baseline_ = DataRate::Zero();
 
   //Pading the pacer
   std::optional<DataRate> max_padding_rate_;
