@@ -70,6 +70,120 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 }
 
 
+// void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+//   last_feedback_time_ = current_time;
+
+//   if (ce_ratio > 0.0) {  // CE-marked packets detected
+//     non_ce_packet_count_ = 0;
+//     if (discovery_mode_active_ && !first_ce_mark_detected_) {
+//       discovery_mode_active_ = false;
+//       first_ce_mark_detected_ = true;
+//       RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" << ce_ratio << ")";
+//     }
+    
+//     // --- PILLAR 2A: WebRTC-Tuned Gain ---
+//     // Use 1/8 to make alpha grow fast enough to matter.
+//     constexpr double g = 1.0 / 8.0;
+//     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
+//     // --- STEP 2 FIX: The Active Circuit Breaker ---
+//     // double max_allowed_factor = 1.0; // By default, do not force a cut
+    
+//     // if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
+//     //     TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
+//     //     if (rtt_delta > TimeDelta::Millis(25)) {
+//     //         // Stage 2: Aggressive Correction
+//     //         double bloat_ratio = std::min(rtt_delta.ms() / 150.0, 1.0);
+//     //         max_allowed_factor = 1.0 - (0.50 * bloat_ratio);
+//     //     } else if (rtt_delta > TimeDelta::Millis(10)) {
+//     //         // Stage 1: Mild Correction
+//     //         max_allowed_factor = 0.90; 
+//     //     }
+//     // }
+
+//     if (direction_flag_ == 1) {
+//       direction_flag_ = -1;
+//       double reduction_factor = 1.0 - alpha_ / 2.0;
+
+//       // --- PILLAR 2B: The Panic Drain (Fixed Math) ---
+//       // // Force the cut deeper if the Circuit Breaker demands it
+//       // reduction_factor = std::min(reduction_factor, max_allowed_factor);
+      
+//       // Safety bounds (always cut at least 5%, never cut below 20%)
+//       reduction_factor = std::min(reduction_factor, 0.95);
+//       reduction_factor = std::max(reduction_factor, 0.20);
+
+//       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+//       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
+//       congestion_based_estimate_ = reduced;
+//       last_md_time_ = current_time;
+//       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
+
+//       RTC_LOG(LS_VERBOSE) << "Prague: Switched to reduction mode (alpha=" << alpha_
+//                        << ", reduction_factor=" << reduction_factor
+//                        << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+//     } else {
+//       TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
+//       bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
+      
+//       if (gate_open) {
+//         // Continuous reductions while still in congestion
+//         // double additional_reduction = 1.0 - alpha_ / 4.0;
+//         double additional_reduction = 1.0 - (alpha_ * 0.05);
+        
+//         // Also apply the circuit breaker to continuous cuts!
+//         // // Make it slightly gentler than the initial cut to prevent over-draining
+//         // double continuous_breaker = 1.0 - ((1.0 - max_allowed_factor) * 0.5);
+//         // additional_reduction = std::min(additional_reduction, continuous_breaker);
+
+//         additional_reduction = std::min(additional_reduction, 0.95);
+//         additional_reduction = std::max(additional_reduction, 0.20);
+
+//         DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
+//         further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
+//         congestion_based_estimate_ = further_reduced;
+//         last_md_time_ = current_time;
+//         last_ai_update_time_ = current_time;
+//       }
+//     }
+//     last_congestion_signal_ = current_time;
+  
+//   }
+//   else {  // No CE marks in this batch
+//     non_ce_packet_count_++;
+    
+//     // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
+//     // Calculate a physical clearance window based on the bloated RTT
+//     TimeDelta clearance_window = TimeDelta::Millis(200); // Safe default
+//     if (current_rtt_.IsFinite()) {
+//         // Enforce a strict minimum 2x RTT wait before allowing growth
+//         clearance_window = current_rtt_ * 2.0; 
+//     }
+    
+//     bool clearance_time_met = last_md_time_.IsInfinite() || 
+//                               (current_time - last_md_time_ > clearance_window);
+
+//     // Only switch back to Additive Increase if enough PACKETS have passed 
+//     // AND enough physical TIME has passed to flush the queue.
+//     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
+//     if (direction_flag_ == -1 &&
+//         non_ce_packet_count_ >= adaptive_non_ce_threshold &&
+//         clearance_time_met) {
+//       direction_flag_ = 1;
+//       non_ce_packet_count_ = 0;
+//       RTC_LOG(LS_VERBOSE)
+//           << "Prague: Queue drained. Switched to additive mode after "
+//           << clearance_window.ms() << "ms cooldown (threshold="
+//           << adaptive_non_ce_threshold << ", rtt_ms="
+//           << (current_rtt_.IsFinite() ? current_rtt_.ms() : -1)
+//           << ", alpha=" << alpha_ << ").";
+//     }
+//   } 
+
+// }
+
+//hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
+
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
   last_feedback_time_ = current_time;
 
@@ -86,29 +200,26 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     constexpr double g = 1.0 / 8.0;
     alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
-    // --- STEP 2 FIX: The Active Circuit Breaker ---
-    // double max_allowed_factor = 1.0; // By default, do not force a cut
+    // 1. Calculate the dynamic Pipeline Delay
+    // This is the time it takes for a rate cut to reach the router, plus the time
+    // it takes for the already-marked queue to flush to the receiver.
+    TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
+                            ? (current_rtt_ - baseline_rtt_) 
+                            : TimeDelta::Millis(0);
+    TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
     
-    // if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
-    //     TimeDelta rtt_delta = current_rtt_ - baseline_rtt_;
-    //     if (rtt_delta > TimeDelta::Millis(25)) {
-    //         // Stage 2: Aggressive Correction
-    //         double bloat_ratio = std::min(rtt_delta.ms() / 150.0, 1.0);
-    //         max_allowed_factor = 1.0 - (0.50 * bloat_ratio);
-    //     } else if (rtt_delta > TimeDelta::Millis(10)) {
-    //         // Stage 1: Mild Correction
-    //         max_allowed_factor = 0.90; 
-    //     }
-    // }
+    // Ensure minimum safe cooldown
+    pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
 
-    if (direction_flag_ == 1) {
+    // 2. Check the Cooldown Gate
+    bool gate_open = last_md_time_.IsInfinite() || 
+                     (current_time - last_md_time_ >= pipeline_delay);
+
+    if (gate_open) {
+      // 3. Make the Pure L4S Multiplicative Decrease
       direction_flag_ = -1;
-      double reduction_factor = 1.0 - alpha_ / 2.0;
+      double reduction_factor = 1.0 - (alpha_ / 2.0);
 
-      // --- PILLAR 2B: The Panic Drain (Fixed Math) ---
-      // // Force the cut deeper if the Circuit Breaker demands it
-      // reduction_factor = std::min(reduction_factor, max_allowed_factor);
-      
       // Safety bounds (always cut at least 5%, never cut below 20%)
       reduction_factor = std::min(reduction_factor, 0.95);
       reduction_factor = std::max(reduction_factor, 0.20);
@@ -116,36 +227,21 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
+      
+      // 4. Reset the Cooldown Gate
       last_md_time_ = current_time;
       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
 
-      RTC_LOG(LS_VERBOSE) << "Prague: Switched to reduction mode (alpha=" << alpha_
+      RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
-                       << "), new rate=" << congestion_based_estimate_.bps() << " bps";
+                       << "), new rate=" << congestion_based_estimate_.bps() 
+                       << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
     } else {
-      TimeDelta gate_rtt = current_rtt_.IsFinite() && !current_rtt_.IsZero() ? current_rtt_ : TimeDelta::Millis(100);
-      bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= gate_rtt);
-      
-      if (gate_open) {
-        // Continuous reductions while still in congestion
-        // double additional_reduction = 1.0 - alpha_ / 4.0;
-        double additional_reduction = 1.0 - (alpha_ * 0.05);
-        
-        // Also apply the circuit breaker to continuous cuts!
-        // // Make it slightly gentler than the initial cut to prevent over-draining
-        // double continuous_breaker = 1.0 - ((1.0 - max_allowed_factor) * 0.5);
-        // additional_reduction = std::min(additional_reduction, continuous_breaker);
-
-        additional_reduction = std::min(additional_reduction, 0.95);
-        additional_reduction = std::max(additional_reduction, 0.20);
-
-        DataRate further_reduced = std::max(congestion_based_estimate_ * additional_reduction, min_target_rate_);
-        further_reduced = std::max(further_reduced, DataRate::KilobitsPerSec(20));
-        congestion_based_estimate_ = further_reduced;
-        last_md_time_ = current_time;
-        last_ai_update_time_ = current_time;
-      }
+      // 5. During the cooldown, we do nothing to the target rate. 
+      // We are waiting for the network to digest the previous cut.
+      // (alpha_ is still being updated dynamically at the top of the function).
     }
+    
     last_congestion_signal_ = current_time;
   
   }
@@ -179,7 +275,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
           << ", alpha=" << alpha_ << ").";
     }
   } 
-
 }
 
 
