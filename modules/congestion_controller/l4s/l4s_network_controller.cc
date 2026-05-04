@@ -1752,7 +1752,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
     Timestamp now = feedback.feedback_time;
     
     // --- PILLAR 3: Smear-Resistant Max Filter ---
-    recent_probes_window_.emplace_back(now, *instant_probe_rate);
+    recent_probes_window_.emplace_back(now, measured_probe_rate.value());
     
     // Evict probes older than 3 seconds
     while (!recent_probes_window_.empty() && 
