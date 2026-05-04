@@ -358,6 +358,11 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
     if (!is_app_limited && queue_is_clear && past_hold_time) {
       double final_step_bps = 0.0;
+      // Check if a recent probe is actively trying to pull us up
+      bool probe_constraint_fresh = !probe_constraint_time_.IsInfinite() &&
+                                    (current_time - probe_constraint_time_) < TimeDelta::Seconds(5);
+      bool probe_pulling_up = probe_constraint_fresh && 
+                              probe_constraint_ > (congestion_based_estimate_ * 1.10);
 
       if (discovery_mode_active_) {
         // --- GCC Multiplicative Increase (Discovery State) ---
@@ -367,31 +372,20 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
         // GCC floor of 1000 bps increase
         final_step_bps = std::max(current_bps * (growth_factor - 1.0), 1000.0);
       } 
-      
-      
-      // if (discovery_mode_active_) {
-      //   // --- TCP Prague Slow Start (Discovery State) ---
-      //   // Rate doubles every RTT.
-      //   double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
-      //                      ? current_rtt_.seconds<double>() : 0.05;
+      else if (probe_pulling_up) {
+        // --- 2. ACCELERATED CATCH-UP (Intermediate) ---
+        // We have a proven physical probe ceiling. Smoothly close the gap.
+        double gap_bps = static_cast<double>(probe_constraint_.bps()) - current_bps;
         
-      //   // Clamp RTT to prevent mathematical explosions on localhost
-      //   rtt_s = std::clamp(rtt_s, 0.02, 0.200);
-
-      //   // Calculate how many RTTs have elapsed in this update tick
-      //   double rtts_elapsed = elapsed_s / rtt_s;
-
-      //   // Growth factor: 2.0 ^ (rtts_elapsed)
-      //   double growth_factor = std::pow(2.0, rtts_elapsed); 
+        // Approach the ceiling asymptotically (e.g., cover 33% of the remaining gap per second)
+        double catch_up_rate_bps_per_s = std::max(gap_bps * 0.33, 40000.0); // floor of 40 kbps/s
         
-      //   // Floor of 1000 bps increase
-      //   final_step_bps = std::max(current_bps * (growth_factor - 1.0), 1000.0);
-      // }
-      
-      
-      
-      
-      
+        // Safety cap: Never grow faster than ~500 kbps per second to prevent pacer micro-bursts
+        catch_up_rate_bps_per_s = std::min(catch_up_rate_bps_per_s, 500000.0);
+        
+        final_step_bps = catch_up_rate_bps_per_s * elapsed_s;
+        
+      } 
       else {
         // --- GCC Additive Increase (Stable State) ---
         double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
@@ -1623,9 +1617,12 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         if (historical_max_capacity_ > DataRate::Zero()) {
             double starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
             if (starvation_ratio < 0.25) {
-                ce_ratio = ce_ratio * 0.1; // Reduce cut severity by 90%
-                RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
-                                    << "). Dampening CE ratio to " << ce_ratio;
+              // ONLY apply and log the dampener if there is actual congestion to dampen
+                if (ce_ratio > 0.0) { 
+                    ce_ratio = ce_ratio * 0.1; // Gentle yield
+                    RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
+                                        << "). Dampening CE ratio to " << ce_ratio;
+                }
             }
         }
         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
