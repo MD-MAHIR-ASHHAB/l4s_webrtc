@@ -1176,12 +1176,20 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
   previously_in_alr_ = false;
 
+
+  historical_capacity_window_.clear();
+  historical_max_capacity_ = DataRate::Zero();
+  recent_probes_window_.clear();
+
   throughput_window_.clear();
   last_actual_bitrate_ = DataRate::Zero();
+  
   last_acked_bitrate_.reset();
   last_loss_fraction_ = 0.0;
   last_packets_lost_ = 0;
   last_state_snapshot_log_ = Timestamp::MinusInfinity();
+
+ 
 
   TransitionToState(ControllerState::kRouteReset,
                     TransitionReason::kRouteChange,
@@ -1609,16 +1617,29 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       } else {
-        // Pure CE math only. Reality Anchor is handled in Fusion.
+        // --- Starvation Dampener ---
+        // If we are pushed below 25% of our historical max, we are being starved by unresponsive traffic.
+        // Artificially dilute the ce_ratio so the MD cut becomes a gentle yield rather than a death spiral.
+        if (historical_max_capacity_ > DataRate::Zero()) {
+            double starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
+            if (starvation_ratio < 0.25) {
+                ce_ratio = ce_ratio * 0.1; // Reduce cut severity by 90%
+                RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
+                                    << "). Dampening CE ratio to " << ce_ratio;
+            }
+        }
         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
       }
 
-      // Safety Floor to prevent total collapse
-      if (!last_actual_bitrate_.IsZero()) {
-        // DataRate floor = last_actual_bitrate_ * 0.5;
-        DataRate floor = last_actual_bitrate_ * 0.85;
-        if (prague_estimator_->GetCurrentEstimate() < floor) {
-          prague_estimator_->SetCurrentEstimate(floor);
+      // ---  The Historical Safety Floor ---
+      // Prevents the target rate from dropping into the kbps abyss during UDP bursts
+      if (historical_max_capacity_ > DataRate::Zero()) {
+        DataRate dynamic_floor = historical_max_capacity_ * 0.15; // Universal 15% anchor
+        // Ensure absolute minimum viability for video (e.g., 500 kbps absolute floor)
+        dynamic_floor = std::max(dynamic_floor, DataRate::KilobitsPerSec(500)); 
+        
+        if (prague_estimator_->GetCurrentEstimate() < dynamic_floor) {
+          prague_estimator_->SetCurrentEstimate(dynamic_floor);
         }
       }
     }
@@ -1728,11 +1749,26 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
 
   std::optional<DataRate> measured_probe_rate = GetLastProbeResult();
   if (measured_probe_rate) {
+    Timestamp now = feedback.feedback_time;
+    
+    // --- PILLAR 3: Smear-Resistant Max Filter ---
+    recent_probes_window_.emplace_back(now, *instant_probe_rate);
+    
+    // Evict probes older than 3 seconds
+    while (!recent_probes_window_.empty() && 
+           (now - recent_probes_window_.front().first) > TimeDelta::Seconds(3)) {
+      recent_probes_window_.pop_front();
+    }
+    // Find the max valid probe in the recent window
+    DataRate effective_probe_rate = DataRate::Zero();
+    for (const auto& entry : recent_probes_window_) {
+        effective_probe_rate = std::max(effective_probe_rate, entry.second);
+    }
+
     // Reality Check Floor: Only accept probes that aren't mathematically impossible
-    if (last_actual_bitrate_.IsZero() || *measured_probe_rate >= last_actual_bitrate_) {
-      bool in_reduction =
-          prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
-      bool recent_congestion = HasRecentCongestionSignals(feedback.feedback_time);
+    if (last_actual_bitrate_.IsZero() || effective_probe_rate >= last_actual_bitrate_) {
+      bool in_reduction = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+      bool recent_congestion = HasRecentCongestionSignals(now);
       bool block_probe_uplift = probe_packet_has_ce || in_reduction || recent_congestion;
 
       double probe_confidence = CalculateProbeConfidence(feedback.feedback_time);
@@ -1747,28 +1783,24 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           prague_estimator_->ClearProbeConstraint();
         }
       }
-      bandwidth_fusion_->UpdateProbeEstimate(*measured_probe_rate, probe_confidence, feedback.feedback_time);
+      bandwidth_fusion_->UpdateProbeEstimate(effective_probe_rate, probe_confidence, feedback.feedback_time);
 
       // Probe indicates headroom; additive increase determines ramp speed.
       if (prague_estimator_ && !block_probe_uplift) {
         DataRate current_prague = prague_estimator_->GetCurrentEstimate();
 
         // Accept the probe as an upper growth indicator only if it proves uplift.
-        if (*measured_probe_rate > (current_prague * 1.05)) {
+        if (effective_probe_rate > (current_prague * 1.05)) {
           DataRate max_uplift = current_prague * 1.5;
           DataRate probe_ceiling =
-              std::min(*measured_probe_rate * 0.95, max_uplift);
+              std::min(effective_probe_rate * 0.95, max_uplift);
 
           probe_reject_streak_ = 0;
           next_probe_allowed_at_ = Timestamp::MinusInfinity();
 
-          RTC_LOG(LS_INFO)
-              << "L4S: Probe indicator accepted. Probe="
-              << measured_probe_rate->kbps()
-              << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
-
-          prague_estimator_->SetProbeConstraint(probe_ceiling, probe_confidence,
-                                                feedback.feedback_time);
+          RTC_LOG(LS_INFO) << "L4S: Filtered Probe accepted. Max Probe=" << effective_probe_rate.kbps()
+                           << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
+          prague_estimator_->SetProbeConstraint(probe_ceiling, probe_confidence, now);
         }
       }
     } else {
@@ -1778,7 +1810,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
       next_probe_allowed_at_ = feedback.feedback_time + TimeDelta::Seconds(backoff_seconds);
 
       RTC_LOG(LS_INFO) << "L4S: Probe result discarded (physically impossible): "
-                       << measured_probe_rate->bps() << " bps < actual throughput "
+                       << effective_probe_rate.bps() << " bps < actual throughput "
                        << last_actual_bitrate_.bps() << " bps"
                        << ", backoff_s=" << backoff_seconds;
     }
@@ -1871,6 +1903,16 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::Zero());
   bool has_acked = acked_rate > DataRate::Zero();
   bool app_limited = IsApplicationLimited();
+
+  // ---ALR Emergency Escape ---
+  // If we are in ALR, but our rate is severely depressed compared to known history, 
+  // the encoder is in a death spiral. Force probing to break out.
+  if (app_limited && historical_max_capacity_ > DataRate::Zero()) {
+      if (current_target < historical_max_capacity_ * 0.35) { // 65% drop from max capacity
+          RTC_LOG(LS_WARNING) << "L4S: ALR Emergency Escape! Bypassing application limit to find headroom.";
+          app_limited = false;
+      }
+  }
   
   // TRIGGER A: Probe demand is delivery-driven (not sender burst-driven).
   // If acked is not available/stable, rely on actual throughput only.
@@ -1899,15 +1941,15 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
 
   // TRIGGER B: Is delivery supporting target (avoid probing on sender bursts alone)?
   bool delivery_supports_target =
-      (!actual_rate.IsZero() && actual_rate > (current_target * 0.80)) ||
-      (acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.70));
+      (!actual_rate.IsZero() && actual_rate > (current_target * 0.75)) ||
+      (acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.60));
   
   // TRIGGER C: Is the physical queue completely drained?
   // FIX: Fail closed. If we don't know the baseline, assume the queue is bloated.
   TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ?
                         (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-  bool queue_is_empty_recovery = rtt_bloat < TimeDelta::Millis(5);
-  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(10);
+  bool queue_is_empty_recovery = rtt_bloat < TimeDelta::Millis(15);
+  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(30);
 
   TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
 
@@ -1918,7 +1960,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     if (since_last_probe >= recovery_interval) {
         // Probe only if app demand is sustained, delivery supports it, and queue is truly clear.
         if (demand_is_sustained && delivery_supports_target && queue_is_empty_recovery) {
-            RTC_LOG(LS_INFO) << "L4S: Event-Driven Recovery Probe Triggered! Send(" 
+            RTC_LOG(LS_VERBOSE) << "L4S: Event-Driven Recovery Probe Triggered! Send(" 
                              << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
                              << "k) Acked(" << acked_rate.kbps() << "k) Target("
                              << current_target.kbps() << "k). base rtt (" 
@@ -1943,7 +1985,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   
   if (cooldown_ok && ShouldProbeNow(now)) {
       if (demand_is_sustained && delivery_supports_target && queue_is_empty_periodic) {
-          RTC_LOG(LS_INFO) << "L4S: Event-Driven Periodic Probe Triggered! Send(" 
+          RTC_LOG(LS_VERBOSE) << "L4S: Event-Driven Periodic Probe Triggered! Send(" 
                            << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
                            << "k) Acked(" << acked_rate.kbps() << "k) Target("
                            << current_target.kbps() << "k). base rtt (" 
@@ -1987,21 +2029,34 @@ void webrtc::L4SNetworkController::StartProbeHold(Timestamp now) {
   }
 }
 
+
+
 bool webrtc::L4SNetworkController::ShouldProbeNow(Timestamp now) const {
   if (last_rtt_.IsFinite() && last_rtt_ > TimeDelta::Millis(250)) {
       RTC_LOG(LS_VERBOSE) << "L4S: Blocking probe due to ABSOLUTE high RTT: " << last_rtt_.ms() << "ms";
       return false;
   }
 
-  // --- HIGH-BDP FIX: Global Latency Gate (Fail Closed) ---
+  // --- PILLAR 5: Starvation-Aware Latency Gate ---
   if (last_rtt_.IsFinite() && base_rtt_.IsFinite()) {
-      if (last_rtt_ - base_rtt_ > TimeDelta::Millis(15)) {
-          RTC_LOG(LS_VERBOSE) << "L4S: Blocking periodic probe due to standing queue bloat.";
+      TimeDelta bloat = last_rtt_ - base_rtt_;
+      TimeDelta allowed_bloat = TimeDelta::Millis(30); // Normal strict L4S gate for periodic probes
+      
+      // If we are starving, the competitor is causing the bloat. 
+      // We must relax the gate to allow discovery probes to fight back.
+      DataRate current_target = target_rate_.value_or(DataRate::Zero());
+      if (historical_max_capacity_ > DataRate::Zero() && 
+          current_target < (historical_max_capacity_ * 0.35)) {
+          allowed_bloat = TimeDelta::Millis(50); // Relaxed starvation gate
+      }
+
+      if (bloat > allowed_bloat) {
+          RTC_LOG(LS_VERBOSE) << "L4S: Blocking periodic probe due to standing queue bloat (" 
+                              << bloat.ms() << "ms > " << allowed_bloat.ms() << "ms).";
           return false;
       }
   } else {
-      // If we don't have a baseline yet, we can't prove the path is clear.
-      return false;
+      return false; // Fail closed if no baseline
   }
 
   // Avoid periodic probing at very low rates where measurements are noisy.
@@ -2548,6 +2603,7 @@ bool webrtc::L4SNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
 
 void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
   constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
+  constexpr TimeDelta kHistoricalWindow = TimeDelta::Seconds(15); // 15-second long-term memory
 
   // Add new packets using receive_time (receiver NTP clock), consistent with
   // GCC's AcknowledgedBitrateEstimator.
@@ -2583,9 +2639,25 @@ void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPackets
     if (window_interval >= TimeDelta::Millis(200)) {
       last_actual_bitrate_ = DataRate::BitsPerSec(
           static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+
+          historical_capacity_window_.emplace_back(window_end, last_actual_bitrate_);
     } 
     // If < 200ms, we simply do nothing and retain the existing last_actual_bitrate_.
     // DO NOT set it to Zero here, otherwise the headroom checks will break!
+  }
+  // Clean up historical window
+  if (!historical_capacity_window_.empty()) {
+    Timestamp now = feedback.feedback_time;
+    while (!historical_capacity_window_.empty() && 
+           (now - historical_capacity_window_.front().first) > kHistoricalWindow) {
+      historical_capacity_window_.pop_front();
+    }
+
+    // Find the max capacity in the last 10 seconds
+    historical_max_capacity_ = DataRate::Zero();
+    for (const auto& entry : historical_capacity_window_) {
+      historical_max_capacity_ = std::max(historical_max_capacity_, entry.second);
+    }
   }
 }
 

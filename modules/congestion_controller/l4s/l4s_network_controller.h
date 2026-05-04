@@ -376,6 +376,11 @@ private:
 
   // Throughput calculation
   void UpdateThroughputWindow(const TransportPacketsFeedback& feedback);
+  
+  std::deque<std::pair<Timestamp, DataRate>> historical_capacity_window_;
+  DataRate historical_max_capacity_ = DataRate::Zero();
+
+  std::deque<std::pair<Timestamp, DataRate>> recent_probes_window_;
 
   // Metrics
   void LogPeriodicMetrics(Timestamp at_time);
