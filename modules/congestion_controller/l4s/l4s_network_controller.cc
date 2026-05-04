@@ -386,24 +386,38 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
         final_step_bps = catch_up_rate_bps_per_s * elapsed_s;
         
       } 
+      // else {
+      //   // --- GCC Additive Increase (Stable State) ---
+      //   double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
+      //                      ? current_rtt_.seconds<double>() : 0.05;
+
+      //   // Estimate packet sizes based on 30fps
+      //   constexpr double kFrameIntervalSeconds = 1.0 / 30.0;
+      //   constexpr double kPacketSizeBytes = 1200.0;
+      //   double frame_size_bytes = std::max(1.0, (current_bps / 8.0) * kFrameIntervalSeconds);
+      //   double packets_per_frame = std::max(1.0, std::ceil(frame_size_bytes / kPacketSizeBytes));
+      //   double avg_packet_size_bytes = frame_size_bytes / packets_per_frame;
+
+      //   // Response time = 2 * (RTT + 100ms)
+      //   double response_time_s = std::max(0.02, 2.0 * (rtt_s + 0.1)); 
+      //   double increase_rate_bps_per_s = std::max(4000.0, (avg_packet_size_bytes * 8.0) / response_time_s);
+        
+      //   final_step_bps = increase_rate_bps_per_s * elapsed_s;
+      // }
       else {
-        // --- GCC Additive Increase (Stable State) ---
-        double rtt_s = current_rtt_.IsFinite() && !current_rtt_.IsZero()
-                           ? current_rtt_.seconds<double>() : 0.05;
-
-        // Estimate packet sizes based on 30fps
-        constexpr double kFrameIntervalSeconds = 1.0 / 30.0;
-        constexpr double kPacketSizeBytes = 1200.0;
-        double frame_size_bytes = std::max(1.0, (current_bps / 8.0) * kFrameIntervalSeconds);
-        double packets_per_frame = std::max(1.0, std::ceil(frame_size_bytes / kPacketSizeBytes));
-        double avg_packet_size_bytes = frame_size_bytes / packets_per_frame;
-
-        // Response time = 2 * (RTT + 100ms)
-        double response_time_s = std::max(0.02, 2.0 * (rtt_s + 0.1)); 
-        double increase_rate_bps_per_s = std::max(4000.0, (avg_packet_size_bytes * 8.0) / response_time_s);
+        // --- 3. CONGESTION AVOIDANCE (GCC-Parity Growth) ---
+        // Instead of 1 packet per RTT, grow by a small percentage of the current rate.
+        // e.g., Grow by 4% of current rate per second, with a floor of 10 kbps/s
+        double increase_rate_bps_per_s = std::max(10000.0, current_bps * 0.04);
+        
+        // Cap the growth to prevent sudden micro-bursts (max 500 kbps/s)
+        increase_rate_bps_per_s = std::min(increase_rate_bps_per_s, 500000.0);
         
         final_step_bps = increase_rate_bps_per_s * elapsed_s;
       }
+
+
+
 
       // Smooth the fractional bits using your existing accumulator
       ai_bits_accumulator_ += final_step_bps;
@@ -477,16 +491,31 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   //   }
   // }
 
+  // if (alpha_ > 0.0) {
+  //   TimeDelta since_last_ce = current_time - last_congestion_signal_;
+  //   TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
+  //   if (!last_congestion_signal_.IsInfinite() && since_last_ce > safe_clearance) {
+  //     alpha_ *= 0.95;
+  //     if (alpha_ < 0.001) {
+  //       alpha_ = 0.0;
+  //     }
+  //   }
+  // }
   if (alpha_ > 0.0) {
     TimeDelta since_last_ce = current_time - last_congestion_signal_;
     TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
     if (!last_congestion_signal_.IsInfinite() && since_last_ce > safe_clearance) {
-      alpha_ *= 0.95;
+      
+      // --- NEW: Faster Penalty Shedding ---
+      alpha_ *= 0.80; // Changed from 0.95 to 0.80 to forget congestion 4x faster
+      
       if (alpha_ < 0.001) {
         alpha_ = 0.0;
       }
     }
   }
+
+
 }
 
 void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time,
@@ -1611,20 +1640,50 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
         bandwidth_fusion_->UpdateProbeEstimate(DataRate::Zero(), 0.0, feedback.feedback_time);
       } else {
-        // --- Starvation Dampener ---
-        // If we are pushed below 25% of our historical max, we are being starved by unresponsive traffic.
-        // Artificially dilute the ce_ratio so the MD cut becomes a gentle yield rather than a death spiral.
+        // // --- Starvation Dampener ---
+        // // If we are pushed below 25% of our historical max, we are being starved by unresponsive traffic.
+        // // Artificially dilute the ce_ratio so the MD cut becomes a gentle yield rather than a death spiral.
+        // if (historical_max_capacity_ > DataRate::Zero()) {
+        //     double starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
+        //     if (starvation_ratio < 0.25) {
+        //       // ONLY apply and log the dampener if there is actual congestion to dampen
+        //         if (ce_ratio > 0.0) { 
+        //             ce_ratio = ce_ratio * 0.1; // Gentle yield
+        //             RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
+        //                                 << "). Dampening CE ratio to " << ce_ratio;
+        //         }
+        //     }
+        // }
+
+        // --- PREPARE STATE ---
+        TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
+                              ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
+                              
+        double starvation_ratio = 1.0;
         if (historical_max_capacity_ > DataRate::Zero()) {
-            double starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
-            if (starvation_ratio < 0.25) {
-              // ONLY apply and log the dampener if there is actual congestion to dampen
-                if (ce_ratio > 0.0) { 
-                    ce_ratio = ce_ratio * 0.1; // Gentle yield
-                    RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
-                                        << "). Dampening CE ratio to " << ce_ratio;
-                }
-            }
+            starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
         }
+
+        // --- APPLY DAMPENERS ---
+        if (ce_ratio > 0.0) {
+            if (starvation_ratio < 0.25) {
+                // 1. SURVIVAL MODE: We are crushed. Yield extremely gently to prevent death.
+                ce_ratio = ce_ratio * 0.1;
+                RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
+                                    << "). Dampening CE to " << ce_ratio;
+            } 
+            else if (rtt_bloat < TimeDelta::Millis(15)) {
+                // 2. GCC PARITY MODE: We are not starving, but getting marked with an empty queue.
+                // Cross-traffic is filling the coupled queue. Dampen to maintain a fair share.
+                ce_ratio = ce_ratio * 0.25; 
+                RTC_LOG(LS_VERBOSE) << "L4S: Cross-traffic bullying (Flat RTT). Dampening CE to " << ce_ratio;
+            }
+            // 3. NORMAL MODE: If neither is true (we are >25% capacity AND rtt_bloat > 15ms),
+            // it means our own L4S traffic is bloating the queue. Let pure Prague math execute.
+        }
+
+
+
         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
       }
 
