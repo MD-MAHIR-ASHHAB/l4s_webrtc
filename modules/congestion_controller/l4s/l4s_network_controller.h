@@ -122,8 +122,6 @@ public:
   void ExitDiscoveryMode(const std::string& reason);
 
 private:
-  // Context-aware AI step calculation
-  int64_t CalculateContextAwareAiStep(int64_t time_scaled_ai_step, DataRate current_rate, Timestamp current_time, double elapsed_s);
   int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
@@ -314,7 +312,6 @@ private:
   // Core processing methods
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
-  DataRate DetermineBottleneckAwareTarget(DataRate fused_rate);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
   std::optional<DataRate> GetLastProbeResult();
