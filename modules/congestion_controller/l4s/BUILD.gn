@@ -2,6 +2,8 @@ import("../../../webrtc.gni")
 
 rtc_library("l4s_network_controller") {
   sources = [
+    "l4s_bandwidth_fusion.cc",
+    "l4s_metrics_collector.cc",
     "l4s_network_controller.h",
     "l4s_network_controller.cc",
   ]
