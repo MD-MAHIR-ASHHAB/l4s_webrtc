@@ -113,7 +113,6 @@ public:
   
   // Probe-aware rate limiting
   void SetProbeConstraint(DataRate probe_estimate,
-                          double probe_confidence,
                           Timestamp now);
   void ClearProbeConstraint();
   void SetAdditiveHoldUntil(Timestamp hold_until);

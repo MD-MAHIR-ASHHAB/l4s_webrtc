@@ -413,10 +413,8 @@ double webrtc::PragueCapacityEstimator::GetConfidence(Timestamp now) const {
 
 
 void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate,
-                                                         double probe_confidence,
                                                          Timestamp now) {
   probe_constraint_ = probe_estimate;
-  probe_constraint_confidence_ = probe_confidence;
   probe_constraint_time_ = now;
   
   RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
@@ -706,7 +704,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   // // --- PRAGUE DICTATOR MODE ---
   // // Unconditionally push Prague's state to the Fusion Engine every 100ms.
   // // Never hide Prague's estimate just because we are in ALR or Reduction.
-  double ecn_confidence = prague_estimator_->GetConfidence(msg.at_time);
 
 
 // State-owned fusion policy
@@ -1167,7 +1164,6 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
 
       
       if (block_probe_uplift) {
-        probe_confidence = 0.0;
         RTC_LOG(LS_VERBOSE)
             << "L4S: Suppressing probe authority during active congestion handling"
             << " (probe_ce=" << probe_packet_has_ce
@@ -1194,7 +1190,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
 
           RTC_LOG(LS_INFO) << "L4S: Filtered Probe accepted. Max Probe=" << effective_probe_rate.kbps()
                            << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
-          prague_estimator_->SetProbeConstraint(probe_ceiling, probe_confidence, now);
+          prague_estimator_->SetProbeConstraint(probe_ceiling, now);
         }
       }
     } else {
