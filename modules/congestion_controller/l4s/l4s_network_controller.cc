@@ -322,9 +322,6 @@ void webrtc::PragueCapacityEstimator::DecayAlpha(Timestamp current_time) {
   }
 }
 
-void webrtc::PragueCapacityEstimator::SetProbeCeiling(DataRate ceiling) {
-  probe_ceiling_ = ceiling;
-}
 
 void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     Timestamp current_time,
