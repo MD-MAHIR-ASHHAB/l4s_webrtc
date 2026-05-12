@@ -241,12 +241,53 @@ double webrtc::PragueCapacityEstimator::CalculateStableStep(double current_bps, 
   return increase_rate_bps_per_s * elapsed_s;
 }
 
+
+webrtc::DataRate webrtc::PragueCapacityEstimator::ApplyThroughputTether(
+    DataRate proposed_rate, DataRate actual_throughput) const {
+  
+  if (actual_throughput <= DataRate::Zero()) {
+    return proposed_rate;
+  }
+
+  // CE-only reduction invariant: we never decrease the estimate here, 
+  // we only cap its upward growth based on actual delivery.
+  DataRate max_allowed = discovery_mode_active_ 
+                             ? (actual_throughput * 2.0)
+                             : (actual_throughput * 1.15);
+
+  if (proposed_rate > max_allowed) {
+    return std::max(congestion_based_estimate_, max_allowed);
+  }
+
+  return proposed_rate;
+}
+
+void webrtc::PragueCapacityEstimator::DecayAlpha(Timestamp current_time) {
+  if (alpha_ <= 0.0) {
+    return;
+  }
+
+  TimeDelta since_last_ce = current_time - last_congestion_signal_;
+  TimeDelta safe_clearance = current_rtt_.IsFinite() 
+                                 ? (current_rtt_ * 2) 
+                                 : TimeDelta::Millis(100);
+
+  if (!last_congestion_signal_.IsInfinite() && since_last_ce > safe_clearance) {
+    // Faster Penalty Shedding: Forget congestion 4x faster once the queue is clear
+    alpha_ *= 0.80; 
+    
+    if (alpha_ < 0.001) {
+      alpha_ = 0.0;
+    }
+  }
+}
+
 void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     Timestamp current_time,
     bool is_app_limited,
     DataRate actual_throughput,
     TimeDelta rtt_bloat) {
-  // Feedback-driven update: this marks the connection as alive for growth logic.
+  
   last_feedback_time_ = current_time;
 
   if (last_update_time_.IsInfinite() || last_ai_update_time_.IsInfinite()) {
@@ -256,126 +297,75 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   }
   
   TimeDelta ai_elapsed = current_time - last_ai_update_time_;
-  if (ai_elapsed < TimeDelta::Millis(1)) {
-    return; 
-  }
+  if (ai_elapsed < TimeDelta::Millis(1)) return;
 
   bool network_is_alive = !last_feedback_time_.IsInfinite() && 
                           (current_time - last_feedback_time_) < TimeDelta::Seconds(10);
 
-  // Probe is a short-lived growth indicator, never a direct rate setter.
+  // Clear stale probe constraints
   if (!probe_constraint_time_.IsInfinite() &&
       (current_time - probe_constraint_time_) >= TimeDelta::Seconds(10)) {
     ClearProbeConstraint();
   }
 
-  // 1. Growth Logic (ALR Aware)
+  // --- THE GROWTH PIPELINE ---
   if (direction_flag_ == 1 && network_is_alive) {
-    // Slightly more permissive queue-clear threshold to avoid stalling growth on
-    // moderate jitter while still requiring low queue pressure.
     bool queue_is_clear = rtt_bloat < TimeDelta::Millis(30);
-    bool past_hold_time = additive_hold_until_.IsInfinite() ||
-                          current_time >= additive_hold_until_;
-    double elapsed_s = ai_elapsed.seconds<double>();
-    double current_bps = static_cast<double>(congestion_based_estimate_.bps());
-
+    bool past_hold_time = additive_hold_until_.IsInfinite() || current_time >= additive_hold_until_;
+    
     DataRate proposed_rate = congestion_based_estimate_;
+    double current_bps = static_cast<double>(congestion_based_estimate_.bps());
+    double elapsed_s = ai_elapsed.seconds<double>();
 
+    // Step 1: Calculate Raw Growth
     if (!is_app_limited && queue_is_clear && past_hold_time) {
       double final_step_bps = 0.0;
-      // Check if a recent probe is actively trying to pull us up
-      bool probe_constraint_fresh = !probe_constraint_time_.IsInfinite() &&
-                                    (current_time - probe_constraint_time_) < TimeDelta::Seconds(5);
-      bool probe_pulling_up = probe_constraint_fresh && 
+      bool probe_pulling_up = !probe_constraint_time_.IsInfinite() && 
+                              (current_time - probe_constraint_time_) < TimeDelta::Seconds(5) &&
                               probe_constraint_ > (congestion_based_estimate_ * 1.10);
 
-// --- THE GROWTH POLICY ROUTER ---
       if (discovery_mode_active_) {
         final_step_bps = CalculateDiscoveryStep(current_bps, elapsed_s);
-      } 
-      else if (probe_pulling_up) {
+      } else if (probe_pulling_up) {
         final_step_bps = CalculateRecoveryStep(current_bps, static_cast<double>(probe_constraint_.bps()), elapsed_s);
-      } 
-      else {
+      } else {
         final_step_bps = CalculateStableStep(current_bps, elapsed_s);
       }
 
-      // Smooth the fractional bits using your existing accumulator
       ai_bits_accumulator_ += final_step_bps;
-      
-      if (ai_bits_accumulator_ >= 1.0) {
-        int64_t whole_bits_per_sec = static_cast<int64_t>(ai_bits_accumulator_);
-        proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
-        ai_bits_accumulator_ -= whole_bits_per_sec; 
-      }
-    } else if (is_app_limited && !discovery_mode_active_ && queue_is_clear &&
-               past_hold_time && actual_throughput > DataRate::Zero()) {
-      // ALR-safe upward nudge: hold-or-grow only, never reduce outside CE.
-      // This addresses long plateaus when the app is limited but still pushing
-      // close to target on a clear queue.
-      bool near_target_delivery =
-          actual_throughput >= (congestion_based_estimate_ * 0.90);
-      if (near_target_delivery) {
-        constexpr double kAlrNudgeMinBpsPerSec = 2000.0;
-        constexpr double kAlrNudgeMaxBpsPerSec = 10000.0;
-        constexpr double kAlrNudgeFractionPerSec = 0.002;  // 0.2%/s
-
-        double alr_nudge_bps_per_s = std::clamp(
-            current_bps * kAlrNudgeFractionPerSec,
-            kAlrNudgeMinBpsPerSec,
-            kAlrNudgeMaxBpsPerSec);
-        ai_bits_accumulator_ += alr_nudge_bps_per_s * elapsed_s;
-
-        if (ai_bits_accumulator_ >= 1.0) {
-          int64_t whole_bits_per_sec =
-              static_cast<int64_t>(ai_bits_accumulator_);
-          proposed_rate =
-              congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits_per_sec);
-          ai_bits_accumulator_ -= whole_bits_per_sec;
-        }
-      }
+    } 
+    else if (is_app_limited && !discovery_mode_active_ && queue_is_clear &&
+             past_hold_time && actual_throughput >= (congestion_based_estimate_ * 0.90)) {
+      // ALR-safe upward nudge
+      double alr_nudge_bps_per_s = std::clamp(current_bps * 0.002, 2000.0, 10000.0);
+      ai_bits_accumulator_ += alr_nudge_bps_per_s * elapsed_s;
     }
 
-    // Apply throughput tether even during ALR to avoid target growth freezes.
-    // CE-only reduction invariant: never decrease estimate here.
-    if (actual_throughput > DataRate::Zero()) {
-      DataRate max_allowed = discovery_mode_active_ ? (actual_throughput * 2.0)
-                                                    : (actual_throughput * 1.15);
-      if (proposed_rate > max_allowed) {
-        proposed_rate = std::max(congestion_based_estimate_, max_allowed);
-      }
+    // Apply accumulated bits
+    if (ai_bits_accumulator_ >= 1.0) {
+      int64_t whole_bits = static_cast<int64_t>(ai_bits_accumulator_);
+      proposed_rate = congestion_based_estimate_ + DataRate::BitsPerSec(whole_bits);
+      ai_bits_accumulator_ -= whole_bits; 
     }
 
-    // --- PROBE CONSTRAINT CHECK ---
-    bool probe_constraint_fresh =
-        !probe_constraint_time_.IsInfinite() &&
-        (current_time - probe_constraint_time_) < TimeDelta::Seconds(10);
+    // Step 2: Apply Throughput Tether
+    proposed_rate = ApplyThroughputTether(proposed_rate, actual_throughput);
 
-    if (probe_constraint_fresh &&
-        probe_constraint_confidence_ > 0.0 &&
-        probe_constraint_ > congestion_based_estimate_) {
+    // Step 3: Apply Probe Constraints
+    bool probe_constraint_fresh = !probe_constraint_time_.IsInfinite() &&
+                                  (current_time - probe_constraint_time_) < TimeDelta::Seconds(10);
+    if (probe_constraint_fresh && probe_constraint_ > congestion_based_estimate_) {
       proposed_rate = std::min(proposed_rate, probe_constraint_);
     }
 
-    congestion_based_estimate_ = proposed_rate;
-    congestion_based_estimate_ = std::min(congestion_based_estimate_, max_target_rate_);
+    // Step 4: Commit Rate
+    congestion_based_estimate_ = std::min(proposed_rate, max_target_rate_);
   }
 
-  last_ai_update_time_ = current_time; 
+  last_ai_update_time_ = current_time;
 
-  if (alpha_ > 0.0) {
-    TimeDelta since_last_ce = current_time - last_congestion_signal_;
-    TimeDelta safe_clearance = current_rtt_.IsFinite() ? (current_rtt_ * 2) : TimeDelta::Millis(100);
-    if (!last_congestion_signal_.IsInfinite() && since_last_ce > safe_clearance) {
-      
-      // --- NEW: Faster Penalty Shedding ---
-      alpha_ *= 0.80; // Changed from 0.95 to 0.80 to forget congestion 4x faster
-      
-      if (alpha_ < 0.001) {
-        alpha_ = 0.0;
-      }
-    }
-  }
+  // Step 5: Clean Up / Decay
+  DecayAlpha(current_time);
 }
 
 
@@ -696,25 +686,18 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
 
 
 
-  // State-owned probing policy
-  ApplyStateProbingPolicy(msg.at_time, &update);
+// 1. Direct Probing Call (Replaces ApplyStateProbingPolicy)
+  HandlePeriodicProbing(msg.at_time, &update);
 
-  // // Growth is feedback-driven via OnTransportPacketsFeedback.
-  // // --- PRAGUE DICTATOR MODE ---
-  // // Unconditionally push Prague's state to the Fusion Engine every 100ms.
-  // // Never hide Prague's estimate just because we are in ALR or Reduction.
-
-
-// State-owned fusion policy
-  DataRate fused_rate = FuseBandwidthEstimates(msg.at_time); // (or msg.at_time)
+  // 2. Direct Fusion Call
+  DataRate fused_rate = FuseBandwidthEstimates(msg.at_time);
   target_rate_ = fused_rate;
 
-
-
-  // Create rate update
+  // 3. Push Rate Updates
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
 
-  AdvanceStateMachine(msg.at_time);
+  // 4. Direct State Logging (Replaces AdvanceStateMachine)
+  LogStateSnapshot(msg.at_time);
   
   return update;
 }
@@ -888,18 +871,23 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   //   last_actual_bitrate_ = throughput_estimator_->GetCurrentEstimate();
   // }
   
-  // State-owned probing policy
-  ApplyStateProbingPolicy(msg.feedback_time, &update);
-  
-// State-owned fusion policy
-  DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time); // or msg.feedback_time
+
+
+// 1. Direct Probing Call (Replaces ApplyStateProbingPolicy)
+  HandlePeriodicProbing(msg.feedback_time, &update);
+
+  // 2. Direct Fusion Call (You already had this right!)
+  DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
   target_rate_ = fused_rate;
 
-  // Create rate update
+  // 3. Push Rate Updates (Keep this)
   MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
 
-  AdvanceStateMachine(msg.feedback_time);
-  
+  // 4. Direct State Logging (Replaces AdvanceStateMachine)
+  LogStateSnapshot(msg.feedback_time);
+
+
+
   return update;
 }
 
@@ -963,22 +951,62 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   // 2. Get initial fused estimate (without ECN input)
   DataRate base_fused_rate = prague_estimator_->GetCurrentEstimate();
 
-  // 3. State-owned ECN policy
-  ApplyStateEcnPolicy(feedback, base_fused_rate);
-}
-
-
-void webrtc::L4SNetworkController::ApplyStateEcnPolicy(
-    const TransportPacketsFeedback& feedback,
-    DataRate base_fused_rate) {
-  // --- CRITICAL FIX 2: Always respect the network ---
-  // Congestion is congestion, regardless of whether the application is 
-  // currently filling the pipe. We must always process ECN feedback.
   ProcessEcnFeedback(feedback, base_fused_rate);
+
 }
+
+
+
 
 
 // 
+double webrtc::L4SNetworkController::CalculateEcnYieldRatio(
+    double raw_ce_ratio, double starvation_ratio, TimeDelta rtt_bloat) const {
+  
+  if (raw_ce_ratio <= 0.0) {
+    return 0.0;
+  }
+
+  // 1. SURVIVAL MODE: We are being starved by unresponsive cross-traffic.
+  // Yield extremely gently to prevent a death spiral.
+  if (starvation_ratio < 0.25) {
+    double dampened_ratio = raw_ce_ratio * 0.1;
+    RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
+                        << "). Dampening CE to " << dampened_ratio;
+    return dampened_ratio;
+  } 
+  
+  // 2. GCC PARITY MODE: Queue is physically empty, but we are still getting marked.
+  // Cross-traffic is filling the coupled queue. Dampen to maintain a fair share.
+  if (rtt_bloat < TimeDelta::Millis(15)) {
+    double dampened_ratio = raw_ce_ratio * 0.25;
+    RTC_LOG(LS_VERBOSE) << "L4S: Cross-traffic bullying (Flat RTT). Dampening CE to " << dampened_ratio;
+    return dampened_ratio;
+  }
+
+  // 3. NORMAL MODE: We are >25% capacity AND rtt_bloat > 15ms.
+  // Our own traffic is bloating the queue. Let pure Prague math execute.
+  return raw_ce_ratio;
+}
+
+
+void webrtc::L4SNetworkController::EnforceHistoricalSafetyFloor() {
+  if (!prague_estimator_ || historical_max_capacity_.IsZero()) {
+    return;
+  }
+
+  // Universal 15% anchor of our known recent maximum capacity
+  DataRate dynamic_floor = historical_max_capacity_ * 0.15;
+  
+  // Ensure absolute minimum viability for video
+  dynamic_floor = std::max(dynamic_floor, DataRate::KilobitsPerSec(500));
+  
+  if (prague_estimator_->GetCurrentEstimate() < dynamic_floor) {
+    prague_estimator_->SetCurrentEstimate(dynamic_floor);
+    RTC_LOG(LS_INFO) << "L4S: Historical safety floor engaged. Rate clamped to " 
+                     << dynamic_floor.kbps() << " kbps";
+  }
+}
 
 
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
@@ -1045,39 +1073,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         }
 
         // --- APPLY DAMPENERS ---
-        if (ce_ratio > 0.0) {
-            if (starvation_ratio < 0.25) {
-                // 1. SURVIVAL MODE: We are crushed. Yield extremely gently to prevent death.
-                ce_ratio = ce_ratio * 0.1;
-                RTC_LOG(LS_WARNING) << "L4S: Starvation detected (Ratio: " << starvation_ratio 
-                                    << "). Dampening CE to " << ce_ratio;
-            } 
-            else if (rtt_bloat < TimeDelta::Millis(15)) {
-                // 2. GCC PARITY MODE: We are not starving, but getting marked with an empty queue.
-                // Cross-traffic is filling the coupled queue. Dampen to maintain a fair share.
-                ce_ratio = ce_ratio * 0.25; 
-                RTC_LOG(LS_VERBOSE) << "L4S: Cross-traffic bullying (Flat RTT). Dampening CE to " << ce_ratio;
-            }
-            // 3. NORMAL MODE: If neither is true (we are >25% capacity AND rtt_bloat > 15ms),
-            // it means our own L4S traffic is bloating the queue. Let pure Prague math execute.
-        }
+        double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
 
 
 
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, feedback.feedback_time);
       }
 
       // ---  The Historical Safety Floor ---
-      // Prevents the target rate from dropping into the kbps abyss during UDP bursts
-      if (historical_max_capacity_ > DataRate::Zero()) {
-        DataRate dynamic_floor = historical_max_capacity_ * 0.15; // Universal 15% anchor
-        // Ensure absolute minimum viability for video (e.g., 500 kbps absolute floor)
-        dynamic_floor = std::max(dynamic_floor, DataRate::KilobitsPerSec(500)); 
-        
-        if (prague_estimator_->GetCurrentEstimate() < dynamic_floor) {
-          prague_estimator_->SetCurrentEstimate(dynamic_floor);
-        }
-      }
+      EnforceHistoricalSafetyFloor();
     }
 
     // Sync confidence with Fusion Engine
@@ -1341,14 +1345,6 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   }
 }
 
-
-
-
-void webrtc::L4SNetworkController::ApplyStateProbingPolicy(
-    Timestamp now,
-    NetworkControlUpdate* update) {
-  HandlePeriodicProbing(now, update);
-}
 
 TimeDelta webrtc::L4SNetworkController::GetRttScaledInterval() const {
   TimeDelta effective_rtt =
@@ -1666,29 +1662,8 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
 }
 
 
-void webrtc::L4SNetworkController::AdvanceStateMachine(Timestamp now) {
-  if (!now.IsFinite()) {
-    now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
-  }
-  if (state_entered_at_.IsInfinite()) {
-    state_entered_at_ = now;
-  }
 
-  LogStateSnapshot(now);
 
-  std::optional<TransitionDecision> decision = EvaluateStateTransition(now);
-  if (decision.has_value()) {
-    TransitionToState(decision->next_state, decision->reason, now);
-  }
-}
-
-TimeDelta webrtc::L4SNetworkController::GetMinimumStateDwell() const {
-  TimeDelta effective_rtt =
-      last_rtt_.IsFinite() && !last_rtt_.IsZero()
-          ? std::clamp(last_rtt_, TimeDelta::Millis(50), TimeDelta::Millis(300))
-          : TimeDelta::Millis(100);
-  return std::max(kMinimumStateDwellFloor, effective_rtt * 2.0);
-}
 
 bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
   return recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_;
@@ -1709,191 +1684,28 @@ void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
   }
   last_state_snapshot_log_ = now;
 
-  const bool discovery_active =
-      prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
-  const bool reduction_active =
-      prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
-  TimeDelta dwell_time = state_entered_at_.IsInfinite()
-                             ? TimeDelta::Zero()
-                             : (now - state_entered_at_);
-  TimeDelta min_dwell = GetMinimumStateDwell();
+  const bool discovery_active = prague_estimator_ && prague_estimator_->IsDiscoveryModeActive();
+  const bool reduction_active = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+  
   TimeDelta cooldown_left =
       recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_
           ? TimeDelta::Zero()
           : (recovery_cooldown_until_ - now);
 
   RTC_LOG(LS_INFO)
-      << "L4S: State snapshot state=" << StateToString(controller_state_)
-      << ", alr=" << IsApplicationLimited()
-      << ", discovery=" << discovery_active
-      << ", reduction=" << reduction_active
-      << ", recovery=" << recovery_mode_active_
-      << ", dwell_ms=" << dwell_time.ms()
-      << ", min_dwell_ms=" << min_dwell.ms()
-      << ", cooldown_left_ms=" << cooldown_left.ms()
-      << ", target_bps=" << target_rate_.value_or(DataRate::Zero()).bps()
-      << ", acked_bps=" << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
-      << ", actual_bps=" << last_actual_bitrate_.bps()
-      << ", loss=" << last_loss_fraction_
-      << ", rtt_ms=" << (last_rtt_.IsFinite() ? last_rtt_.ms() : -1);
+      << "L4S: State snapshot"
+      << " | discovery=" << discovery_active
+      << " | reduction=" << reduction_active
+      << " | recovery=" << recovery_mode_active_
+      << " | alr=" << IsApplicationLimited()
+      << " | cooldown_left_ms=" << cooldown_left.ms()
+      << " | target_bps=" << target_rate_.value_or(DataRate::Zero()).bps()
+      << " | actual_bps=" << last_actual_bitrate_.bps()
+      << " | acked_bps=" << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
+      << " | loss=" << last_loss_fraction_
+      << " | rtt_ms=" << (last_rtt_.IsFinite() ? last_rtt_.ms() : -1);
 }
 
-
-std::optional<webrtc::L4SNetworkController::TransitionDecision>
-webrtc::L4SNetworkController::EvaluateStateTransition(Timestamp now) const {
-  if (!prague_estimator_) {
-    return std::nullopt;
-  }
-
-  if (!now.IsFinite()) {
-    now = Timestamp::Millis(env_.clock().TimeInMilliseconds());
-  }
-
-  const bool discovery_active = prague_estimator_->IsDiscoveryModeActive();
-  const bool reduction_active = prague_estimator_->GetDirectionFlag() == -1;
-  const bool recovery_active = recovery_mode_active_;
-  const bool dwell_ok =
-      state_entered_at_.IsInfinite() ||
-      (now - state_entered_at_ >= GetMinimumStateDwell());
-  const bool recovery_cooldown_ok = CanEnterRecoveryState(now);
-
-  switch (controller_state_) {
-    case ControllerState::kRouteReset:
-      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      if (reduction_active) {
-        return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (discovery_active) {
-        return TransitionDecision{ControllerState::kSlowState,
-                                  TransitionReason::kInitComplete};
-      }
-      return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                TransitionReason::kInitComplete};
-
-    case ControllerState::kSlowState:
-      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      if (!discovery_active && reduction_active) {
-        return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (!discovery_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                  TransitionReason::kDiscoveryExit};
-      }
-      return std::nullopt;
-
-    case ControllerState::kCongestionAvoidance:
-      if (reduction_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      return std::nullopt;
-
-    case ControllerState::kCongestionExperienced:
-      if (recovery_active && recovery_cooldown_ok && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionRecovery,
-                                  TransitionReason::kRecoveryEntered};
-      }
-      if (!reduction_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                  TransitionReason::kPragueAdditive};
-      }
-      return std::nullopt;
-
-    case ControllerState::kCongestionRecovery:
-      if (!recovery_active && reduction_active) {
-        return TransitionDecision{ControllerState::kCongestionExperienced,
-                                  TransitionReason::kPragueReduction};
-      }
-      if (!recovery_active && !reduction_active && dwell_ok) {
-        return TransitionDecision{ControllerState::kCongestionAvoidance,
-                                  TransitionReason::kRecoveryExited};
-      }
-      return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-const char* webrtc::L4SNetworkController::StateToString(ControllerState state) {
-  switch (state) {
-    case ControllerState::kRouteReset:
-      return "route_reset";
-    case ControllerState::kSlowState:
-      return "slow_state";
-    case ControllerState::kCongestionAvoidance:
-      return "congestion_avoidance";
-    case ControllerState::kCongestionExperienced:
-      return "congestion_experienced";
-    case ControllerState::kCongestionRecovery:
-      return "congestion_recovery";
-  }
-  return "unknown";
-}
-
-const char* webrtc::L4SNetworkController::TransitionReasonToString(
-    TransitionReason reason) {
-  switch (reason) {
-    case TransitionReason::kRouteChange:
-      return "route_change";
-    case TransitionReason::kInitComplete:
-      return "init_complete";
-    case TransitionReason::kDiscoveryExit:
-      return "discovery_exit";
-    case TransitionReason::kPragueReduction:
-      return "prague_reduction";
-    case TransitionReason::kPragueAdditive:
-      return "prague_additive";
-    case TransitionReason::kRecoveryEntered:
-      return "recovery_entered";
-    case TransitionReason::kRecoveryExited:
-      return "recovery_exited";
-  }
-  return "unknown";
-}
-
-void webrtc::L4SNetworkController::TransitionToState(ControllerState new_state,
-                                                     TransitionReason reason,
-                                                     Timestamp at_time) {
-  if (!at_time.IsFinite()) {
-    at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
-  }
-  if (new_state == controller_state_) {
-    if (state_entered_at_.IsInfinite()) {
-      state_entered_at_ = at_time;
-    }
-    return;
-  }
-
-  TimeDelta in_previous_state =
-      state_entered_at_.IsInfinite() ? TimeDelta::Zero()
-                                     : (at_time - state_entered_at_);
-  ++state_transition_count_;
-  RTC_LOG(LS_INFO) << "L4S: State transition #" << state_transition_count_ << " "
-                   << StateToString(controller_state_) << " -> "
-                   << StateToString(new_state) << " reason="
-                   << TransitionReasonToString(reason)
-                   << ", in_prev_state_ms=" << in_previous_state.ms()
-                   << ", target_bps="
-                   << target_rate_.value_or(DataRate::Zero()).bps()
-                   << ", acked_bps="
-                   << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
-                   << ", actual_bps=" << last_actual_bitrate_.bps()
-                   << ", loss=" << last_loss_fraction_;
-
-  controller_state_ = new_state;
-  state_entered_at_ = at_time;
-}
 
 bool webrtc::L4SNetworkController::HasRecentCongestionSignals(Timestamp now) const {
   return !last_congestion_signal_.IsInfinite() && 

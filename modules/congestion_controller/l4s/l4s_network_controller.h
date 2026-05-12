@@ -129,6 +129,9 @@ private:
   double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
   double CalculateStableStep(double current_bps, double elapsed_s) const;
 
+  DataRate ApplyThroughputTether(DataRate proposed_rate, DataRate actual_throughput) const;
+  void DecayAlpha(Timestamp current_time);
+
   int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
@@ -254,30 +257,6 @@ public:
 
 private:
   friend class test::L4SNetworkControllerTest;
-
-  enum class ControllerState {
-    kRouteReset,
-    kSlowState,
-    kCongestionAvoidance,
-    kCongestionExperienced,
-    kCongestionRecovery,
-  };
-
-  enum class TransitionReason {
-    kRouteChange,
-    kInitComplete,
-    kDiscoveryExit,
-    kPragueReduction,
-    kPragueAdditive,
-    kRecoveryEntered,
-    kRecoveryExited,
-  };
-
-  struct TransitionDecision {
-    ControllerState next_state;
-    TransitionReason reason;
-  };
-
   // Initialization
   void InitializeBandwidthEstimators();
 
@@ -289,13 +268,7 @@ private:
   std::optional<DataRate> GetLastProbeResult();
   std::optional<webrtc::ProbeClusterConfig>CreateCustomProbe(Timestamp now, DataRate target_rate);
 
-  // State-owned policy handlers (Phase 3)
-  void ApplyStateEcnPolicy(const TransportPacketsFeedback& feedback,
-                           DataRate base_fused_rate);
-  void ApplyStateProbingPolicy(Timestamp now, NetworkControlUpdate* update);
   
-
-
   // Probing logic
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
   bool ShouldProbeNow(Timestamp now) const;
@@ -325,16 +298,9 @@ private:
   void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time);
 
   // State management
-  void AdvanceStateMachine(Timestamp now);
-  std::optional<TransitionDecision> EvaluateStateTransition(Timestamp now) const;
-  TimeDelta GetMinimumStateDwell() const;
   bool CanEnterRecoveryState(Timestamp now) const;
   void LogStateSnapshot(Timestamp now);
-  static const char* StateToString(ControllerState state);
-  static const char* TransitionReasonToString(TransitionReason reason);
-  void TransitionToState(ControllerState new_state,
-                         TransitionReason reason,
-                         Timestamp at_time);
+
   bool HasRecentCongestionSignals(Timestamp now) const;
   bool IsEcnFeedbackFresh(Timestamp now) const;
 
@@ -366,9 +332,6 @@ private:
   std::unique_ptr<AlrDetector> alr_detector_;
 
   // State tracking
-  ControllerState controller_state_ = ControllerState::kRouteReset;
-  Timestamp state_entered_at_ = Timestamp::MinusInfinity();
-  uint64_t state_transition_count_ = 0;
   Timestamp last_state_snapshot_log_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kStateSnapshotLogInterval = TimeDelta::Seconds(1);
   static constexpr TimeDelta kMinimumStateDwellFloor = TimeDelta::Millis(250);
@@ -384,6 +347,10 @@ private:
   int window_ce_count_ = 0;
   int window_ect_count_ = 0;
   Timestamp window_start_time_ = Timestamp::MinusInfinity();
+
+  // ECN policy calculation
+  double CalculateEcnYieldRatio(double raw_ce_ratio, double starvation_ratio, TimeDelta rtt_bloat) const;
+  void EnforceHistoricalSafetyFloor();
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
