@@ -482,7 +482,6 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
         logger_to_use, config_.test_case_name);
   }
 
-  AdvanceStateMachine(Timestamp::Millis(env_.clock().TimeInMilliseconds()));
   
   RTC_LOG(LS_INFO) << "L4SNetworkController created with starting rate: " 
                    << starting_rate.bps() << " bps";
@@ -605,11 +604,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   last_packets_lost_ = 0;
   last_state_snapshot_log_ = Timestamp::MinusInfinity();
 
- 
-
-  TransitionToState(ControllerState::kRouteReset,
-                    TransitionReason::kRouteChange,
-                    Timestamp::Millis(env_.clock().TimeInMilliseconds()));
   
   return update;
 }
@@ -1849,30 +1843,7 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
     return false;
   }
 
-  // Exit if CE marks detected (already handled in Prague estimator)
-  if (prague_estimator_->GetDirectionFlag() == -1) {
-    return true;
-  }
-
-  // Hard discovery timeout (flicker-proof): exit after fixed time in state.
-  // This only changes state mode; it does not reduce rate.
-  if (state_entered_at_.IsFinite()) {
-    TimeDelta time_in_state = now - state_entered_at_;
-    constexpr TimeDelta kDiscoveryHardTimeout = TimeDelta::Seconds(50);
-    // constexpr TimeDelta kDiscoverySoftTimeout = TimeDelta::Seconds(25);
-
-    if (time_in_state >= kDiscoveryHardTimeout) {
-      RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - hard timeout "
-                       << "(" << time_in_state.seconds<double>() << "s >= "
-                       << kDiscoveryHardTimeout.seconds<double>() << "s)";
-      return true;
-    }
-  }
-
-
-
-
-  // Fallback: Exit at higher rate threshold (10 Mbps instead of 5 Mbps)
+  // Fallback: Exit at higher rate threshold (10 Mbps)
   DataRate current_rate = prague_estimator_->GetCurrentEstimate();
   if (current_rate.bps() >= 10000000) {
     RTC_LOG(LS_INFO) << "L4S: Exiting discovery mode - fallback rate threshold (10 Mbps) reached";
@@ -1881,6 +1852,8 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 
   return false;
 }
+
+
 
 void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
   // Headroom cap: block probe if already >2x actual throughput (slightly more generous for recovery)
