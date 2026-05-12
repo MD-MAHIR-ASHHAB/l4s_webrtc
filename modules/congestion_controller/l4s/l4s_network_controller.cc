@@ -1238,8 +1238,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
         // Accept the probe as an upper growth indicator only if it proves uplift.
         if (effective_probe_rate > (current_prague * 1.05)) {
           DataRate max_uplift = current_prague * 1.5;
-          DataRate probe_ceiling =
-              std::min(effective_probe_rate * 0.95, max_uplift);
+          DataRate probe_ceiling = std::min(effective_probe_rate * 0.95, max_uplift);
           
 
           probe_reject_streak_ = 0;
@@ -1248,7 +1247,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           RTC_LOG(LS_INFO) << "L4S: Filtered Probe accepted. Max Probe=" << effective_probe_rate.kbps()
                            << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
 
-          probe_celling_rate_ = probe_ceiling;
+          probe_rate_ceiling_ = probe_ceiling;
           prague_estimator_->SetProbeConstraint(probe_ceiling, now);
         }
       }
@@ -1297,7 +1296,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   if (update && !update->probe_cluster_configs.empty()) return; // Arbitrate
 
   if (prague_estimator_ && prague_estimator_->HasFreshProbeCeiling(now)) {
-    DataRate current_ceiling = probe_rate_ceiling_.value_or(DataRate::Zero());
+    DataRate current_ceiling = probe_rate_ceiling_;
     // If ceiling is 25% higher than target, we have enough room to grow.
     if (current_ceiling > (current_target * 1.25)) {
       return; 
