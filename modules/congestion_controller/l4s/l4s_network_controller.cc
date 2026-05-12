@@ -467,6 +467,14 @@ void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate
   RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps();
 }
 
+bool webrtc::PragueCapacityEstimator::HasFreshProbeCeiling(Timestamp now) const {
+  if (probe_constraint_.IsZero() || probe_constraint_time_.IsInfinite()) {
+    return false;
+  }
+  // Trust the ceiling for 5 seconds (matching the OnAckedUpdate window)
+  return (now - probe_constraint_time_) < TimeDelta::Seconds(5);
+}
+
 void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
   probe_constraint_ = DataRate::Zero();
   probe_constraint_confidence_ = 0.0;
@@ -1232,12 +1240,15 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           DataRate max_uplift = current_prague * 1.5;
           DataRate probe_ceiling =
               std::min(effective_probe_rate * 0.95, max_uplift);
+          
 
           probe_reject_streak_ = 0;
           next_probe_allowed_at_ = Timestamp::MinusInfinity();
 
           RTC_LOG(LS_INFO) << "L4S: Filtered Probe accepted. Max Probe=" << effective_probe_rate.kbps()
                            << "k, additive-growth ceiling=" << probe_ceiling.kbps() << "k.";
+
+          probe_celling_rate_ = probe_ceiling;
           prague_estimator_->SetProbeConstraint(probe_ceiling, now);
         }
       }
@@ -1273,6 +1284,14 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   if (!next_probe_allowed_at_.IsInfinite() && now < next_probe_allowed_at_) return;
   if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) return;
   if (update && !update->probe_cluster_configs.empty()) return; // Arbitrate
+
+  if (prague_estimator_ && prague_estimator_->HasFreshProbeCeiling(now)) {
+    DataRate current_ceiling = probe_celling_rate_.value_or(DataRate::Zero());
+    // If ceiling is 25% higher than target, we have enough room to grow.
+    if (current_ceiling > (current_target * 1.25)) {
+      return; 
+    }
+  }
   
   // Evaluate baseline network conditions
   TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
@@ -1289,7 +1308,10 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
 
   // --- STATE 1: DISCOVERY / SLOW START (Highest Freq, Highest Aggression) ---
   if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-      TimeDelta discovery_interval = TimeDelta::Seconds(2); // Very frequent
+
+      bool has_ceiling = prague_estimator_->HasFreshProbeCeiling(now);
+      TimeDelta discovery_interval = has_ceiling ? TimeDelta::Seconds(5) : TimeDelta::Seconds(2);
+      // TimeDelta discovery_interval = TimeDelta::Seconds(2); // Very frequent
       bool queue_is_safe = rtt_bloat < TimeDelta::Millis(30);
       
       if (since_last_probe >= discovery_interval && queue_is_safe) {
