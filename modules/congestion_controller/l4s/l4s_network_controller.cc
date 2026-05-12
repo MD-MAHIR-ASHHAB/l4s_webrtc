@@ -1279,6 +1279,17 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
   if (!config_.enable_probing || !probe_controller_) return;
+  
+  
+  // Evaluate baseline network conditions
+  TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
+  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
+  
+  DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
+  DataRate actual_rate = last_actual_bitrate_;
+
+
+
 
   // Global safety gates
   if (!next_probe_allowed_at_.IsInfinite() && now < next_probe_allowed_at_) return;
@@ -1293,13 +1304,6 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
     }
   }
   
-  // Evaluate baseline network conditions
-  TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-  
-  DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  DataRate actual_rate = last_actual_bitrate_;
-
   // --- STATE 4: CONGESTION EXPERIENCED (Zero Probing) ---
   bool in_reduction = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
   if (in_reduction || HasRecentCongestionSignals(now) || last_loss_fraction_ > 0.02) {
