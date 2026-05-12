@@ -89,6 +89,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         // We switch to Stable/Avoidance state without slashing the rate.
         RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
         direction_flag_ = 1; // Stay in stable growth mode
+        
+        TimeDelta hold_duration = current_rtt_.IsFinite() ? current_rtt_ * 2.0 : TimeDelta::Millis(200);
+        
         additive_hold_until_ = current_time + hold_duration;
         last_congestion_signal_ = current_time;
         return; // Skip the rate cut entirely!
