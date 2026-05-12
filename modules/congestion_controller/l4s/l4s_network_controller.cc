@@ -1266,124 +1266,67 @@ std::optional<DataRate> webrtc::L4SNetworkController::GetLastProbeResult() {
 // New method with smarter probe scheduling based on application demand, network conditions, and queue state
 
 void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update) {
-  if (!config_.enable_probing || !probe_controller_) {
-    return;
-  }
+  if (!config_.enable_probing || !probe_controller_) return;
 
-  if (!next_probe_allowed_at_.IsInfinite() && now < next_probe_allowed_at_) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Probe suppressed by backoff window. next_allowed_in_ms="
-                        << (next_probe_allowed_at_ - now).ms();
-    return;
-  }
-
-  if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) {
-    return;
-  }
-
-  // Single-source arbitration: if any probe is already queued in this update,
-  // do not schedule an additional custom probe in the same cycle.
-  if (update && !update->probe_cluster_configs.empty()) {
-    RTC_LOG(LS_VERBOSE)
-        << "L4S: Skipping custom probe; a probe is already queued this update.";
-    return;
-  }
+  // Global safety gates
+  if (!next_probe_allowed_at_.IsInfinite() && now < next_probe_allowed_at_) return;
+  if (!probe_hold_until_.IsInfinite() && now < probe_hold_until_) return;
+  if (update && !update->probe_cluster_configs.empty()) return; // Arbitrate
+  
+  // Evaluate baseline network conditions
+  TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
+  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
   
   DataRate current_target = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  DataRate send_rate = last_send_rate_;
   DataRate actual_rate = last_actual_bitrate_;
-  DataRate acked_rate = last_acked_bitrate_.value_or(DataRate::Zero());
-  bool has_acked = acked_rate > DataRate::Zero();
-  bool app_limited = IsApplicationLimited();
 
-  // ---ALR Emergency Escape ---
-  // If we are in ALR, but our rate is severely depressed compared to known history, 
-  // the encoder is in a death spiral. Force probing to break out.
-  if (app_limited && historical_max_capacity_ > DataRate::Zero()) {
-      if (current_target < historical_max_capacity_ * 0.35) { // 65% drop from max capacity
-          RTC_LOG(LS_WARNING) << "L4S: ALR Emergency Escape! Bypassing application limit to find headroom.";
-          app_limited = false;
+  // --- STATE 4: CONGESTION EXPERIENCED (Zero Probing) ---
+  bool in_reduction = prague_estimator_ && prague_estimator_->GetDirectionFlag() == -1;
+  if (in_reduction || HasRecentCongestionSignals(now) || last_loss_fraction_ > 0.02) {
+      return; 
+  }
+
+  // --- STATE 1: DISCOVERY / SLOW START (Highest Freq, Highest Aggression) ---
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      TimeDelta discovery_interval = TimeDelta::Seconds(2); // Very frequent
+      bool queue_is_safe = rtt_bloat < TimeDelta::Millis(30);
+      
+      if (since_last_probe >= discovery_interval && queue_is_safe) {
+          InitiateStatefulProbe(now, update, 1.50, "Discovery");
+          last_probe_time_ = now;
       }
+      return; // Exit router
   }
-  
-  // TRIGGER A: Probe demand is delivery-driven (not sender burst-driven).
-  // If acked is not available/stable, rely on actual throughput only.
-  // Relax demand gate a bit (90% -> 85%) so probing can proceed when delivery
-  // is close to target but mildly below due to normal VBR fluctuations.
+
+  // Calculate sustained demand required for Recovery & Stable probing
   bool demand_from_actual = !actual_rate.IsZero() && actual_rate > (current_target * 0.85);
-  bool demand_from_acked = has_acked && acked_rate > (current_target * 0.75);
-  bool demand_now = !app_limited && (demand_from_actual || demand_from_acked);
-
-  TimeDelta effective_rtt =
-      last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
-  TimeDelta demand_hold_time = std::clamp(effective_rtt * 2.0,
-                                          TimeDelta::Millis(300),
-                                          TimeDelta::Seconds(3));
-
-  if (demand_now) {
-    if (demand_high_since_.IsInfinite()) {
-      demand_high_since_ = now;
-    }
+  bool delivery_supports_target = !actual_rate.IsZero() && actual_rate > (current_target * 0.75);
+  if (demand_from_actual && !IsApplicationLimited()) {
+      if (demand_high_since_.IsInfinite()) demand_high_since_ = now;
   } else {
-    demand_high_since_ = Timestamp::MinusInfinity();
+      demand_high_since_ = Timestamp::MinusInfinity();
   }
+  bool demand_is_sustained = !demand_high_since_.IsInfinite() && (now - demand_high_since_) >= TimeDelta::Seconds(1);
 
-  bool demand_is_sustained = !demand_high_since_.IsInfinite() &&
-                             (now - demand_high_since_) >= demand_hold_time;
-
-  // TRIGGER B: Is delivery supporting target (avoid probing on sender bursts alone)?
-  bool delivery_supports_target =
-      (!actual_rate.IsZero() && actual_rate > (current_target * 0.75)) ||
-      (acked_rate > DataRate::Zero() && acked_rate > (current_target * 0.60));
-  
-  // TRIGGER C: Is the physical queue completely drained?
-  // FIX: Fail closed. If we don't know the baseline, assume the queue is bloated.
-  TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ?
-                        (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-  bool queue_is_empty_recovery = rtt_bloat < TimeDelta::Millis(15);
-  bool queue_is_empty_periodic = rtt_bloat < TimeDelta::Millis(30);
-
-  TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (now - last_probe_time_);
-
-  // --- 1. EVENT-DRIVEN RECOVERY PROBING ---
+  // --- STATE 2: CONGESTION RECOVERY (Medium Freq, Medium Aggression) ---
   if (recovery_mode_active_) {
-    TimeDelta recovery_interval = std::max(GetRttScaledInterval(), TimeDelta::Seconds(3));
-    
-    if (since_last_probe >= recovery_interval) {
-        // Probe only if app demand is sustained, delivery supports it, and queue is truly clear.
-        if (demand_is_sustained && delivery_supports_target && queue_is_empty_recovery) {
-            RTC_LOG(LS_VERBOSE) << "L4S: Event-Driven Recovery Probe Triggered! Send(" 
-                             << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
-                             << "k) Acked(" << acked_rate.kbps() << "k) Target("
-                             << current_target.kbps() << "k). base rtt (" 
-                             << base_rtt_.ms() << "ms ). last rtt (" 
-                             << last_rtt_.ms() << "ms ). Queue is empty (" 
-                             << rtt_bloat.ms() << "ms bloat).";
-            InitiateRecoveryProbing(now, update);
-            last_probe_time_ = now;
-        } else {
-            RTC_LOG(LS_VERBOSE)
-                << "L4S: Recovery probe suppressed. app_limited=" << app_limited
-                << ", demand_sustained=" << demand_is_sustained
-                << ", delivery_supports_target=" << delivery_supports_target
-                << ", bloat_ms=" << rtt_bloat.ms();
-        }
-    }
-    return;
+      TimeDelta recovery_interval = std::max(GetRttScaledInterval(), TimeDelta::Seconds(4));
+      bool queue_is_empty = rtt_bloat < TimeDelta::Millis(15);
+      
+      if (since_last_probe >= recovery_interval && demand_is_sustained && delivery_supports_target && queue_is_empty) {
+          InitiateStatefulProbe(now, update, config_.recovery_probe_multiplier, "Recovery");
+          last_probe_time_ = now;
+      }
+      return; // Exit router
   }
-  
-  // --- 2. EVENT-DRIVEN PERIODIC PROBING ---
-  bool cooldown_ok = since_last_probe >= TimeDelta::Seconds(3); // Don't spam
-  
-  if (cooldown_ok && ShouldProbeNow(now)) {
-      if (demand_is_sustained && delivery_supports_target && queue_is_empty_periodic) {
-          RTC_LOG(LS_VERBOSE) << "L4S: Event-Driven Periodic Probe Triggered! Send(" 
-                           << send_rate.kbps() << "k) Actual(" << actual_rate.kbps()
-                           << "k) Acked(" << acked_rate.kbps() << "k) Target("
-                           << current_target.kbps() << "k). base rtt (" 
-                           << base_rtt_.ms() << "ms ). last rtt (" 
-                           << last_rtt_.ms() << "ms ). Queue is empty (" 
-                           << rtt_bloat.ms() << "ms bloat).";
-          InitiateProbing(now, update);
+
+  // --- STATE 3: STABLE / AVOIDANCE (Lowest Freq, Lowest Aggression) ---
+  TimeDelta stable_interval = config_.probe_interval; // ~8 seconds
+  bool queue_is_empty = rtt_bloat < TimeDelta::Millis(30);
+
+  if (since_last_probe >= stable_interval && demand_is_sustained && delivery_supports_target && queue_is_empty) {
+      if (ShouldProbeNow(now)) { // Extra safety check for steady state
+          InitiateStatefulProbe(now, update, 1.05, "Stable Micro");
           last_probe_time_ = now;
       }
   }
@@ -1531,34 +1474,6 @@ bool webrtc::L4SNetworkController::EncoderNeedsMoreHeadroom(double multiplier) c
   }
   
   return true;
-}
-
-void webrtc::L4SNetworkController::InitiateProbing(Timestamp now, NetworkControlUpdate* update) {
-  // Headroom cap: block probe if already >2x actual throughput
-  if (!EncoderNeedsMoreHeadroom(1.2)) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping periodic probe due to headroom cap (2x actual throughput).";
-    return;
-  }
-  
-  RTC_LOG(LS_INFO) << "L4S: Initiating periodic probe!";
-  DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  double micro_probe_multiplier = 1.05;
-  if (IsApplicationLimited()) {
-    // Widen the net to help the encoder out of the yo-yo trap
-    micro_probe_multiplier = 1.25; 
-  }
-  DataRate probe_rate = current_estimate * micro_probe_multiplier;
-  if (max_target_rate_) {
-    probe_rate = std::min(probe_rate, *max_target_rate_);
-  }
-  // --- Bypass WebRTC ProbeController: Call our unified helper ---
-  auto custom_probe = CreateCustomProbe(now, probe_rate);
-  if (custom_probe) {
-    update->probe_cluster_configs.push_back(*custom_probe);
-    StartProbeHold(now);
-    RTC_LOG(LS_INFO) << "L4S: Manually injected Periodic Micro-Probe at " 
-                     << probe_rate.bps() << " bps with ID " << custom_probe->id;
-  }
 }
 
 
@@ -1904,41 +1819,38 @@ bool webrtc::L4SNetworkController::ShouldExitDiscoveryMode(Timestamp now) const 
 }
 
 
-
-void webrtc::L4SNetworkController::InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update) {
-  // Headroom cap: block probe if already >2x actual throughput (slightly more generous for recovery)
-  if (!EncoderNeedsMoreHeadroom(2.0)) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to headroom cap (2.0x actual throughput).";
+void webrtc::L4SNetworkController::InitiateStatefulProbe(
+    Timestamp now, NetworkControlUpdate* update, double base_multiplier, const std::string& state_name) {
+  
+  // Headroom cap: block probe if we are already asking for way more than actual throughput
+  if (!EncoderNeedsMoreHeadroom(base_multiplier)) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Skipping " << state_name << " probe due to headroom cap.";
     return;
   }
+  
   DataRate current_estimate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
-  double recovery_multiplier = config_.recovery_probe_multiplier;
+  
+  // Boost the multiplier slightly if the application is resting (ALR) to widen the net
+  double final_multiplier = base_multiplier;
   if (IsApplicationLimited()) {
-    recovery_multiplier = config_.recovery_alr_probe_multiplier;
+    final_multiplier += 0.15; 
   }
-  DataRate probe_rate = current_estimate * recovery_multiplier;
+  
+  DataRate probe_rate = current_estimate * final_multiplier;
   if (max_target_rate_) {
     probe_rate = std::min(probe_rate, *max_target_rate_);
   }
-  if (current_estimate < config_.recovery_probe_min_rate) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to low target rate.";
-    return;
-  }
-  DataRate min_useful_probe_rate = current_estimate * config_.min_useful_probe_uplift;
-  if (probe_rate < min_useful_probe_rate) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Skipping recovery probe due to insufficient uplift.";
-    return;
-  }
-  // --- Bypass WebRTC ProbeController: Call our unified helper ---
+  
   auto custom_probe = CreateCustomProbe(now, probe_rate);
   if (custom_probe) {
     update->probe_cluster_configs.push_back(*custom_probe);
     StartProbeHold(now);
-    RTC_LOG(LS_INFO) << "L4S: Manually injected Recovery Probe at " 
-                     << probe_rate.bps() << " bps with ID " << custom_probe->id;
+    RTC_LOG(LS_INFO) << "L4S: Injected " << state_name << " Probe at " 
+                     << probe_rate.bps() << " bps (x" << final_multiplier << ")";
   }
-
 }
+
+
 
 
 bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {

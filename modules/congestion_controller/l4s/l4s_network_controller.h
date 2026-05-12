@@ -277,8 +277,8 @@ private:
   // Probing logic
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
   bool ShouldProbeNow(Timestamp now) const;
-  void InitiateProbing(Timestamp now, NetworkControlUpdate* update);
-  void InitiateRecoveryProbing(Timestamp now, NetworkControlUpdate* update);
+  void InitiateStatefulProbe(Timestamp now, NetworkControlUpdate* update, double base_multiplier, const std::string& state_name);
+
   // Returns true if encoder needs more headroom for probing (periodic/recovery)
   bool EncoderNeedsMoreHeadroom(double multiplier) const;
   TimeDelta GetRttScaledInterval() const;
