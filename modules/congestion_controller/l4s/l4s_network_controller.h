@@ -120,8 +120,16 @@ public:
   
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
+  bool webrtc::PragueCapacityEstimator::HasConvergedWithProbe() const
 
 private:
+
+  // --- Growth Phase Calculators ---
+  // Returns the step increase in bits-per-second (bps) based on the current phase
+  double CalculateDiscoveryStep(double current_bps, double elapsed_s) const;
+  double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
+  double CalculateStableStep(double current_bps, double elapsed_s) const;
+
   int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
@@ -166,48 +174,9 @@ private:
 
 
 
+
 };
 
-// Bandwidth source fusion engine
-class L4SBandwidthFusion {
-public:
-  struct BandwidthSources {
-    DataRate ecn_estimate = DataRate::Zero();
-    DataRate probe_estimate = DataRate::Zero();
-    DataRate acked_estimate = DataRate::Zero();
-    
-    double ecn_confidence = 0.0;
-    double probe_confidence = 0.0;
-    double acked_confidence = 0.0;
-    
-    Timestamp last_ecn_update = Timestamp::MinusInfinity();
-    Timestamp last_probe_update = Timestamp::MinusInfinity();
-    Timestamp last_acked_update = Timestamp::MinusInfinity();
-  };
-
-  explicit L4SBandwidthFusion(const L4SControllerConfig& config);
-  ~L4SBandwidthFusion();
-
-  void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateProbeEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
-
-  DataRate GetFusedEstimateWithMode(Timestamp now,
-                                    bool discovery_mode,
-                                    bool recovery_mode,
-                                    bool in_reduction,
-                                    DataRate last_actual_bitrate) const;
-  BandwidthSources GetCurrentSources() const { return sources_; }
-
-private:
-  DataRate GetMostConfidentEstimate(Timestamp now) const;
-  DataRate ValidateWithOtherSources(DataRate primary_estimate, const BandwidthSources& sources) const;
-  DataRate GetDiscoveryModeFusedEstimate(Timestamp now, bool recovery_mode) const;
-  bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
-
-  BandwidthSources sources_;
-  L4SControllerConfig config_;
-};
 
 // L4S Metrics Collector
 class L4SMetricsCollector {
@@ -258,7 +227,11 @@ private:
   webrtc::SamplesStatsCounter loss_stats_;
 };
 
+
+
 // Main L4S Prague Network Controller
+
+
 class L4SNetworkController : public NetworkControllerInterface {
 public:
   L4SNetworkController(NetworkControllerConfig config,
@@ -321,10 +294,8 @@ private:
   void ApplyStateEcnPolicy(const TransportPacketsFeedback& feedback,
                            DataRate base_fused_rate);
   void ApplyStateProbingPolicy(Timestamp now, NetworkControlUpdate* update);
-  DataRate ApplyStateFusionPolicy(Timestamp now);
   
-  // Bandwidth fusion methods
-  DataRate GetBaseFusedEstimate(Timestamp now);
+
 
   // Probing logic
   void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
@@ -337,9 +308,7 @@ private:
   void StartProbeHold(Timestamp now);
   
   // Convergence detection
-  bool CheckProbeAndPragueConvergence(Timestamp now) const;
   bool ShouldExitDiscoveryMode(Timestamp now) const;
-  bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
   // Recovery detection
   void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
@@ -349,8 +318,7 @@ private:
   void UpdateAlrDetector(const TransportPacketsFeedback& feedback);
 
   // Confidence calculation
-  double CalculateProbeConfidence(Timestamp now) const;
-  double CalculateAckedConfidence(Timestamp now) const;
+  bool IsProbeDataValid(Timestamp now) const;
 
   // Rate control
   DataRate FuseBandwidthEstimates(Timestamp now);
@@ -397,7 +365,6 @@ private:
   std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
   std::unique_ptr<AlrDetector> alr_detector_;
-  std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
 
   // State tracking
   ControllerState controller_state_ = ControllerState::kRouteReset;
