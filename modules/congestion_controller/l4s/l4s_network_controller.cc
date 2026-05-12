@@ -417,8 +417,7 @@ void webrtc::PragueCapacityEstimator::SetProbeConstraint(DataRate probe_estimate
   probe_constraint_ = probe_estimate;
   probe_constraint_time_ = now;
   
-  RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps() 
-                   << " bps with confidence " << probe_confidence;
+  RTC_LOG(LS_VERBOSE) << "Prague: Setting probe constraint to " << probe_estimate.bps();
 }
 
 void webrtc::PragueCapacityEstimator::ClearProbeConstraint() {
