@@ -79,10 +79,21 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
     non_ce_packet_count_ = 0;
+    // --- FEATURE 1: The "Soft Exit" from Discovery ---
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
       first_ce_mark_detected_ = true;
-      RTC_LOG(LS_INFO) << "Prague: Exiting discovery mode - first CE mark detected (ce_ratio=" << ce_ratio << ")";
+      
+      if (ce_ratio < 0.10) {
+        // The queue is just barely starting to form. Perfect match!
+        // We switch to Stable/Avoidance state without slashing the rate.
+        RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
+        direction_flag_ = 1; // Stay in stable growth mode
+        last_congestion_signal_ = current_time;
+        return; // Skip the rate cut entirely!
+      } else {
+        RTC_LOG(LS_INFO) << "Prague: Hard Exit from discovery mode (ce_ratio=" << ce_ratio << " >= 0.10). Applying cut.";
+      }
     }
     
     // --- PILLAR 2A: WebRTC-Tuned Gain ---
@@ -106,8 +117,24 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                      (current_time - last_md_time_ >= pipeline_delay);
 
     if (gate_open) {
+      // --- FEATURE 2: Bully Resistance (Hold-Down) ---
+      if (consecutive_md_cuts_ >= 3) {
+         RTC_LOG(LS_WARNING) << "Prague: Bully Resistance Engaged! Max consecutive cuts reached (" 
+                             << consecutive_md_cuts_ << "). Firmly holding rate at " 
+                             << congestion_based_estimate_.kbps() << " kbps.";
+         
+         // Keep the gate locked, do not reduce further. 
+         // Note: alpha_ continues to update above, so if the bully leaves, we still have accurate state.
+         last_md_time_ = current_time; 
+         last_congestion_signal_ = current_time;
+         return;
+      }
+
+
       // 3. Make the Pure L4S Multiplicative Decrease
       direction_flag_ = -1;
+      consecutive_md_cuts_++;
+
       double reduction_factor = 1.0 - (alpha_ / 2.0);
 
       // Safety bounds (always cut at least 5%, never cut below 20%)
@@ -157,6 +184,13 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         clearance_time_met) {
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
+
+
+
+      // --- FEATURE 2 (CLEANUP): Reset the Bully Resistance Counter ---
+      consecutive_md_cuts_ = 0;
+      
+      
       RTC_LOG(LS_VERBOSE)
           << "Prague: Queue drained. Switched to additive mode after "
           << clearance_window.ms() << "ms cooldown (threshold="
@@ -166,7 +200,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     }
   } 
 }
-
 
 
 void webrtc::PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) {
@@ -317,28 +350,45 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     double current_bps = static_cast<double>(congestion_based_estimate_.bps());
     double elapsed_s = ai_elapsed.seconds<double>();
 
-    // Step 1: Calculate Raw Growth
-    if (!is_app_limited && queue_is_clear && past_hold_time) {
-      double final_step_bps = 0.0;
-      bool probe_pulling_up = !probe_constraint_time_.IsInfinite() && 
-                              (current_time - probe_constraint_time_) < TimeDelta::Seconds(5) &&
-                              probe_constraint_ > (congestion_based_estimate_ * 1.10);
+    // Check if a probe just proved we have physical headroom
+    bool probe_pulling_up = !probe_constraint_time_.IsInfinite() && 
+                            (current_time - probe_constraint_time_) < TimeDelta::Seconds(5) &&
+                            probe_constraint_ > (congestion_based_estimate_ * 1.05);
 
-      if (discovery_mode_active_) {
-        final_step_bps = CalculateDiscoveryStep(current_bps, elapsed_s);
-      } else if (probe_pulling_up) {
-        final_step_bps = CalculateRecoveryStep(current_bps, static_cast<double>(probe_constraint_.bps()), elapsed_s);
-      } else {
-        final_step_bps = CalculateStableStep(current_bps, elapsed_s);
+    // Step 1: Calculate Raw Growth
+    if (queue_is_clear && past_hold_time) {
+      double final_step_bps = 0.0;
+
+      // --- PATH A: APP HAS DEMAND (Prague Drives) ---
+      if (!is_app_limited) {
+        if (discovery_mode_active_) {
+          final_step_bps = CalculateDiscoveryStep(current_bps, elapsed_s);
+        } else if (probe_pulling_up) {
+          // We have demand AND headroom. Catch up to the ceiling.
+          final_step_bps = CalculateRecoveryStep(current_bps, static_cast<double>(probe_constraint_.bps()), elapsed_s);
+        } else {
+          final_step_bps = CalculateStableStep(current_bps, elapsed_s);
+        }
+      } 
+      // --- PATH B: APP IS LIMITED (Probe Grants Permission to Nudge) ---
+      else {
+        // We can nudge if the probe says it's safe, OR if VBR delivery is strong enough (>80%)
+        bool delivery_supports_nudge = actual_throughput >= (congestion_based_estimate_ * 0.80);
+
+        if (probe_pulling_up || delivery_supports_nudge) {
+          // Nudge gently to prevent the ALR deadlock
+          double alr_nudge_bps_per_s = std::clamp(current_bps * 0.002, 2000.0, 10000.0);
+          
+          // Nudge slightly faster if we are still trying to exit discovery
+          if (discovery_mode_active_) {
+            alr_nudge_bps_per_s = std::clamp(current_bps * 0.005, 5000.0, 20000.0);
+          }
+          
+          final_step_bps = alr_nudge_bps_per_s * elapsed_s;
+        }
       }
 
       ai_bits_accumulator_ += final_step_bps;
-    } 
-    else if (is_app_limited && !discovery_mode_active_ && queue_is_clear &&
-             past_hold_time && actual_throughput >= (congestion_based_estimate_ * 0.90)) {
-      // ALR-safe upward nudge
-      double alr_nudge_bps_per_s = std::clamp(current_bps * 0.002, 2000.0, 10000.0);
-      ai_bits_accumulator_ += alr_nudge_bps_per_s * elapsed_s;
     }
 
     // Apply accumulated bits

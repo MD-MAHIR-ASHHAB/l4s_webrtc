@@ -154,6 +154,11 @@ private:
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
+
+
+  // --- NEW: Bully Resistance Counter ---
+  int consecutive_md_cuts_ = 0;
+
   static constexpr int kNonCeThresholdBase = 10;
   static constexpr int kNonCeThresholdMin = 8;
   static constexpr int kNonCeThresholdMax = 28;
