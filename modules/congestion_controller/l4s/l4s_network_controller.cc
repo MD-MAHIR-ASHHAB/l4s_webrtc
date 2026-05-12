@@ -89,6 +89,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         // We switch to Stable/Avoidance state without slashing the rate.
         RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
         direction_flag_ = 1; // Stay in stable growth mode
+        additive_hold_until_ = current_time + hold_duration;
         last_congestion_signal_ = current_time;
         return; // Skip the rate cut entirely!
       } else {
@@ -98,8 +99,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     
     // --- PILLAR 2A: WebRTC-Tuned Gain ---
     // Use 1/8 to make alpha grow fast enough to matter.
-    constexpr double g = 1.0 / 8.0;
-    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+    if(consecutive_md_cuts_ < 3) { // Only update alpha if we're not in bully resistance hold
+          constexpr double g = 1.0 / 8.0;
+          alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+    }
+
 
     // 1. Calculate the dynamic Pipeline Delay
     // This is the time it takes for a rate cut to reach the router, plus the time
@@ -1126,12 +1130,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
       // ---  The Historical Safety Floor ---
       EnforceHistoricalSafetyFloor();
-    }
-
-    // Sync confidence with Fusion Engine
-    double ecn_confidence = prague_estimator_->GetConfidence(feedback.feedback_time);
-    if (prague_estimator_->GetDirectionFlag() == -1) {
-      ecn_confidence = std::max(ecn_confidence, 0.95);
     }
 
     // RESET WINDOW
