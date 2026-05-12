@@ -248,8 +248,8 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
 
 double webrtc::PragueCapacityEstimator::CalculateDiscoveryStep(double current_bps, double elapsed_s) const {
   // --- GCC Multiplicative Increase (Aggressive Discovery) ---
-  // 8% growth per second (1.08^t), capped at 1.0s elapsed time per update to prevent wild leaps.
-  double growth_factor = 1.08;
+  // 10% growth per second (1.1^t), capped at 1.0s elapsed time per update to prevent wild leaps.
+  double growth_factor = 1.1; // 10% growth per second for faster discovery
   growth_factor = std::pow(growth_factor, std::min(elapsed_s, 1.0)); 
   
   // Enforce a GCC floor of 1000 bps increase so we don't stall at very low rates
@@ -272,8 +272,8 @@ double webrtc::PragueCapacityEstimator::CalculateRecoveryStep(double current_bps
 
 double webrtc::PragueCapacityEstimator::CalculateStableStep(double current_bps, double elapsed_s) const {
   // --- Congestion Avoidance (Cautious GCC-Parity Growth) ---
-  // Grow by a small percentage (4%) of the current rate per second.
-  double increase_rate_bps_per_s = std::max(10000.0, current_bps * 0.04); // floor of 10 kbps/s
+  // Grow by a small percentage (7%) of the current rate per second.
+  double increase_rate_bps_per_s = std::max(10000.0, current_bps * 0.07); // floor of 10 kbps/s
   
   // Cap the growth to prevent sudden micro-bursts
   increase_rate_bps_per_s = std::min(increase_rate_bps_per_s, 500000.0);
@@ -372,7 +372,7 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
           final_step_bps = CalculateDiscoveryStep(current_bps, elapsed_s);
         } else if (probe_pulling_up) {
           // We have demand AND headroom. Catch up to the ceiling.
-          final_step_bps = CalculateRecoveryStep(current_bps, static_cast<double>(probe_constraint_.bps()), elapsed_s);
+          final_step_bps = CalculateRecoveryStep(current_bps, probe_rate_ceiling_, elapsed_s);
         } else {
           final_step_bps = CalculateStableStep(current_bps, elapsed_s);
         }
