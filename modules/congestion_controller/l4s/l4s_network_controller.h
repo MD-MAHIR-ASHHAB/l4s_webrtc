@@ -121,6 +121,7 @@ public:
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
   bool HasConvergedWithProbe() const;
+  void SetProbeCeiling(DataRate ceiling);
 
 private:
 
@@ -179,8 +180,7 @@ private:
   double probe_constraint_confidence_ = 0.0;
   Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
-
-
+  DataRate probe_ceiling_ = DataRate::Zero();
 
 
 };

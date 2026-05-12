@@ -322,6 +322,10 @@ void webrtc::PragueCapacityEstimator::DecayAlpha(Timestamp current_time) {
   }
 }
 
+void webrtc::PragueCapacityEstimator::SetProbeCeiling(DataRate ceiling) {
+  probe_ceiling_ = ceiling;
+}
+
 void webrtc::PragueCapacityEstimator::OnAckedUpdate(
     Timestamp current_time,
     bool is_app_limited,
@@ -372,7 +376,7 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
           final_step_bps = CalculateDiscoveryStep(current_bps, elapsed_s);
         } else if (probe_pulling_up) {
           // We have demand AND headroom. Catch up to the ceiling.
-          final_step_bps = CalculateRecoveryStep(current_bps, probe_rate_ceiling_, elapsed_s);
+          final_step_bps = CalculateRecoveryStep(current_bps, probe_ceiling_, elapsed_s);
         } else {
           final_step_bps = CalculateStableStep(current_bps, elapsed_s);
         }
@@ -1249,6 +1253,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
 
           probe_rate_ceiling_ = probe_ceiling;
           prague_estimator_->SetProbeConstraint(probe_ceiling, now);
+          prague_estimator_->SetProbeceiling(probe_ceiling);
         }
       }
     } else {
