@@ -1297,7 +1297,7 @@ void webrtc::L4SNetworkController::HandlePeriodicProbing(Timestamp now, NetworkC
   if (update && !update->probe_cluster_configs.empty()) return; // Arbitrate
 
   if (prague_estimator_ && prague_estimator_->HasFreshProbeCeiling(now)) {
-    DataRate current_ceiling = probe_celling_rate_.value_or(DataRate::Zero());
+    DataRate current_ceiling = probe_celling_rate_;
     // If ceiling is 25% higher than target, we have enough room to grow.
     if (current_ceiling > (current_target * 1.25)) {
       return; 
