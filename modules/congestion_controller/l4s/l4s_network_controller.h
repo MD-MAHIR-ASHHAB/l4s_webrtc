@@ -120,7 +120,7 @@ public:
   
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
-  bool webrtc::PragueCapacityEstimator::HasConvergedWithProbe() const
+  bool HasConvergedWithProbe() const;
 
 private:
 
