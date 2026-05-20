@@ -1537,7 +1537,7 @@ void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
   
   // Process CE-marked packets for L4S immediate feedback
   if (ecn_marking == EcnMarking::kCe) {
-    RTC_LOG(LS_INFO) << "L4S: CE marking detected on RTP packet - SSRC=" 
+    RTC_LOG(LS_VERBOSE) << "L4S: CE marking detected on RTP packet - SSRC=" 
                      << packet.Ssrc() << ", seq=" << packet.SequenceNumber();
     
     // Reset consecutive counter on CE detection
@@ -1551,16 +1551,16 @@ void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
       if (!l4s_rfc8888_enabled_) {
         receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
         l4s_rfc8888_enabled_ = true;
-        RTC_LOG(LS_INFO) << "L4S: Enabled RFC 8888 feedback for ECN information";
+        RTC_LOG(LS_VERBOSE) << "L4S: Enabled RFC 8888 feedback for ECN information";
       }
       
       // Flush any pending batch feedback immediately
       receive_side_cc_.SendImmediateCongestionFeedback();
-      RTC_LOG(LS_INFO) << "L4S: Switched to immediate feedback mode and flushed batch";
+      RTC_LOG(LS_VERBOSE) << "L4S: Switched to immediate feedback mode and flushed batch";
     } else {
       // Already in immediate mode, send immediate feedback for this CE packet
       receive_side_cc_.SendImmediateCongestionFeedback();
-      RTC_LOG(LS_INFO) << "L4S: Sent immediate feedback for CE packet";
+      RTC_LOG(LS_VERBOSE) << "L4S: Sent immediate feedback for CE packet";
     }
   } else {
     // Non-CE packet received - increment counter
@@ -1571,7 +1571,7 @@ void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
       if (consecutive_non_ce_packets_ >= kMaxConsecutiveNonCePackets) {
         l4s_feedback_mode_ = L4sFeedbackMode::kBatchMode;
         consecutive_non_ce_packets_ = 0; // Reset counter
-        RTC_LOG(LS_INFO) << "L4S: Switched back to batch feedback mode after " 
+        RTC_LOG(LS_VERBOSE) << "L4S: Switched back to batch feedback mode after " 
                          << kMaxConsecutiveNonCePackets << " consecutive non-CE packets";
       }
     }

@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <cstdint>
 
 #include "api/environment/environment.h"
 #include "api/network_state_predictor.h"
@@ -17,13 +18,18 @@
 #include "api/units/timestamp.h"
 #include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
 #include "modules/congestion_controller/goog_cc/alr_detector.h"
+#include "modules/congestion_controller/goog_cc/probe_controller.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "api/numerics/samples_stats_counter.h"
-#include "system_wrappers/include/clock.h"
 
 // Metrics collection
 #include "api/test/metrics/metrics_logger.h"
 
 namespace webrtc {
+
+namespace test {
+class L4SNetworkControllerTest;
+}
 
 // Forward declarations
 class RtcEventLog;
@@ -39,32 +45,41 @@ struct L4SControllerConfig {
   std::string test_case_name = "l4s_network_test";
   
   // Bandwidth Estimation Components
+  bool enable_probing = true;
   bool enable_acked_estimation = true;
   bool enable_alr_detection = true;
+  TimeDelta probe_interval = TimeDelta::Seconds(8);
+  TimeDelta recovery_probe_interval = TimeDelta::Seconds(5);
+  double recovery_probe_rtt_factor = 5.0;
+  double probe_hold_rtt_factor = 5.0;
+  TimeDelta min_rtt_scaled_interval = TimeDelta::Seconds(1);
+
+  // Probe pacing aggressiveness.
+  double probe_multiplier = 1.2;
+  double alr_probe_multiplier = 1.35;
+  double recovery_probe_multiplier = 1.4;
+  double recovery_alr_probe_multiplier = 1.7;
+  double min_useful_probe_uplift = 1.05;
+
+  // Avoid probing/recovery at very low rates where probe samples are often distorted.
+  DataRate periodic_probe_min_rate = DataRate::KilobitsPerSec(400);
+  DataRate recovery_probe_min_rate = DataRate::KilobitsPerSec(600);
+
+  // Probe gating and confidence behavior.
+  double discovery_probe_block_confidence = 0.92;
+  double steady_probe_block_confidence = 0.88;
+  double probe_confidence_fresh = 0.75;
+  double probe_confidence_recent = 0.55;
+
+  // Recovery-entry stability guards.
+  int recovery_min_clean_packets = 80;
+  TimeDelta recovery_min_clean_duration = TimeDelta::Seconds(2);
+  TimeDelta recovery_reentry_cooldown = TimeDelta::Seconds(8);
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
-  double ecn_confidence_release_threshold = 0.65;
+  double probe_confidence_threshold = 0.7;
   double acked_confidence_threshold = 0.5;
-
-  // ECN confidence hold/decay tuning
-  int ecn_confidence_hold_rtts = 3;
-  TimeDelta ecn_confidence_min_hold = TimeDelta::Millis(250);
-  double ecn_clean_decay_factor = 0.9;
-  double ecn_min_confidence = 0.45;
-
-  // CE episode tracking and weighted handoff tuning
-  int ce_episode_clean_packets = 21;
-  int ce_episode_min_packets = 8;
-  int ce_episode_max_packets = 256;
-  TimeDelta ce_episode_max_duration = TimeDelta::Seconds(2);
-  int ce_reduction_min_ce_batches = 2;
-  int ce_reduction_min_packets = 8;
-  TimeDelta ce_reduction_bucket_window = TimeDelta::Millis(200);
-  TimeDelta ce_reduction_min_interval = TimeDelta::Millis(200);
-  double ecn_priority_weight_reduction = 0.9;
-  double ecn_priority_weight_recent_ce = 0.8;
-  double ecn_priority_weight_default = 0.5;
 };
 
 // Prague DCTCP-style capacity estimator with ECN feedback
@@ -81,7 +96,11 @@ public:
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
-  void OnTimeUpdate(Timestamp current_time);
+  void OnAckedUpdate(Timestamp current_time,
+                     bool is_app_limited,
+                     DataRate actual_throughput,
+                     TimeDelta rtt_bloat);
+  void OnTimeUpdate(Timestamp current_time, bool is_app_limited);
 
   DataRate GetCurrentEstimate() const;
   // Directly seed the internal estimate (used by the actual-rate floor guard).
@@ -92,34 +111,58 @@ public:
   bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
   double GetConfidence(Timestamp now) const;
   
+  // Probe-aware rate limiting
+  void SetProbeConstraint(DataRate probe_estimate,
+                          Timestamp now);
+  void ClearProbeConstraint();
+  void SetAdditiveHoldUntil(Timestamp hold_until);
+  bool HasFreshProbeCeiling(Timestamp now) const;
+  
   // Discovery mode control
   void ExitDiscoveryMode(const std::string& reason);
-  
-  // Growth bounds control (set by L4S to constrain Prague's autonomous growth)
-  void SetGrowthBounds(DataRate min_bound, DataRate max_bound);
-  std::pair<DataRate, DataRate> GetGrowthBounds() const {
-    return {growth_min_bound_, growth_max_bound_};
-  }
+  bool HasConvergedWithProbe() const;
 
 private:
-  // Context-aware AI step calculation
-  int64_t CalculateContextAwareAiStep(int64_t theoretical_ai_bps, DataRate current_rate, Timestamp current_time);
+
+  // --- Growth Phase Calculators ---
+  // Returns the step increase in bits-per-second (bps) based on the current phase
+  double CalculateDiscoveryStep(double current_bps, double elapsed_s) const;
+  double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
+  double CalculateStableStep(double current_bps, double elapsed_s) const;
+
+  DataRate ApplyThroughputTether(DataRate proposed_rate, DataRate actual_throughput) const;
+  void DecayAlpha(Timestamp current_time);
+
+  int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
   DataRate max_target_rate_;
-  DataRate growth_min_bound_ = DataRate::Zero();  // L4S: Min bound for Prague's growth
-  DataRate growth_max_bound_ = DataRate::Zero();  // L4S: Max bound for Prague's growth
   TimeDelta current_rtt_;
   double alpha_ = 0.0;  // DCTCP alpha parameter
   Timestamp last_update_time_;
   Timestamp last_congestion_signal_;
   Timestamp last_ecn_feedback_;  // Track any ECN activity (ECT or CE)
   
+
+  //time-driven AI
+  double ai_bits_accumulator_ = 0.0;
+  Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
+  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
+  TimeDelta baseline_rtt_ = TimeDelta::PlusInfinity();
+
+
   // State machine for direction control
   int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
   int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
-  static constexpr int kNonCeThreshold = 7;  // Threshold to switch to additive mode
+
+
+  // --- NEW: Bully Resistance Counter ---
+  int consecutive_md_cuts_ = 0;
+
+  static constexpr int kNonCeThresholdBase = 10;
+  static constexpr int kNonCeThresholdMin = 8;
+  static constexpr int kNonCeThresholdMax = 28;
 
   // RFC 9330 §4.3: MD must be applied at most once per RTT.
   // last_md_time_ tracks when the most recent multiplicative decrease was
@@ -131,43 +174,15 @@ private:
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
   
+  // Probe constraint for discovery mode
+  DataRate probe_constraint_ = DataRate::Zero();
+  double probe_constraint_confidence_ = 0.0;
+  Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
+  Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
+
+
 };
 
-// Bandwidth source fusion engine
-class L4SBandwidthFusion {
-public:
-  struct BandwidthSources {
-    DataRate ecn_estimate = DataRate::Zero();
-    DataRate acked_estimate = DataRate::Zero();
-    DataRate alr_estimate = DataRate::Zero();
-    
-    double ecn_confidence = 0.0;
-    double acked_confidence = 0.0;
-    double alr_confidence = 0.0;
-    
-    Timestamp last_ecn_update = Timestamp::MinusInfinity();
-    Timestamp last_acked_update = Timestamp::MinusInfinity();
-    Timestamp last_alr_update = Timestamp::MinusInfinity();
-  };
-
-  explicit L4SBandwidthFusion(const L4SControllerConfig& config);
-  ~L4SBandwidthFusion();
-
-  void UpdateEcnEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateAckedEstimate(DataRate estimate, double confidence, Timestamp now);
-  void UpdateAlrEstimate(DataRate estimate, double confidence, Timestamp now);
-
-  DataRate GetFusedEstimate(Timestamp now) const;
-  DataRate GetFusedEstimateWithMode(Timestamp now, bool discovery_mode, bool recovery_mode) const;
-  BandwidthSources GetCurrentSources() const { return sources_; }
-
-private:
-  DataRate GetMostConfidentEstimate(Timestamp now) const;
-  bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
-
-  BandwidthSources sources_;
-  L4SControllerConfig config_;
-};
 
 // L4S Metrics Collector
 class L4SMetricsCollector {
@@ -179,14 +194,16 @@ public:
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 
   L4SMetricsCollector(test::MetricsLogger* logger, 
-                           const std::string& test_case_name,
-                           Clock* clock);
+                           const std::string& test_case_name);
   ~L4SMetricsCollector();
+
 
   void LogBandwidthMetrics(Timestamp at_time,
                            DataRate target_bitrate,
                            DataRate actual_bitrate,
-                           std::optional<DataRate> acked_bitrate);
+                           std::optional<DataRate> acked_bitrate,
+                           std::optional<DataRate> send_rate);
+
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
   void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);
@@ -202,7 +219,6 @@ private:
 
   test::MetricsLogger* logger_;
   std::string test_case_name_;
-  Clock* clock_;
 
   // Logging rate limiting
   Timestamp last_bandwidth_log_ = Timestamp::MinusInfinity();
@@ -217,7 +233,11 @@ private:
   webrtc::SamplesStatsCounter loss_stats_;
 };
 
+
+
 // Main L4S Prague Network Controller
+
+
 class L4SNetworkController : public NetworkControllerInterface {
 public:
   L4SNetworkController(NetworkControllerConfig config,
@@ -240,6 +260,7 @@ public:
   NetworkControlUpdate OnNetworkStateEstimate(NetworkStateEstimate msg) override;
 
 private:
+  friend class test::L4SNetworkControllerTest;
   // Initialization
   void InitializeBandwidthEstimators();
 
@@ -247,21 +268,33 @@ private:
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
+  void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
+  std::optional<DataRate> GetLastProbeResult();
+  std::optional<webrtc::ProbeClusterConfig>CreateCustomProbe(Timestamp now, DataRate target_rate);
+
+  
+  // Probing logic
+  void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
+  bool ShouldProbeNow(Timestamp now) const;
+  void InitiateStatefulProbe(Timestamp now, NetworkControlUpdate* update, double base_multiplier, const std::string& state_name);
+
+  // Returns true if encoder needs more headroom for probing (periodic/recovery)
+  bool EncoderNeedsMoreHeadroom(double multiplier) const;
+  TimeDelta GetRttScaledInterval() const;
+  void StartProbeHold(Timestamp now);
   
   // Convergence detection
   bool ShouldExitDiscoveryMode(Timestamp now) const;
-  bool IsRecentlyUpdated(Timestamp last_update, Timestamp now) const;
   
-
-  
-
+  // Recovery detection
+  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
 
   // ALR detection
   bool IsApplicationLimited() const;
   void UpdateAlrDetector(const TransportPacketsFeedback& feedback);
 
   // Confidence calculation
-  double CalculateAckedConfidence(Timestamp now) const;
+  bool IsProbeDataValid(Timestamp now) const;
 
   // Rate control
   DataRate FuseBandwidthEstimates(Timestamp now);
@@ -269,17 +302,27 @@ private:
   void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time);
 
   // State management
-  bool IsL4SActive() const;
+  bool CanEnterRecoveryState(Timestamp now) const;
+  void LogStateSnapshot(Timestamp now);
+
   bool HasRecentCongestionSignals(Timestamp now) const;
   bool IsEcnFeedbackFresh(Timestamp now) const;
-  bool EstimatesAreDiverging() const;
-  bool IsRttStable() const;
 
   // Throughput calculation
   void UpdateThroughputWindow(const TransportPacketsFeedback& feedback);
+  
+  std::deque<std::pair<Timestamp, DataRate>> historical_capacity_window_;
+  DataRate historical_max_capacity_ = DataRate::Zero();
+
+  std::deque<std::pair<Timestamp, DataRate>> recent_probes_window_;
 
   // Metrics
   void LogPeriodicMetrics(Timestamp at_time);
+
+  
+  // Pacer transmission tracking
+  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
+  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
 
   // Environment and configuration
   const Environment env_;
@@ -287,11 +330,16 @@ private:
 
   // Bandwidth estimation components
   std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
+  std::unique_ptr<ProbeController> probe_controller_;
+  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
   std::unique_ptr<AlrDetector> alr_detector_;
-  std::unique_ptr<L4SBandwidthFusion> bandwidth_fusion_;
 
   // State tracking
+  Timestamp last_state_snapshot_log_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kStateSnapshotLogInterval = TimeDelta::Seconds(1);
+  static constexpr TimeDelta kMinimumStateDwellFloor = TimeDelta::Millis(250);
+
   std::optional<DataRate> target_rate_;
   std::optional<DataRate> starting_rate_;
   std::optional<DataRate> min_target_rate_;
@@ -299,77 +347,61 @@ private:
 
   // ECN state
   bool ecn_supported_ = false;
-  bool ecn_capable_network_ = false;
-  int ect_count_ = 0;
-  int ce_count_ = 0;
   Timestamp last_congestion_signal_ = Timestamp::MinusInfinity();
+  int window_ce_count_ = 0;
+  int window_ect_count_ = 0;
+  Timestamp window_start_time_ = Timestamp::MinusInfinity();
 
-  // Cumulative ECN feedback tracking (RFC 8888 cumulative approach)
-  // Prevents wild oscillations when feedback mode switches between batch/immediate
-  int64_t cumulative_ce_count_ = 0;      // Total CE packets since last reset
-  int64_t cumulative_ect_count_ = 0;     // Total ECT packets since last reset
-  Timestamp last_ce_reset_time_ = Timestamp::MinusInfinity();  // When counters were reset
-  int64_t clean_packets_since_last_ce_ = 0;  // Count of clean packets for ratio reset threshold
-  Timestamp last_ce_mark_time_ = Timestamp::MinusInfinity();  // When last CE mark arrived
-  bool ce_episode_active_ = false;
-  int64_t pending_ce_bucket_ce_count_ = 0;
-  int64_t pending_ce_bucket_ect_count_ = 0;
-  int pending_ce_bucket_batches_ = 0;
-  Timestamp pending_ce_bucket_start_time_ = Timestamp::MinusInfinity();
-  Timestamp last_ce_reduction_time_ = Timestamp::MinusInfinity();
-
-  // ECN authority hold/decay state
-  Timestamp ecn_confidence_hold_until_ = Timestamp::MinusInfinity();
-  double ecn_clean_decay_multiplier_ = 1.0;
+  // ECN policy calculation
+  double CalculateEcnYieldRatio(double raw_ce_ratio, double starvation_ratio, TimeDelta rtt_bloat) const;
+  void EnforceHistoricalSafetyFloor();
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
-  TimeDelta rtcp_rtt_ = TimeDelta::PlusInfinity();
-  TimeDelta feedback_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta last_smoothed_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
-  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
+  // Add this to the private members of L4SNetworkController
+  TimeDelta base_rtt_ = TimeDelta::PlusInfinity();
 
   // Loss tracking
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
-  Timestamp last_loss_signal_time_ = Timestamp::MinusInfinity();
 
-  // ALR state tracking
+  // Probing state
+  Timestamp last_probe_time_ = Timestamp::MinusInfinity();
+  Timestamp probe_hold_until_ = Timestamp::MinusInfinity();
+  Timestamp next_probe_allowed_at_ = Timestamp::MinusInfinity();
+  Timestamp demand_high_since_ = Timestamp::MinusInfinity();
+  int probe_reject_streak_ = 0;
+  DataRate probe_rate_ceiling_ = DataRate::Zero();
+  bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
+  // Last bitrate reported to ProbeController via SetEstimatedBitrate.  Used to
+  // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
+  // don't flood probe_controller.cc's "Measured bitrate" log.
+  DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
+
+  // ALR state tracking for probe controller
   bool previously_in_alr_ = false;
+
+  // Recovery state tracking
+  bool recovery_mode_active_ = false;
+  bool recovery_probe_bootstrapped_ = false;
+  int consecutive_clean_packets_ = 0;  // ECT1 without CE
+  Timestamp clean_ect_run_start_ = Timestamp::MinusInfinity();
+  Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
+  // After a successful convergence exit, block re-entry for this duration to
+  // prevent the rapid enter/exit oscillation seen when the network is stable.
+  Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
+  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
   DataRate last_actual_bitrate_ = DataRate::Zero();
   std::optional<DataRate> last_acked_bitrate_;
-  int consecutive_hysteresis_applications_ = 0;
 
-  // Sliding window discovery state (replaces RTCP-based stepping)
-  // Maintains a rolling 9-second window of acked rates (50 RTTs @ 180ms avg)
-  std::deque<std::pair<Timestamp, DataRate>> acked_rate_window_;  // (timestamp, acked_rate) pairs
-  DataRate window_max_acked_rate_ = DataRate::Zero();  // Max rate in sliding window
-  
-  // Discovery growth phase tracking
-  Timestamp discovery_growth_start_time_ = Timestamp::MinusInfinity();  // When current growth phase started
-  int64_t discovery_packets_at_growth_start_ = 0;  // Packet counter when growth started
-  int64_t packets_sent_since_controller_init_ = 0;  // Total packets sent  // Dual-criterion growth: time-based or packet-based, whichever comes first
-  static constexpr TimeDelta kAckedRateWindowDuration = TimeDelta::Millis(9000);  // 50 RTTs @ 180ms
-  static constexpr TimeDelta kDiscoveryGrowthTime = TimeDelta::Millis(1000);  // Time to grow from base to 2x max
-  static constexpr int64_t kDiscoveryGrowthPacketThreshold = 25;  // OR 25 packets without CE
-  static constexpr double kDiscoveryMaxMultiplier = 2.0;  // Grow to 2.0× window_max_acked_rate
-  Timestamp last_growth_bound_update_time_ = Timestamp::MinusInfinity();
-  static constexpr int kMaxConsecutiveHysteresisApplications = 6;
-  static constexpr double kGrowthBoundsMaxDownSlewPerSecond = 0.25;
-  static constexpr double kBootstrapLargeDropThresholdPercent = 20.0;
-  static constexpr double kBootstrapMaxDownStepFraction = 0.005;
-  static constexpr double kNoCeAckedFloorFraction = 0.35;
-  static constexpr TimeDelta kNoCeRecencyWindowMin = TimeDelta::Millis(500);
-  static constexpr TimeDelta kLossRecencyWindowMin = TimeDelta::Millis(500);
-  static constexpr double kNoCeFloorAnchorDecayPerSecond = 0.01;
-  static constexpr TimeDelta kNoCeFloorGuardLogInterval = TimeDelta::Seconds(1);
-
-  DataRate no_ce_floor_anchor_rate_ = DataRate::Zero();
-  Timestamp no_ce_floor_anchor_update_time_ = Timestamp::MinusInfinity();
-  Timestamp last_no_ce_floor_guard_log_time_ = Timestamp::MinusInfinity();
+  //Pading the pacer
+  std::optional<DataRate> max_padding_rate_;
 
   // Metrics
   bool metrics_enabled_ = true;

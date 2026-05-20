@@ -120,7 +120,7 @@ void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   
   if (send_rfc8888_congestion_feedback_) {
-    RTC_LOG(LS_INFO) << "L4S: Triggering immediate congestion control feedback";
+    RTC_LOG(LS_VERBOSE) << "L4S: Triggering immediate congestion control feedback";
     congestion_control_feedback_generator_.SendImmediateFeedback();
   } else {
     RTC_LOG(LS_WARNING) << "L4S: Immediate feedback requested but RFC 8888 feedback not enabled";

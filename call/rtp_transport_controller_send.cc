@@ -738,9 +738,9 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
       ecn_detection_attempts_ = 0; // Reset counter on successful detection
     }
   } else if (feedback.transport_supports_ecn) {
-    RTC_LOG(LS_INFO) << "Transport confirmed to support ECN.";
+    RTC_LOG(LS_VERBOSE) << "Transport confirmed to support ECN.";
   } else {
-    RTC_LOG(LS_INFO) << "Transport is not ECN capable. ECT(1) marking disabled.";
+    RTC_LOG(LS_VERBOSE) << "Transport is not ECN capable. ECT(1) marking disabled.";
   }
 
   // Count CE-marked packets in this feedback batch.
@@ -752,9 +752,9 @@ void RtpTransportControllerSend::HandleTransportPacketsFeedback(
   }
   // Log the number of CE-marked packets.
   if (ce_count > 0) {
-    RTC_LOG(LS_INFO) << "Received " << ce_count 
-                     << " CE-marked packets in feedback batch of " 
-                     << feedback.packet_feedbacks.size() << " packets.";
+    RTC_LOG(LS_VERBOSE) << "Received " << ce_count 
+                        << " CE-marked packets in feedback batch of " 
+                        << feedback.packet_feedbacks.size() << " packets.";
   }
 
   // Forward feedback to congestion controller if present.
@@ -787,17 +787,17 @@ bool RtpTransportControllerSend::ProcessL4sFeedbackForImmediateHandling(
     
     if (l4s_sender_feedback_mode_ == L4sSenderFeedbackMode::kBatchMode) {
       l4s_sender_feedback_mode_ = L4sSenderFeedbackMode::kImmediateMode;
-      RTC_LOG(LS_INFO) << "L4S Sender: Switched to immediate feedback processing mode on CE detection";
+      RTC_LOG(LS_VERBOSE) << "L4S Sender: Switched to immediate feedback processing mode on CE detection";
     }
     
-    RTC_LOG(LS_INFO) << "L4S Sender: Processing " << ce_count 
+    RTC_LOG(LS_VERBOSE) << "L4S Sender: Processing " << ce_count 
                      << " CE-marked packets immediately in feedback batch of " 
                      << feedback.packet_feedbacks.size() << " packets";
     
     // Process immediately - call controller directly without delay
     if (controller_) {
       PostUpdates(controller_->OnTransportPacketsFeedback(feedback));
-      RTC_LOG(LS_INFO) << "L4S Sender: Immediate feedback processed by congestion controller";
+      RTC_LOG(LS_VERBOSE) << "L4S Sender: Immediate feedback processed by congestion controller";
     }
     
     return true; // Indicate immediate processing occurred
@@ -811,7 +811,7 @@ bool RtpTransportControllerSend::ProcessL4sFeedbackForImmediateHandling(
       if (consecutive_non_ce_batches_ >= kMaxConsecutiveNonCeBatches) {
         l4s_sender_feedback_mode_ = L4sSenderFeedbackMode::kBatchMode;
         consecutive_non_ce_batches_ = 0; // Reset counter
-        RTC_LOG(LS_INFO) << "L4S Sender: Switched back to batch feedback processing mode after " 
+        RTC_LOG(LS_VERBOSE) << "L4S Sender: Switched back to batch feedback processing mode after " 
                          << kMaxConsecutiveNonCeBatches << " consecutive non-CE batches";
       }
     }
