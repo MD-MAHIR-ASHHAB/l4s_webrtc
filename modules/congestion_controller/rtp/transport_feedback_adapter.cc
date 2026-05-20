@@ -377,6 +377,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       // Use the ECN marking that was applied when the packet was sent
       result.ecn = packet_feedback->sent_ecn_marking;
 
+      // --- FIX: Check ECN Support BEFORE deduplication ---
+      if (result.ecn != EcnMarking::kNotEct) {
+        supports_ecn = true;
+      }
+
+
       // --- DEDUPLICATION & COUNTING LOGIC ---
       // Only process ECN metrics if the packet was successfully received
       // AND we haven't already counted it in a previous overlapping report.
@@ -386,7 +392,6 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
             result.ecn == EcnMarking::kEct1 || 
             result.ecn == EcnMarking::kCe) {
           ect_count++;
-          supports_ecn = true;
         }
         
         if (result.ecn == EcnMarking::kCe) {
