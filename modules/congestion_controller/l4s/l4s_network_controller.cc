@@ -170,6 +170,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
   
   // }
   if (ce_ratio > 0.0) {  // CE-marked packets detected
+    discovery_mode_active_ = false;
+    first_ce_mark_detected_ = true;
     non_ce_packet_count_ = 0;
 
     // --- PURE PRAGUE 1: Always Update Alpha ---
