@@ -2,10 +2,9 @@ import("../../../webrtc.gni")
 
 rtc_library("l4s_network_controller") {
   sources = [
+    "l4s_metrics_collector.cc",
     "l4s_network_controller.h",
     "l4s_network_controller.cc",
-    "l4s_prague_controller.h",
-    "l4s_prague_controller.cc",
   ]
   
   deps = [

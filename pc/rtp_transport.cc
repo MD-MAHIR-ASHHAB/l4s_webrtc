@@ -26,6 +26,7 @@
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "p2p/base/packet_transport_internal.h"
+#include "pc/l4s_ecn_feedback_adapter.h"
 #include "pc/session_description.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_set.h"
@@ -211,20 +212,33 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
 
-  // if (ecn != EcnMarking::kNotEct) {
-  //   RTC_LOG(LS_INFO) << "RTP packet with seq=" 
-  //                    << parsed_packet.SequenceNumber()
-  //                    << " marked with ECN: " 
-  //                    << (ecn == EcnMarking::kEct0 ? "ECT(0)" :
-  //                        (ecn == EcnMarking::kEct1 ? "ECT(1)" : "CE"));
-  // }
-
-  if (!parsed_packet.Parse(std::move(packet))) {
+  // Parse packet first to get SSRC and sequence number for L4S processing
+  bool parse_successful = parsed_packet.Parse(packet);
+  if (!parse_successful) {
     RTC_LOG(LS_ERROR)
         << "Failed to parse the incoming RTP packet before demuxing. Drop it.";
     return;
   }
 
+  uint32_t ssrc = parsed_packet.Ssrc();
+  uint16_t sequence_number = parsed_packet.SequenceNumber();
+
+  // L4S ECN processing with hybrid batch/immediate feedback
+  if (ecn_feedback_observer_) {
+    if (ecn == EcnMarking::kCe) {
+      RTC_LOG(LS_INFO) << "L4S: CE-marked RTP packet detected! SSRC=" << ssrc 
+                       << " seq=" << sequence_number 
+                       << " - triggering L4S immediate feedback logic";
+      
+      // Notify L4S controller about CE packet
+      ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
+    } else {
+      // For non-CE packets, notify observer (L4S controller will handle mode switching)
+      ecn_feedback_observer_->OnNonCePacketReceived(arrival_time, ssrc, sequence_number);
+    }
+  }
+
+  // Continue with normal demuxing
   if (!rtp_demuxer_.OnRtpPacket(parsed_packet)) {
     RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
                         << RtpDemuxer::DescribePacket(parsed_packet);
@@ -342,6 +356,17 @@ void RtpTransport::MaybeSignalReadyToSend() {
     SendReadyToSend(ready_to_send);
     processing_ready_to_send_ = false;
   }
+}
+
+void RtpTransport::SetEcnFeedbackObserver(EcnFeedbackObserver* observer) {
+  ecn_feedback_observer_ = observer;
+  RTC_LOG(LS_INFO) << "ECN feedback observer " 
+                   << (observer ? "registered" : "removed") 
+                   << " for immediate RTCP feedback";
+}
+
+void RtpTransport::RemoveEcnFeedbackObserver() {
+  SetEcnFeedbackObserver(nullptr);
 }
 
 }  // namespace webrtc

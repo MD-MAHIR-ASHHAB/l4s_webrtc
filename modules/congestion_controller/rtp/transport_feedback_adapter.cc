@@ -37,7 +37,7 @@
 
 namespace webrtc {
 
-constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
+//constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
 
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
@@ -97,6 +97,83 @@ bool InFlightBytesTracker::NetworkRouteComparator::operator()(
 
 TransportFeedbackAdapter::TransportFeedbackAdapter() = default;
 
+// void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
+//                                          const PacedPacketInfo& pacing_info,
+//                                          size_t overhead_bytes,
+//                                          Timestamp creation_time) {
+//   RTC_DCHECK(packet_to_send.transport_sequence_number());
+//   PacketFeedback feedback;
+
+//   feedback.creation_time = creation_time;
+//   // Note, if transport sequence number header extension is used, transport
+//   // sequence numbers are wrapped to 16 bit. See
+//   // RtpSenderEgress::CompleteSendPacket.
+//   feedback.sent.sequence_number = seq_num_unwrapper_.Unwrap(
+//       packet_to_send.transport_sequence_number().value_or(0));
+//   feedback.sent.size = DataSize::Bytes(packet_to_send.size() + overhead_bytes);
+//   feedback.sent.audio =
+//       packet_to_send.packet_type() == RtpPacketMediaType::kAudio;
+//   feedback.network_route = network_route_;
+//   feedback.sent.pacing_info = pacing_info;
+//   feedback.ssrc = packet_to_send.Ssrc();
+//   feedback.rtp_sequence_number = packet_to_send.SequenceNumber();
+  
+//   // Set ECN marking that will be applied to this packet
+//   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
+//   feedback.sent_ecn_marking = current_ecn_marking_;
+
+//   // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
+//   // Only remove packets that are extremely old AND definitely won't get feedback
+//   while (!history_.empty()) {
+//     const PacketFeedback& oldest_packet = history_.begin()->second;
+//     auto age = creation_time - oldest_packet.creation_time;
+    
+//     // Only remove if packet is MUCH older than the window AND meets additional criteria
+//     bool should_remove = false;
+    
+//     if (age > kSendTimeHistoryWindow * 2) {  // Double the window before considering removal
+//       if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
+//         // Packet has been acknowledged AND is very old, safe to remove
+//         should_remove = true;
+//       } else if (oldest_packet.sent.send_time.IsInfinite() && age > TimeDelta::Seconds(30)) {
+//         // Packet never got send time update AND is extremely old
+//         should_remove = true;
+//         RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
+//                             << " that never got send time update after " << age.seconds() << "s";
+//       }
+//     }
+    
+//     if (should_remove) {
+//       if (oldest_packet.sent.sequence_number > last_ack_seq_num_)
+//         in_flight_.RemoveInFlightPacketBytes(oldest_packet);
+
+//       rtp_to_transport_sequence_number_.erase(
+//           {.ssrc = oldest_packet.ssrc,
+//            .rtp_sequence_number = oldest_packet.rtp_sequence_number});
+//       history_.erase(history_.begin());
+//     } else {
+//       // Keep this packet, but warn if history is getting very large
+//       if (history_.size() > 50000) {  // Much higher threshold
+//         RTC_LOG(LS_WARNING) << "Send time history very large: " << history_.size() 
+//                             << " packets. Oldest packet age: " << age.seconds() << "s";
+//       }
+//       break;  // Don't remove more packets if we kept this one
+//     }
+//   }
+//   // Note that it can happen that the same SSRC and sequence number is sent
+//   // again. e.g, audio retransmission.
+//   rtp_to_transport_sequence_number_.emplace(
+//       SsrcAndRtpSequencenumber(
+//           {.ssrc = feedback.ssrc,
+//            .rtp_sequence_number = feedback.rtp_sequence_number}),
+//       feedback.sent.sequence_number);
+//   history_.emplace(feedback.sent.sequence_number, feedback);
+
+//   // RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
+//   //                  << " ECN marking=" << static_cast<int>(current_ecn_marking_);
+// }
+
+
 void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
                                          const PacedPacketInfo& pacing_info,
                                          size_t overhead_bytes,
@@ -122,44 +199,40 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
 
-  // Much more conservative history cleanup - keep packets much longer to avoid lookup failures
-  // Only remove packets that are extremely old AND definitely won't get feedback
-  while (!history_.empty()) {
-    const PacketFeedback& oldest_packet = history_.begin()->second;
-    auto age = creation_time - oldest_packet.creation_time;
+  // NEW: Simple bulk cleanup strategy for L4S immediate feedback
+  // When history reaches 50k packets, remove the oldest 15k packets in one go
+  constexpr size_t kMaxHistorySize = 50000;        // Trigger cleanup at 50k packets
+  constexpr size_t kBulkCleanupCount = 15000;      // Remove 15k oldest packets
+  
+  if (history_.size() >= kMaxHistorySize) {
+    RTC_LOG(LS_INFO) << "History size reached " << history_.size() 
+                     << " packets, removing oldest " << kBulkCleanupCount << " packets";
     
-    // Only remove if packet is MUCH older than the window AND meets additional criteria
-    bool should_remove = false;
+    size_t removed_count = 0;
+    auto it = history_.begin();
     
-    if (age > kSendTimeHistoryWindow * 2) {  // Double the window before considering removal
-      if (oldest_packet.sent.sequence_number <= last_ack_seq_num_) {
-        // Packet has been acknowledged AND is very old, safe to remove
-        should_remove = true;
-      } else if (oldest_packet.sent.send_time.IsInfinite() && age > TimeDelta::Seconds(30)) {
-        // Packet never got send time update AND is extremely old
-        should_remove = true;
-        RTC_LOG(LS_WARNING) << "Removing packet seq=" << oldest_packet.sent.sequence_number
-                            << " that never got send time update after " << age.seconds() << "s";
+    while (it != history_.end() && removed_count < kBulkCleanupCount) {
+      const PacketFeedback& packet = it->second;
+      
+      // Remove from in-flight tracking if still pending
+      if (packet.sent.sequence_number > last_ack_seq_num_) {
+        in_flight_.RemoveInFlightPacketBytes(packet);
       }
-    }
-    
-    if (should_remove) {
-      if (oldest_packet.sent.sequence_number > last_ack_seq_num_)
-        in_flight_.RemoveInFlightPacketBytes(oldest_packet);
-
+      
+      // Remove from RTP sequence lookup
       rtp_to_transport_sequence_number_.erase(
-          {.ssrc = oldest_packet.ssrc,
-           .rtp_sequence_number = oldest_packet.rtp_sequence_number});
-      history_.erase(history_.begin());
-    } else {
-      // Keep this packet, but warn if history is getting very large
-      if (history_.size() > 50000) {  // Much higher threshold
-        RTC_LOG(LS_WARNING) << "Send time history very large: " << history_.size() 
-                            << " packets. Oldest packet age: " << age.seconds() << "s";
-      }
-      break;  // Don't remove more packets if we kept this one
+          {.ssrc = packet.ssrc,
+           .rtp_sequence_number = packet.rtp_sequence_number});
+      
+      // Remove from history and advance iterator
+      it = history_.erase(it);
+      removed_count++;
     }
+    
+    RTC_LOG(LS_INFO) << "Bulk cleanup completed: removed " << removed_count 
+                     << " packets, history size now: " << history_.size();
   }
+
   // Note that it can happen that the same SSRC and sequence number is sent
   // again. e.g, audio retransmission.
   rtp_to_transport_sequence_number_.emplace(
@@ -172,6 +245,9 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // RTC_LOG(LS_INFO) << "AddPacket: seq=" << feedback.sent.sequence_number
   //                  << " ECN marking=" << static_cast<int>(current_ecn_marking_);
 }
+
+
+
 
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     const SentPacketInfo& sent_packet) {
@@ -239,7 +315,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   
   int ect_count = 0;
   int ce_count = 0;
-
+  bool supports_ecn = false;
 
   if (feedback.GetPacketStatusCount() == 0) {
     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
@@ -247,17 +323,13 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   }
 
   // Add timestamp deltas to a local time base selected on first packet arrival.
-  // This won't be the true time base, but makes it easier to manually inspect
-  // time stamps.
   if (last_transport_feedback_base_time_.IsInfinite()) {
     current_offset_ = feedback_receive_time;
   } else {
-    // TODO(srte): We shouldn't need to do rounding here.
     const TimeDelta delta =
         feedback.GetBaseDelta(last_transport_feedback_base_time_)
             .RoundDownTo(TimeDelta::Millis(1));
     
-    // Add safety checks to prevent extreme values that could cause unit_base.h assertion
     if (!delta.IsFinite()) {
       RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
       current_offset_ = feedback_receive_time;
@@ -276,15 +348,17 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   size_t failed_lookups = 0;
   size_t ignored = 0;
 
-  feedback.ForAllPackets([&](uint16_t sequence_number,
-                             TimeDelta delta_since_base) {
+  // The lambda captures local variables (including ect_count, ce_count, supports_ecn) by reference [&]
+  feedback.ForAllPackets([&](uint16_t sequence_number, TimeDelta delta_since_base) {
     int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         seq_num, /*received=*/delta_since_base.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       return;
     }
+    
     if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
       packet_feedback->receive_time =
           current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
@@ -295,13 +369,38 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
         packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
       }
     }
+    
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
-
       // Use the ECN marking that was applied when the packet was sent
       result.ecn = packet_feedback->sent_ecn_marking;
+
+      // --- DEDUPLICATION & COUNTING LOGIC ---
+      // Only process ECN metrics if the packet was successfully received
+      // AND we haven't already counted it in a previous overlapping report.
+      if (result.receive_time.IsFinite() && !packet_feedback->ecn_already_reported) {
+        
+        if (result.ecn == EcnMarking::kEct0 ||
+            result.ecn == EcnMarking::kEct1 || 
+            result.ecn == EcnMarking::kCe) {
+          ect_count++;
+          supports_ecn = true;
+        }
+        
+        if (result.ecn == EcnMarking::kCe) {
+          ce_count++;
+        }
+        
+        // Update the actual persistent entry in the history_ map so we never double-count it
+        auto it = history_.find(packet_feedback->sent.sequence_number);
+        if (it != history_.end()) {
+          it->second.ecn_already_reported = true;
+        }
+      }
+      // --------------------------------------
+
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -315,48 +414,17 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
         << " out of " << feedback.GetPacketStatusCount() << " total packets."
         << " Packets reordered or send time history too small?";
     
-    // If we failed to lookup most packets, this might indicate a serious timing issue
     double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
     if (failure_rate > 0.5) {
       RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
                         << "%. This suggests a timing or history management issue.";
     }
   }
+  
   if (ignored > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
-  // For Transport Feedback, we need to determine ECN support by checking if any 
-  // ECN-capable packets were successfully received with ECN markings preserved.
-  bool supports_ecn = false;
-
-  // Uncomment the following lines to enable logging of ECN marking counts
-  //int ecn_marked_sent = 0;
-  //int ecn_marked_received = 0;
-  
-  for (const auto& result : packet_result_vector) {
-    // Only process packets that were actually received (have finite receive times)
-    if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
-      if (result.ecn == EcnMarking::kEct0 ||
-          result.ecn == EcnMarking::kEct1|| 
-          result.ecn == EcnMarking::kCe) {
-        ect_count++;
-        supports_ecn = true;
-      }
-      if (result.ecn == EcnMarking::kCe) {
-        ce_count++;
-      }
-    }
-  }
-
-  
-  // Log the processed feedback details
-  // Uncomment the following line to enable logging of transport feedback processing
-  // RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
-  //                  << packet_result_vector.size() << " packets, "
-  //                  << "ECN marked sent: " << ecn_marked_sent
-  //                  << ", ECN marked received: " << ecn_marked_received
-  //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn, ect_count, ce_count);
@@ -406,37 +474,20 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     current_offset_ = feedback_receive_time;
   }
 
-  int ignored_packets = 0;
+int ignored_packets = 0;
   int failed_lookups = 0;
   bool supports_ecn = false;  // Start with false, set to true if we see any ECN-marked packets successfully delivered
   std::vector<PacketResult> packet_result_vector;
+  
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
-    if (packet_info.ecn == EcnMarking::kEct0 ||
-      packet_info.ecn == EcnMarking::kEct1 ||
-      packet_info.ecn == EcnMarking::kCe) {
-        ect_count++;
-    }
-    if (packet_info.ecn == EcnMarking::kCe) {
-      ce_count++;
-    }
-    // Check for ECN support immediately based on feedback content, before packet lookup
-    // This prevents ECN detection from being disabled due to lookup failures
-    // RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
-    //                   << packet_info.sequence_number
-    //                   << ": " 
-    //                   << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-    //                       (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-    //                         (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-    //                           (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
-    if (packet_info.ecn != EcnMarking::kNotEct) {
-      supports_ecn = true;
-    }
-    
+       
+    // 1. RETRIEVE THE PACKET FIRST
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         {.ssrc = packet_info.ssrc,
          .rtp_sequence_number = packet_info.sequence_number},
         /*received=*/packet_info.arrival_time_offset.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       RTC_LOG(LS_VERBOSE) << "Failed to find packet feedback for SSRC=" 
@@ -448,20 +499,34 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       continue;
     }
 
-    // Only log ECN for media packets (not control/feedback)
-    // if (!packet_feedback->sent.audio) { // adjust threshold as needed
-    //   // RTC_LOG(LS_INFO) << "MEDIA Feedback contains ECN marking for seq=" 
-    //   //                  << packet_info.sequence_number
-    //   //                  << " size=" << packet_feedback->sent.size
-    //   //                  << ": " 
-    //   //                  << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-    //   //                      (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-    //   //                        (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-    //   //                          (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
-    // }
+    // 2. CHECK FOR GENERAL ECN SUPPORT
+    if (packet_info.ecn != EcnMarking::kNotEct) {
+      supports_ecn = true;
+    }
+    
+    // 3. APPLY DEDUPLICATION LOGIC
+    // Only count ECT and CE marks if we haven't seen this packet before
+    if (!packet_feedback->ecn_already_reported) {
+      if (packet_info.ecn == EcnMarking::kEct0 ||
+          packet_info.ecn == EcnMarking::kEct1 ||
+          packet_info.ecn == EcnMarking::kCe) {
+          ect_count++;
+      }
+      if (packet_info.ecn == EcnMarking::kCe) {
+        ce_count++;
+      }
+      
+      // Update the actual entry in the history_ map so we never count it again
+      auto it = history_.find(packet_feedback->sent.sequence_number);
+      if (it != history_.end()) {
+          it->second.ecn_already_reported = true;
+      }
+    }
 
+    // 4. BUILD THE RESULT VECTOR
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
+    
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
       
@@ -583,23 +648,21 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   }
 
   if (it->second.sent.send_time.IsInfinite()) {
-    // Check if this packet has been waiting too long for send time update
     auto now = Timestamp::Millis(webrtc::TimeMillis());
     auto age = now - it->second.creation_time;
-    if (age > TimeDelta::Seconds(5)) {
-      RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
-                          << " has been waiting " << age.seconds() 
-                          << "s for send time update. Likely a timing issue.";
-    }
-    
-    // More detailed logging about why send time is missing
     RTC_LOG(LS_WARNING) << "Received feedback before packet was indicated as sent for seq="
                         << transport_seq_num << ", age=" << age.seconds() << "s"
-                        << ", creation_time=" << it->second.creation_time.us() << "us";
-    
-    // Don't completely fail - this might be a legitimate race condition
-    // For now, still return nullopt but with better logging
-    return std::nullopt;
+                        << ", creation_time=" << it->second.creation_time.us() << "us"
+                        << " - using creation_time as conservative send_time fallback";
+    // Use creation_time as a conservative fallback rather than discarding the
+    // packet entirely.  Discarding it removes the CE-mark from the feedback
+    // batch seen by the L4S controller, preventing the Prague MD from firing.
+    // creation_time slightly predates the actual OS send callback so RTT will
+    // be marginally over-estimated, but that is far less harmful than losing
+    // the congestion signal.  This situation is transient and disappears once
+    // the CE rate-limiter bypass (SendImmediateFeedback fix) keeps the receiver
+    // backlog within one RTT.
+    it->second.sent.send_time = it->second.creation_time;
   }
 
   PacketFeedback packet_feedback = it->second;

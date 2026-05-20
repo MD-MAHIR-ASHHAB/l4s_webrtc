@@ -4,150 +4,242 @@
 #include <deque>
 #include <memory>
 #include <optional>
-#include <vector>
+#include <string>
+#include <cstdint>
 
+#include "api/environment/environment.h"
+#include "api/network_state_predictor.h"
+#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/transport/network_control.h"
+#include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
+#include "api/units/data_size.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/alr_detector.h"
+#include "modules/congestion_controller/goog_cc/probe_controller.h"
+#include "modules/congestion_controller/goog_cc/probe_bitrate_estimator.h"
 #include "api/numerics/samples_stats_counter.h"
-#include "modules/congestion_controller/l4s/l4s_prague_controller.h"
+
+// Metrics collection
+#include "api/test/metrics/metrics_logger.h"
 
 namespace webrtc {
 
-// Forward declarations
-// class AcknowledgedBitrateEstimator;
-// class DelayBasedBwe;
-// class SendSideBandwidthEstimation;
-// class ProbeController;
 namespace test {
-class MetricsLogger;
+class L4SNetworkControllerTest;
 }
-class Environment;
-struct NetworkStateEstimate;
-struct TransportPacketsFeedback;
-struct NetworkControllerConfig;
 
+// Forward declarations
+class RtcEventLog;
+
+// Configuration for L4S network controller
 struct L4SControllerConfig {
-  // Whether to fallback to GCC if L4S isn't supported
-  bool fallback_to_gcc = true;
-  // Whether to use ECT(1) marking for packets
+  // ECN Configuration
   bool use_ect1_marking = true;
-  // Metrics collection configuration
+  bool fallback_to_gcc = true;
+  
+  // Metrics and Testing
   bool enable_metrics_collection = true;
-  std::string test_case_name = "l4s_vs_gcc_comparison";
+  std::string test_case_name = "l4s_network_test";
+  
+  // Bandwidth Estimation Components
+  bool enable_probing = true;
+  bool enable_acked_estimation = true;
+  bool enable_alr_detection = true;
+  TimeDelta probe_interval = TimeDelta::Seconds(8);
+  TimeDelta recovery_probe_interval = TimeDelta::Seconds(5);
+  double recovery_probe_rtt_factor = 5.0;
+  double probe_hold_rtt_factor = 5.0;
+  TimeDelta min_rtt_scaled_interval = TimeDelta::Seconds(1);
+
+  // Probe pacing aggressiveness.
+  double probe_multiplier = 1.2;
+  double alr_probe_multiplier = 1.35;
+  double recovery_probe_multiplier = 1.4;
+  double recovery_alr_probe_multiplier = 1.7;
+  double min_useful_probe_uplift = 1.05;
+
+  // Avoid probing/recovery at very low rates where probe samples are often distorted.
+  DataRate periodic_probe_min_rate = DataRate::KilobitsPerSec(400);
+  DataRate recovery_probe_min_rate = DataRate::KilobitsPerSec(600);
+
+  // Probe gating and confidence behavior.
+  double discovery_probe_block_confidence = 0.92;
+  double steady_probe_block_confidence = 0.88;
+  double probe_confidence_fresh = 0.75;
+  double probe_confidence_recent = 0.55;
+
+  // Recovery-entry stability guards.
+  int recovery_min_clean_packets = 80;
+  TimeDelta recovery_min_clean_duration = TimeDelta::Seconds(2);
+  TimeDelta recovery_reentry_cooldown = TimeDelta::Seconds(8);
+  
+  // Confidence Thresholds
+  double ecn_confidence_threshold = 0.8;
+  double probe_confidence_threshold = 0.7;
+  double acked_confidence_threshold = 0.5;
 };
 
-// Adaptive capacity estimator for realistic bandwidth estimation
-class AdaptiveCapacityEstimator {
- public:
-  explicit AdaptiveCapacityEstimator(DataRate starting_rate, DataRate min_target_rate, DataRate max_target_rate);
-  ~AdaptiveCapacityEstimator();
-  
-  // Update estimates based on different signals
+// Prague DCTCP-style capacity estimator with ECN feedback
+class PragueCapacityEstimator {
+public:
+  static constexpr TimeDelta kDecayInterval = TimeDelta::Seconds(30);
+  static constexpr size_t kHistoryWindowSize = 100;
+
+  PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate);
+  ~PragueCapacityEstimator();
+
+  // Prague DCTCP algorithm implementation
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
-  void UpdateFromSustainedRate(DataRate sustained_rate, Timestamp current_time);
+  void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
+  void OnAckedUpdate(Timestamp current_time,
+                     bool is_app_limited,
+                     DataRate actual_throughput,
+                     TimeDelta rtt_bloat);
+  void OnTimeUpdate(Timestamp current_time, bool is_app_limited);
 
-  TimeDelta GetCurrentRTT() const { return current_rtt_; }
-  DataRate GetHistoricMin() const { return historic_min_; }
-  DataRate GetHistoricMax() const { return historic_max_; }
-  void SetHistoricMin(DataRate rate) { historic_min_ = rate; }
-  void SetHistoricMax(DataRate rate) { historic_max_ = rate; }
-  // Get the current adaptive estimate
-  DataRate GetMaxRealisticBandwidth() const;
+  DataRate GetCurrentEstimate() const;
+  // Directly seed the internal estimate (used by the actual-rate floor guard).
+  void SetCurrentEstimate(DataRate rate);
+  double GetAlpha() const { return alpha_; }
+  int GetDirectionFlag() const { return direction_flag_; }
+  int GetNonCePacketCount() const { return non_ce_packet_count_; }
+  bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
+  double GetConfidence(Timestamp now) const;
   
-  // Decay estimates over time if not reinforced
-  void OnTimeUpdate(Timestamp current_time);
+  // Probe-aware rate limiting
+  void SetProbeConstraint(DataRate probe_estimate,
+                          Timestamp now);
+  void ClearProbeConstraint();
+  void SetAdditiveHoldUntil(Timestamp hold_until);
+  bool HasFreshProbeCeiling(Timestamp now) const;
   
- private:
-  enum class ConnectionType {
-    MOBILE_SLOW,    // < 5 Mbps
-    MOBILE_FAST,    // 5-50 Mbps  
-    WIFI_TYPICAL,   // 10-100 Mbps
-    WIRED_FAST,     // 100+ Mbps
-    UNKNOWN
-  };
-  // double alpha_ = 0.0;
-  
-  DataRate historic_min_;
-  DataRate historic_max_;
+  // Discovery mode control
+  void ExitDiscoveryMode(const std::string& reason);
+  bool HasConvergedWithProbe() const;
 
-  // Different estimate sources
+private:
+
+  // --- Growth Phase Calculators ---
+  // Returns the step increase in bits-per-second (bps) based on the current phase
+  double CalculateDiscoveryStep(double current_bps, double elapsed_s) const;
+  double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
+  double CalculateStableStep(double current_bps, double elapsed_s) const;
+
+  DataRate ApplyThroughputTether(DataRate proposed_rate, DataRate actual_throughput) const;
+  void DecayAlpha(Timestamp current_time);
+
+  int ComputeAdaptiveNonCeThreshold() const;
+
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
   DataRate max_target_rate_;
-  
-  // Tracking data
-  std::deque<DataRate> sustained_rates_history_;
-  static constexpr size_t kHistoryWindowSize = 10;
-  static constexpr TimeDelta kDecayInterval = TimeDelta::Seconds(30);
-  
+  TimeDelta current_rtt_;
+  double alpha_ = 0.0;  // DCTCP alpha parameter
   Timestamp last_update_time_;
-  TimeDelta current_rtt_ = TimeDelta::PlusInfinity();
+  Timestamp last_congestion_signal_;
+  Timestamp last_ecn_feedback_;  // Track any ECN activity (ECT or CE)
   
-  // Absolute limits
-  static constexpr DataRate kAbsoluteMaxLimit = DataRate::KilobitsPerSec(1000000); // 1 Gbps
-  static constexpr DataRate kAbsoluteMinLimit = DataRate::KilobitsPerSec(300);    // 300 Kbps
+
+  //time-driven AI
+  double ai_bits_accumulator_ = 0.0;
+  Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
+  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
+  TimeDelta baseline_rtt_ = TimeDelta::PlusInfinity();
+
+
+  // State machine for direction control
+  int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
+  int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
+
+
+  // --- NEW: Bully Resistance Counter ---
+  int consecutive_md_cuts_ = 0;
+
+  static constexpr int kNonCeThresholdBase = 10;
+  static constexpr int kNonCeThresholdMin = 8;
+  static constexpr int kNonCeThresholdMax = 28;
+
+  // RFC 9330 §4.3: MD must be applied at most once per RTT.
+  // last_md_time_ tracks when the most recent multiplicative decrease was
+  // applied so that subsequent CE-containing batches within the same RTT
+  // only update alpha without re-applying the rate reduction.
+  Timestamp last_md_time_ = Timestamp::MinusInfinity();
+
+  // Discovery mode for fast startup
+  bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
+  bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
+  
+  // Probe constraint for discovery mode
+  DataRate probe_constraint_ = DataRate::Zero();
+  double probe_constraint_confidence_ = 0.0;
+  Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
+  Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
+
+
 };
 
-// L4S Metrics Collector for comprehensive performance analysis
-class L4SMetricsCollector {
- public:
-  L4SMetricsCollector(test::MetricsLogger* logger, 
-                      const std::string& test_case_name,
-                      Clock* clock);
-  
-  // Time-series metrics logging
-  void LogBandwidthMetrics(Timestamp at_time, DataRate target_bitrate, 
-                          DataRate actual_bitrate);
-  void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
-                      TimeDelta jitter = TimeDelta::Zero());
-  void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
-  void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, 
-                           double congestion_ratio);
 
-  // Periodic summary metrics
+// L4S Metrics Collector
+class L4SMetricsCollector {
+public:
+  // Keep logging as fine-grained as possible while preserving timestamp order.
+  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(50);
+  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
+
+  L4SMetricsCollector(test::MetricsLogger* logger, 
+                           const std::string& test_case_name);
+  ~L4SMetricsCollector();
+
+
+  void LogBandwidthMetrics(Timestamp at_time,
+                           DataRate target_bitrate,
+                           DataRate actual_bitrate,
+                           std::optional<DataRate> acked_bitrate,
+                           std::optional<DataRate> send_rate);
+
+  void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, TimeDelta jitter);
+  void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
+  void LogCongestionMetrics(Timestamp at_time, int ce_count, int ect_count, double congestion_ratio);
+  // void LogFusionMetrics(Timestamp at_time, const L4SBandwidthFusion::BandwidthSources& sources, DataRate fused_rate);
   void LogPeriodicSummary(Timestamp at_time);
-  
-  // Utility methods for stats tracking
-  void UpdateThroughputStats(DataRate actual_bitrate);
-  void UpdateDelayStats(TimeDelta rtt);
-  void UpdateLossStats(double loss_fraction);
+
   void ExportToJsonFile(const std::string& filename);
 
-  
- private:
+private:
+  void UpdateThroughputStats(DataRate actual_bitrate);
+  void UpdateDelayStats(TimeDelta rtt, TimeDelta one_way_delay);
+  void UpdateLossStats(double loss_fraction);
+
   test::MetricsLogger* logger_;
   std::string test_case_name_;
-  Clock* clock_;
-  
-  // Statistics tracking
-  SamplesStatsCounter throughput_stats_;
-  SamplesStatsCounter delay_stats_;
-  SamplesStatsCounter loss_stats_;
-  
-  // Last logged values to prevent spam
+
+  // Logging rate limiting
   Timestamp last_bandwidth_log_ = Timestamp::MinusInfinity();
   Timestamp last_delay_log_ = Timestamp::MinusInfinity();
   Timestamp last_loss_log_ = Timestamp::MinusInfinity();
   Timestamp last_summary_log_ = Timestamp::MinusInfinity();
 
-
-  
-  // Minimum intervals between logs
-  static constexpr TimeDelta kBandwidthLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kDelayLogInterval = TimeDelta::Millis(100);
-  static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(500);
-  static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Seconds(10);
+  // Statistics tracking
+  webrtc::SamplesStatsCounter throughput_stats_;
+  webrtc::SamplesStatsCounter rtt_stats_;
+  webrtc::SamplesStatsCounter delay_stats_;
+  webrtc::SamplesStatsCounter loss_stats_;
 };
 
-// Implementation of Network Controller Interface that uses L4S-based
-// congestion control. It can reuse some components from GCC when needed
-// and falls back to GCC if L4S (ECN) isn't supported.
+
+
+// Main L4S Prague Network Controller
+
+
 class L4SNetworkController : public NetworkControllerInterface {
- public:
+public:
   L4SNetworkController(NetworkControllerConfig config,
                       L4SControllerConfig l4s_config,
                       test::MetricsLogger* metrics_logger = nullptr);
@@ -162,108 +254,161 @@ class L4SNetworkController : public NetworkControllerInterface {
   NetworkControlUpdate OnSentPacket(SentPacket msg) override;
   NetworkControlUpdate OnReceivedPacket(ReceivedPacket msg) override;
   NetworkControlUpdate OnStreamsConfig(StreamsConfig msg) override;
-  NetworkControlUpdate OnTargetRateConstraints(
-      TargetRateConstraints msg) override;
+  NetworkControlUpdate OnTargetRateConstraints(TargetRateConstraints msg) override;
   NetworkControlUpdate OnTransportLossReport(TransportLossReport msg) override;
-  NetworkControlUpdate OnTransportPacketsFeedback(
-      TransportPacketsFeedback msg) override;
-  NetworkControlUpdate OnNetworkStateEstimate(
-      NetworkStateEstimate msg) override;
-  
+  NetworkControlUpdate OnTransportPacketsFeedback(TransportPacketsFeedback msg) override;
+  NetworkControlUpdate OnNetworkStateEstimate(NetworkStateEstimate msg) override;
 
- private:
+private:
+  friend class test::L4SNetworkControllerTest;
+  // Initialization
+  void InitializeBandwidthEstimators();
+
+  // Core processing methods
+  void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
+  void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
+  void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
+  void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
+  std::optional<DataRate> GetLastProbeResult();
+  std::optional<webrtc::ProbeClusterConfig>CreateCustomProbe(Timestamp now, DataRate target_rate);
+
+  
+  // Probing logic
+  void HandlePeriodicProbing(Timestamp now, NetworkControlUpdate* update);
+  bool ShouldProbeNow(Timestamp now) const;
+  void InitiateStatefulProbe(Timestamp now, NetworkControlUpdate* update, double base_multiplier, const std::string& state_name);
+
+  // Returns true if encoder needs more headroom for probing (periodic/recovery)
+  bool EncoderNeedsMoreHeadroom(double multiplier) const;
+  TimeDelta GetRttScaledInterval() const;
+  void StartProbeHold(Timestamp now);
+  
+  // Convergence detection
+  bool ShouldExitDiscoveryMode(Timestamp now) const;
+  
+  // Recovery detection
+  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
+
+  // ALR detection
+  bool IsApplicationLimited() const;
+  void UpdateAlrDetector(const TransportPacketsFeedback& feedback);
+
+  // Confidence calculation
+  bool IsProbeDataValid(Timestamp now) const;
+
+  // Rate control
+  DataRate FuseBandwidthEstimates(Timestamp now);
   NetworkControlUpdate CreateRateUpdate(Timestamp at_time) const;
-  void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update,
-                                    Timestamp at_time);
-  bool IsL4SActive() const;
-  
-  void ProcessEcnFeedback(const TransportPacketsFeedback& feedback);
-  void UpdateNetworkCapacityEstimate(const TransportPacketsFeedback& feedback);
-  
+  void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time);
 
-  std::optional<Timestamp> last_update_time_;
-  TimeDelta update_interval_ = TimeDelta::Millis(25);
+  // State management
+  bool CanEnterRecoveryState(Timestamp now) const;
+  void LogStateSnapshot(Timestamp now);
 
-  // Environment
+  bool HasRecentCongestionSignals(Timestamp now) const;
+  bool IsEcnFeedbackFresh(Timestamp now) const;
+
+  // Throughput calculation
+  void UpdateThroughputWindow(const TransportPacketsFeedback& feedback);
+  
+  std::deque<std::pair<Timestamp, DataRate>> historical_capacity_window_;
+  DataRate historical_max_capacity_ = DataRate::Zero();
+
+  std::deque<std::pair<Timestamp, DataRate>> recent_probes_window_;
+
+  // Metrics
+  void LogPeriodicMetrics(Timestamp at_time);
+
+  
+  // Pacer transmission tracking
+  std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
+  webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
+
+  // Environment and configuration
   const Environment env_;
-  const bool fallback_to_gcc_;
-  const bool use_ect1_marking_;
+  L4SControllerConfig config_;
 
-  // // L4S-specific controllers
-  // std::unique_ptr<L4SPragueController> prague_controller_;
-  
-  // Current state
-  bool ecn_supported_ = false;
-  bool ecn_capable_network_ = false;
+  // Bandwidth estimation components
+  std::unique_ptr<PragueCapacityEstimator> prague_estimator_;
+  std::unique_ptr<ProbeController> probe_controller_;
+  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
+  std::unique_ptr<AcknowledgedBitrateEstimator> acked_estimator_;
+  std::unique_ptr<AlrDetector> alr_detector_;
+
+  // State tracking
+  Timestamp last_state_snapshot_log_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kStateSnapshotLogInterval = TimeDelta::Seconds(1);
+  static constexpr TimeDelta kMinimumStateDwellFloor = TimeDelta::Millis(250);
+
   std::optional<DataRate> target_rate_;
+  std::optional<DataRate> starting_rate_;
   std::optional<DataRate> min_target_rate_;
   std::optional<DataRate> max_target_rate_;
-  std::optional<DataRate> starting_rate_;
-  
-  // Tracking congestion signals
-  int ce_count_ = 0;
-  int ect_count_ = 0;
+
+  // ECN state
+  bool ecn_supported_ = false;
   Timestamp last_congestion_signal_ = Timestamp::MinusInfinity();
-  
-  // For fallback to GCC if needed
-  std::unique_ptr<NetworkControllerInterface> gcc_controller_;
+  int window_ce_count_ = 0;
+  int window_ect_count_ = 0;
+  Timestamp window_start_time_ = Timestamp::MinusInfinity();
 
-  // Add bandwidth estimation integration to the private section
-  std::optional<DataRate> estimated_bandwidth_;
-  
-  // Adaptive capacity estimation
-  std::unique_ptr<AdaptiveCapacityEstimator> capacity_estimator_;
-  DataRate max_realistic_bandwidth_ = DataRate::KilobitsPerSec(100000); // Will be replaced by adaptive estimator
+  // ECN policy calculation
+  double CalculateEcnYieldRatio(double raw_ce_ratio, double starvation_ratio, TimeDelta rtt_bloat) const;
+  void EnforceHistoricalSafetyFloor();
 
-  // Bandwidth estimation tracking
-  DataRate last_acknowledged_rate_ = DataRate::Zero();
-  DataRate last_delay_based_estimate_ = DataRate::Zero();
-  
-  // Enhanced RTT tracking (similar to GCC)
-  std::deque<int64_t> feedback_max_rtts_;
-  TimeDelta last_estimated_round_trip_time_ = TimeDelta::PlusInfinity();
-  
-  
-  // Metrics collection
-  std::unique_ptr<L4SMetricsCollector> metrics_collector_;
-  bool metrics_enabled_ = true;
-  Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
-  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(100);
-  
-  std::deque<std::pair<Timestamp, int>> throughput_window_;
-
-  // Performance tracking for metrics
-  DataRate last_actual_bitrate_ = DataRate::Zero();
-  DataRate last_target_bitrate_ = DataRate::Zero();
+  // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
-  TimeDelta jitter_ = TimeDelta::Zero();
-  double rfc3550_jitter_ = 0.0;
+  TimeDelta last_smoothed_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
+  // Add this to the private members of L4SNetworkController
+  TimeDelta base_rtt_ = TimeDelta::PlusInfinity();
+
+  // Loss tracking
   double last_loss_fraction_ = 0.0;
   int last_packets_lost_ = 0;
-  std::string current_active_controller_ = "initializing";
 
-  
-  // Helper methods for metrics
-  void LogPeriodicMetrics(Timestamp at_time);
-  void LogControllerState(Timestamp at_time);
+  // Probing state
+  Timestamp last_probe_time_ = Timestamp::MinusInfinity();
+  Timestamp probe_hold_until_ = Timestamp::MinusInfinity();
+  Timestamp next_probe_allowed_at_ = Timestamp::MinusInfinity();
+  Timestamp demand_high_since_ = Timestamp::MinusInfinity();
+  int probe_reject_streak_ = 0;
+  DataRate probe_rate_ceiling_ = DataRate::Zero();
+  bool initial_probes_sent_ = false;  // SetBitrates deferred to first OnProcessInterval
+  // Last bitrate reported to ProbeController via SetEstimatedBitrate.  Used to
+  // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
+  // don't flood probe_controller.cc's "Measured bitrate" log.
+  DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
 
+  // ALR state tracking for probe controller
+  bool previously_in_alr_ = false;
 
+  // Recovery state tracking
+  bool recovery_mode_active_ = false;
+  bool recovery_probe_bootstrapped_ = false;
+  int consecutive_clean_packets_ = 0;  // ECT1 without CE
+  Timestamp clean_ect_run_start_ = Timestamp::MinusInfinity();
+  Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
+  // After a successful convergence exit, block re-entry for this duration to
+  // prevent the rapid enter/exit oscillation seen when the network is stable.
+  Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
+  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
+
+  // Throughput calculation
+  std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
+  DataRate last_actual_bitrate_ = DataRate::Zero();
+  std::optional<DataRate> last_acked_bitrate_;
+
+  //Pading the pacer
+  std::optional<DataRate> max_padding_rate_;
+
+  // Metrics
+  bool metrics_enabled_ = true;
+  std::unique_ptr<L4SMetricsCollector> metrics_collector_;
+  Timestamp metrics_last_logged_ = Timestamp::MinusInfinity();
+  static constexpr TimeDelta kMetricsLoggingInterval = TimeDelta::Millis(50);
 };
-
-/*
- * L4S Network Controller with GCC-Inspired Bandwidth Estimation
- * 
- * Comprehensive Improvements:
- * 1. Integrated GCC's acknowledged bitrate estimator for actual throughput measurement
- * 2. Added delay-based BWE for detecting network congestion through packet delays  
- * 3. Enhanced RTT tracking with moving window analysis (like GCC)
- * 4. Network capacity estimation that learns from actual network behavior
- * 5. BWE-informed rate capping that respects real network conditions
- * 6. Prague controller integration with proper bandwidth constraints
- * 
- * This prevents the 100 Mbps VM network from being overdriven to 2+ Gbps
- * by providing realistic network capacity estimates and proper feedback loops.
- */
 
 }  // namespace webrtc
 

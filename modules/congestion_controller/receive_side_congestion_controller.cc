@@ -31,6 +31,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace webrtc {
 
@@ -112,6 +113,25 @@ void ReceiveSideCongestionController::
     EnableSendCongestionControlFeedbackAccordingToRfc8888() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   send_rfc8888_congestion_feedback_ = true;
+}
+
+void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
+    RTC_NO_THREAD_SAFETY_ANALYSIS {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  
+  if (send_rfc8888_congestion_feedback_) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Triggering immediate congestion control feedback";
+    congestion_control_feedback_generator_.SendImmediateFeedback();
+  } else {
+    RTC_LOG(LS_WARNING) << "L4S: Immediate feedback requested but RFC 8888 feedback not enabled";
+  }
+}
+
+CongestionControlFeedbackGenerator* 
+ReceiveSideCongestionController::GetCongestionControlFeedbackGenerator()
+    RTC_NO_THREAD_SAFETY_ANALYSIS {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  return &congestion_control_feedback_generator_;
 }
 
 void ReceiveSideCongestionController::OnReceivedPacket(

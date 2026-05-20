@@ -38,6 +38,7 @@
 #include "api/task_queue/pending_task_safety_flag.h"
 #include "api/task_queue/task_queue_base.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/transport/ecn_marking.h"
 #include "api/transport/network_control.h"
 #include "api/transport/network_types.h"
 #include "api/units/data_rate.h"
@@ -71,6 +72,7 @@
 #include "logging/rtc_event_log/rtc_stream_config.h"
 #include "media/base/codec.h"
 #include "modules/congestion_controller/include/receive_side_congestion_controller.h"
+#include "modules/remote_bitrate_estimator/congestion_control_feedback_generator.h"
 #include "modules/rtp_rtcp/include/flexfec_receiver.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
@@ -82,6 +84,7 @@
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/cpu_info.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/network/ecn_marking.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/strings/string_builder.h"
 #include "rtc_base/system/no_unique_address.h"
@@ -389,6 +392,10 @@ class Call final : public webrtc::Call,
                                  MediaType media_type)
       RTC_RUN_ON(worker_thread_);
 
+  // L4S ECN immediate feedback processing
+  void ProcessL4sEcnMarking(const RtpPacketReceived& packet)
+      RTC_RUN_ON(worker_thread_);
+
   bool RegisterReceiveStream(uint32_t ssrc, ReceiveStreamInterface* stream);
   bool UnregisterReceiveStream(uint32_t ssrc);
 
@@ -476,6 +483,19 @@ class Call final : public webrtc::Call,
   ReceiveSideCongestionController receive_side_cc_;
   RepeatingTaskHandle receive_side_cc_periodic_task_;
   RepeatingTaskHandle elastic_bandwidth_allocation_task_;
+
+  // L4S ECN immediate feedback state
+  enum class L4sFeedbackMode {
+    kBatchMode,     // Normal batching behavior  
+    kImmediateMode  // Immediate feedback for each CE packet
+  };
+  L4sFeedbackMode l4s_feedback_mode_ RTC_GUARDED_BY(worker_thread_) = L4sFeedbackMode::kBatchMode;
+  
+  // Counter for consecutive non-CE packets to control mode switching
+  int consecutive_non_ce_packets_ RTC_GUARDED_BY(worker_thread_) = 0;
+  static constexpr int kMaxConsecutiveNonCePackets = 7;
+  
+  bool l4s_rfc8888_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
   const std::unique_ptr<ReceiveTimeCalculator> receive_time_calculator_;
 
@@ -1501,7 +1521,61 @@ void Call::NotifyBweOfReceivedPacket(const RtpPacketReceived& packet,
   }
   transport_send_->OnReceivedPacket(packet_msg);
 
+  // Register packet in the feedback tracker FIRST so that the CE packet
+  // is included when ProcessL4sEcnMarking() fires immediate RTCP feedback.
   receive_side_cc_.OnReceivedPacket(packet, media_type);
+
+  // L4S ECN immediate feedback processing (runs after packet is registered)
+  ProcessL4sEcnMarking(packet);
+}
+
+void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
+  RTC_DCHECK_RUN_ON(worker_thread_);
+  
+  // Check if ECN information is available
+  EcnMarking ecn_marking = packet.ecn();
+  
+  // Process CE-marked packets for L4S immediate feedback
+  if (ecn_marking == EcnMarking::kCe) {
+    RTC_LOG(LS_VERBOSE) << "L4S: CE marking detected on RTP packet - SSRC=" 
+                     << packet.Ssrc() << ", seq=" << packet.SequenceNumber();
+    
+    // Reset consecutive counter on CE detection
+    consecutive_non_ce_packets_ = 0;
+    
+    // Trigger immediate feedback mode on first CE packet
+    if (l4s_feedback_mode_ == L4sFeedbackMode::kBatchMode) {
+      l4s_feedback_mode_ = L4sFeedbackMode::kImmediateMode;
+      
+      // Enable RFC 8888 feedback if not already enabled  
+      if (!l4s_rfc8888_enabled_) {
+        receive_side_cc_.EnableSendCongestionControlFeedbackAccordingToRfc8888();
+        l4s_rfc8888_enabled_ = true;
+        RTC_LOG(LS_VERBOSE) << "L4S: Enabled RFC 8888 feedback for ECN information";
+      }
+      
+      // Flush any pending batch feedback immediately
+      receive_side_cc_.SendImmediateCongestionFeedback();
+      RTC_LOG(LS_VERBOSE) << "L4S: Switched to immediate feedback mode and flushed batch";
+    } else {
+      // Already in immediate mode, send immediate feedback for this CE packet
+      receive_side_cc_.SendImmediateCongestionFeedback();
+      RTC_LOG(LS_VERBOSE) << "L4S: Sent immediate feedback for CE packet";
+    }
+  } else {
+    // Non-CE packet received - increment counter
+    if (l4s_feedback_mode_ == L4sFeedbackMode::kImmediateMode) {
+      consecutive_non_ce_packets_++;
+      
+      // Only switch back after seeing enough consecutive non-CE packets
+      if (consecutive_non_ce_packets_ >= kMaxConsecutiveNonCePackets) {
+        l4s_feedback_mode_ = L4sFeedbackMode::kBatchMode;
+        consecutive_non_ce_packets_ = 0; // Reset counter
+        RTC_LOG(LS_VERBOSE) << "L4S: Switched back to batch feedback mode after " 
+                         << kMaxConsecutiveNonCePackets << " consecutive non-CE packets";
+      }
+    }
+  }
 }
 
 }  // namespace internal

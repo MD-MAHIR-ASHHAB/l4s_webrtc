@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
-#include "api/audio/create_audio_device_module.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio_options.h"
@@ -69,6 +68,9 @@
 // L4S Metrics Collection
 #include "modules/congestion_controller/l4s/l4s_network_controller.h"
 
+// Test Audio Device Module for Linux VM deployment
+#include "modules/audio_device/include/test_audio_device.h"
+
 
 
 
@@ -97,36 +99,189 @@ class DummySetSessionDescriptionObserver
   }
 };
 
+// //square frame generator capturer
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   const size_t kWidth = 1920;   // (1920x1080) Full HD
+//   const size_t kHeight = 1080;
+//   const size_t kFps = 30;       // 30 FPS
+
+  
+//   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
+//       webrtc::VideoCaptureFactory::CreateDeviceInfo());
+//   if (!info) {
+//     return nullptr;
+//   }
+//   int num_devices = info->NumberOfDevices();
+//   for (int i = 0; i < num_devices; ++i) {
+//     std::unique_ptr<TestVideoCapturer> capturer =
+//         webrtc::test::CreateVideoCapturer(kWidth, kHeight, kFps, i);
+//     if (capturer) {
+//       return capturer;
+//     }
+//   }
+  
+//  // //  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+//  //    //   kWidth, kHeight, std::nullopt, std::nullopt);
+
+//  // // auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//  //   //     {"foreman_480x272.yuv"}, kWidth, kHeight, 1);
+
+//   // auto file_path = webrtc::test::ResourcePath("foreman_480x272", "yuv");
+//   // auto frame_generator= webrtc::test:: CreateFromYuvFileFrameGenerator({file_path}, kWidth, kHeight, 1);
+
+//  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
+//      kWidth, kHeight, std::nullopt, std::nullopt);
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
+//       task_queue_factory);
+// }
+
+//fireworks.yuv (2k) file generator capturer
+
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   // 1. Update Resolution to match fireworks.yuv
+//   const size_t kWidth = 2560;   
+//   const size_t kHeight = 1440;
+//   const size_t kFps = 24;       
+
+
+//   // 3. File Generator Logic using ResourcePath
+//   // This looks for "fireworks.yuv" inside your resources folder
+//   auto file_path = webrtc::test::ResourcePath("fireworks", "yuv");
+//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+
+
+//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//       {file_path}, kWidth, kHeight, 1);
+
+//   // 4. Return the Capturer
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), 
+//       std::move(frame_generator), 
+//       kFps,
+//       task_queue_factory);
+// }
+
+  
+
+// // //ballons.yuv(1080p) file generator capturer
+
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   // 1. Update Resolution to match ballons.yuv
+//   const size_t kWidth = 1920;   
+//   const size_t kHeight = 1080;
+//   const size_t kFps = 24;       
+
+
+//   // 3. File Generator Logic using ResourcePath
+//   // This looks for "ballons.yuv" inside your resources folder
+//   auto file_path = webrtc::test::ResourcePath("ballons", "yuv");
+//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+
+
+//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//       {file_path}, kWidth, kHeight, 1);
+
+//   // 4. Return the Capturer
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), 
+//       std::move(frame_generator), 
+//       kFps,
+//       task_queue_factory);
+// }
+
+
+
+//fireworks.yuv(1080p) file generator capturer
+
+
 std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
-  const size_t kWidth = 640;
-  const size_t kHeight = 480;
-  const size_t kFps = 30;
-  std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
-      webrtc::VideoCaptureFactory::CreateDeviceInfo());
-  if (!info) {
-    RTC_LOG(LS_WARNING) << "L4S: Failed to create video device info";
-    return nullptr;
-  }
-  int num_devices = info->NumberOfDevices();
-  RTC_LOG(LS_INFO) << "L4S: Found " << num_devices << " video capture devices";
-  
-  for (int i = 0; i < num_devices; ++i) {
-    std::unique_ptr<TestVideoCapturer> capturer =
-        webrtc::test::cd (kWidth, kHeight, kFps, i);
-    if (capturer) {
-      RTC_LOG(LS_INFO) << "L4S: Using real video device " << i << " for authentic testing";
-      return capturer;
-    }
-  }
-  
-  RTC_LOG(LS_WARNING) << "L4S: No real video devices available, using synthetic video";
-  auto frame_generator = webrtc::test::CreateSquareFrameGenerator(
-      kWidth, kHeight, std::nullopt, std::nullopt);
+  // 1. Update Resolution to match ballons.yuv
+  const size_t kWidth = 1920;   
+  const size_t kHeight = 1080;
+  const size_t kFps = 24;       
+
+
+  // 3. File Generator Logic using ResourcePath
+  // This looks for "fireworks_1080p.yuv" inside your resources folder
+  auto file_path = webrtc::test::ResourcePath("fireworks_1080p", "yuv");
+  RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+
+
+  auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+      {file_path}, kWidth, kHeight, 1);
+
+  // 4. Return the Capturer
   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
-      webrtc::Clock::GetRealTimeClock(), std::move(frame_generator), kFps,
+      webrtc::Clock::GetRealTimeClock(), 
+      std::move(frame_generator), 
+      kFps,
       task_queue_factory);
 }
+
+
+// // clock_720p.yuv file generator capturer
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   // 1. Update Resolution to match clock_720p.yuv
+//   const size_t kWidth = 1280;   
+//   const size_t kHeight = 720;
+//   const size_t kFps = 30;       
+
+
+//   // 3. File Generator Logic using ResourcePath
+//   // This looks for "clock_720p.yuv" inside your resources folder
+//   auto file_path = webrtc::test::ResourcePath("clock_720p", "yuv");
+//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+
+
+//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//       {file_path}, kWidth, kHeight, 1);
+
+//   // 4. Return the Capturer
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), 
+//       std::move(frame_generator), 
+//       kFps,
+//       task_queue_factory);
+// }
+
+// clock_480p.yuv file generator capturer
+
+// std::unique_ptr<TestVideoCapturer> CreateCapturer(
+//     webrtc::TaskQueueFactory& task_queue_factory) {
+//   // 1. Update Resolution to match clock_480p.yuv
+//   const size_t kWidth = 640;   
+//   const size_t kHeight = 480;
+//   const size_t kFps = 30;       
+
+
+//   // 3. File Generator Logic using ResourcePath
+//   // This looks for "clock_480p.yuv" inside your resources folder
+//   auto file_path = webrtc::test::ResourcePath("clock_480p", "yuv");
+//   RTC_LOG(LS_ERROR) << "ATTEMPTING TO LOAD FILE FROM: " << file_path;
+  
+
+//   auto frame_generator = webrtc::test::CreateFromYuvFileFrameGenerator(
+//       {file_path}, kWidth, kHeight, 1);
+
+//   // 4. Return the Capturer
+//   return std::make_unique<webrtc::test::FrameGeneratorCapturer>(
+//       webrtc::Clock::GetRealTimeClock(), 
+//       std::move(frame_generator), 
+//       kFps,
+//       task_queue_factory);
+// }
+
+
 class CapturerTrackSource : public webrtc::VideoTrackSource {
  public:
   static webrtc::scoped_refptr<CapturerTrackSource> Create(
@@ -213,6 +368,13 @@ bool Conductor::InitializePeerConnection() {
   l4s_config.test_case_name = "peerconnection_client_test";
   l4s_config.fallback_to_gcc = true;
   l4s_config.use_ect1_marking = true;
+
+
+  // Add these to prevent memory bloat:
+  // l4s_config.max_transport_feedback_history = 2000;      // Limit history size
+  // l4s_config.transport_feedback_cleanup_interval_ms = 1000;  // Cleanup every 1s instead of default
+  // l4s_config.max_packet_age_seconds = 30;               // Drop packets older than 30s
+
   
   // Create a proper network controller factory
   class L4SNetworkControllerFactory : public webrtc::NetworkControllerFactoryInterface {
@@ -237,15 +399,16 @@ bool Conductor::InitializePeerConnection() {
   deps.network_controller_factory = 
       std::make_unique<L4SNetworkControllerFactory>(l4s_config);
   
-  // L4S Challenge 3: Use real audio device instead of fake
-  // Create real Windows Core Audio device for authentic L4S testing
-  auto real_audio_device = webrtc::CreateAudioDeviceModule(*deps.env);
-  if (real_audio_device) {
-    deps.adm = real_audio_device;
-    RTC_LOG(LS_INFO) << "L4S: Using real audio device for authentic testing";
-  } else {
-    RTC_LOG(LS_WARNING) << "L4S: Failed to create real audio device, using default";
-  }
+  // Use TestAudioDeviceModule for Linux VM deployment (no real audio hardware)
+  auto capturer = webrtc::TestAudioDeviceModule::CreatePulsedNoiseCapturer(
+      1000, 48000, 1);  // max_amplitude=1000, sample_rate=48kHz, mono
+  auto renderer = webrtc::TestAudioDeviceModule::CreateDiscardRenderer(
+      48000, 1);  // sample_rate=48kHz, mono
+  
+  deps.adm = webrtc::TestAudioDeviceModule::Create(
+      env_, std::move(capturer), std::move(renderer), 1.0f);
+  
+  RTC_LOG(LS_INFO) << "Using TestAudioDeviceModule for Linux VM deployment";
   
   webrtc::EnableMedia(deps);
   peer_connection_factory_ =
@@ -297,6 +460,15 @@ bool Conductor::CreatePeerConnection() {
 
   webrtc::PeerConnectionInterface::RTCConfiguration config;
   config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
+    // DISABLE ALL RESOLUTION ADAPTATIONS
+  // 1. Disable CPU-based adaptation
+  // config.media_config.video.enable_cpu_adaptation = false;
+  // // 2. Disable bandwidth-based suspension
+  // config.media_config.video.suspend_below_min_bitrate = false;
+  // // 3. Disable experimental CPU load estimator
+  // config.media_config.video.experiment_cpu_load_estimator = false;
+
+
   webrtc::PeerConnectionInterface::IceServer server;
   server.uri = GetPeerConnectionString();
   config.servers.push_back(server);

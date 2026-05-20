@@ -162,6 +162,11 @@ class RtpTransportControllerSend final
   void MaybeCreateControllers() RTC_RUN_ON(sequence_checker_);
   void HandleTransportPacketsFeedback(const TransportPacketsFeedback& feedback)
       RTC_RUN_ON(sequence_checker_);
+
+  // L4S immediate feedback processing for sender side
+  bool ProcessL4sFeedbackForImmediateHandling(const TransportPacketsFeedback& feedback)
+      RTC_RUN_ON(sequence_checker_);
+
   void UpdateNetworkAvailability() RTC_RUN_ON(sequence_checker_);
   void UpdateInitialConstraints(TargetRateConstraints new_contraints)
       RTC_RUN_ON(sequence_checker_);
@@ -257,6 +262,18 @@ class RtpTransportControllerSend final
   // ECN detection state
   int ecn_detection_attempts_ = 0;
   static constexpr int kMaxEcnDetectionAttempts = 20;  // Allow several feedback rounds before giving up
+  
+  // L4S immediate feedback processing state
+  enum class L4sSenderFeedbackMode {
+    kBatchMode,     // Normal batch processing
+    kImmediateMode  // Immediate processing for CE-marked feedback
+  };
+  L4sSenderFeedbackMode l4s_sender_feedback_mode_ RTC_GUARDED_BY(sequence_checker_) = L4sSenderFeedbackMode::kBatchMode;
+  
+  // Counter for consecutive non-CE batches to control mode switching
+  int consecutive_non_ce_batches_ RTC_GUARDED_BY(sequence_checker_) = 0;
+  static constexpr int kMaxConsecutiveNonCeBatches = 3;
+  
   // Count of feedback messages received.
   int feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
   int transport_cc_feedback_count_ RTC_GUARDED_BY(sequence_checker_) = 0;
