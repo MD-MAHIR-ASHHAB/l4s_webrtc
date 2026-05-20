@@ -48,6 +48,7 @@ struct PacketFeedback {
   
   // ECN marking that was applied when this packet was sent
   EcnMarking sent_ecn_marking = EcnMarking::kNotEct;
+  bool ecn_already_reported = false;
 };
 
 class InFlightBytesTracker {

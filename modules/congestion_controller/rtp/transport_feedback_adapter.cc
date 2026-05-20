@@ -315,7 +315,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   
   int ect_count = 0;
   int ce_count = 0;
-
+  bool supports_ecn = false;
 
   if (feedback.GetPacketStatusCount() == 0) {
     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
@@ -323,17 +323,13 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   }
 
   // Add timestamp deltas to a local time base selected on first packet arrival.
-  // This won't be the true time base, but makes it easier to manually inspect
-  // time stamps.
   if (last_transport_feedback_base_time_.IsInfinite()) {
     current_offset_ = feedback_receive_time;
   } else {
-    // TODO(srte): We shouldn't need to do rounding here.
     const TimeDelta delta =
         feedback.GetBaseDelta(last_transport_feedback_base_time_)
             .RoundDownTo(TimeDelta::Millis(1));
     
-    // Add safety checks to prevent extreme values that could cause unit_base.h assertion
     if (!delta.IsFinite()) {
       RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
       current_offset_ = feedback_receive_time;
@@ -352,15 +348,17 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   size_t failed_lookups = 0;
   size_t ignored = 0;
 
-  feedback.ForAllPackets([&](uint16_t sequence_number,
-                             TimeDelta delta_since_base) {
+  // The lambda captures local variables (including ect_count, ce_count, supports_ecn) by reference [&]
+  feedback.ForAllPackets([&](uint16_t sequence_number, TimeDelta delta_since_base) {
     int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         seq_num, /*received=*/delta_since_base.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       return;
     }
+    
     if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
       packet_feedback->receive_time =
           current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
@@ -371,13 +369,38 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
         packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
       }
     }
+    
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
       result.receive_time = packet_feedback->receive_time;
-
       // Use the ECN marking that was applied when the packet was sent
       result.ecn = packet_feedback->sent_ecn_marking;
+
+      // --- DEDUPLICATION & COUNTING LOGIC ---
+      // Only process ECN metrics if the packet was successfully received
+      // AND we haven't already counted it in a previous overlapping report.
+      if (result.receive_time.IsFinite() && !packet_feedback->ecn_already_reported) {
+        
+        if (result.ecn == EcnMarking::kEct0 ||
+            result.ecn == EcnMarking::kEct1 || 
+            result.ecn == EcnMarking::kCe) {
+          ect_count++;
+          supports_ecn = true;
+        }
+        
+        if (result.ecn == EcnMarking::kCe) {
+          ce_count++;
+        }
+        
+        // Update the actual persistent entry in the history_ map so we never double-count it
+        auto it = history_.find(packet_feedback->sent.sequence_number);
+        if (it != history_.end()) {
+          it->second.ecn_already_reported = true;
+        }
+      }
+      // --------------------------------------
+
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -391,48 +414,17 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
         << " out of " << feedback.GetPacketStatusCount() << " total packets."
         << " Packets reordered or send time history too small?";
     
-    // If we failed to lookup most packets, this might indicate a serious timing issue
     double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
     if (failure_rate > 0.5) {
       RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
                         << "%. This suggests a timing or history management issue.";
     }
   }
+  
   if (ignored > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
-  // For Transport Feedback, we need to determine ECN support by checking if any 
-  // ECN-capable packets were successfully received with ECN markings preserved.
-  bool supports_ecn = false;
-
-  // Uncomment the following lines to enable logging of ECN marking counts
-  //int ecn_marked_sent = 0;
-  //int ecn_marked_received = 0;
-  
-  for (const auto& result : packet_result_vector) {
-    // Only process packets that were actually received (have finite receive times)
-    if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
-      if (result.ecn == EcnMarking::kEct0 ||
-          result.ecn == EcnMarking::kEct1|| 
-          result.ecn == EcnMarking::kCe) {
-        ect_count++;
-        supports_ecn = true;
-      }
-      if (result.ecn == EcnMarking::kCe) {
-        ce_count++;
-      }
-    }
-  }
-
-  
-  // Log the processed feedback details
-  // Uncomment the following line to enable logging of transport feedback processing
-  // RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
-  //                  << packet_result_vector.size() << " packets, "
-  //                  << "ECN marked sent: " << ecn_marked_sent
-  //                  << ", ECN marked received: " << ecn_marked_received
-  //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn, ect_count, ce_count);
@@ -482,37 +474,20 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     current_offset_ = feedback_receive_time;
   }
 
-  int ignored_packets = 0;
+int ignored_packets = 0;
   int failed_lookups = 0;
   bool supports_ecn = false;  // Start with false, set to true if we see any ECN-marked packets successfully delivered
   std::vector<PacketResult> packet_result_vector;
+  
   for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
        feedback.packets()) {
-    if (packet_info.ecn == EcnMarking::kEct0 ||
-      packet_info.ecn == EcnMarking::kEct1 ||
-      packet_info.ecn == EcnMarking::kCe) {
-        ect_count++;
-    }
-    if (packet_info.ecn == EcnMarking::kCe) {
-      ce_count++;
-    }
-    // Check for ECN support immediately based on feedback content, before packet lookup
-    // This prevents ECN detection from being disabled due to lookup failures
-    // RTC_LOG(LS_INFO) << "Feedback contains ECN marking for seq=" 
-    //                   << packet_info.sequence_number
-    //                   << ": " 
-    //                   << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-    //                       (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-    //                         (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-    //                           (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
-    if (packet_info.ecn != EcnMarking::kNotEct) {
-      supports_ecn = true;
-    }
-    
+       
+    // 1. RETRIEVE THE PACKET FIRST
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         {.ssrc = packet_info.ssrc,
          .rtp_sequence_number = packet_info.sequence_number},
         /*received=*/packet_info.arrival_time_offset.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       RTC_LOG(LS_VERBOSE) << "Failed to find packet feedback for SSRC=" 
@@ -524,20 +499,34 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       continue;
     }
 
-    // Only log ECN for media packets (not control/feedback)
-    // if (!packet_feedback->sent.audio) { // adjust threshold as needed
-    //   // RTC_LOG(LS_INFO) << "MEDIA Feedback contains ECN marking for seq=" 
-    //   //                  << packet_info.sequence_number
-    //   //                  << " size=" << packet_feedback->sent.size
-    //   //                  << ": " 
-    //   //                  << (packet_info.ecn == EcnMarking::kEct0 ? "ECT(0)" :
-    //   //                      (packet_info.ecn == EcnMarking::kEct1 ? "ECT(1)" : 
-    //   //                        (packet_info.ecn == EcnMarking::kCe ? "CE" : 
-    //   //                          (packet_info.ecn == EcnMarking::kNotEct ? "Not ECT" : "Unknown"))));
-    // }
+    // 2. CHECK FOR GENERAL ECN SUPPORT
+    if (packet_info.ecn != EcnMarking::kNotEct) {
+      supports_ecn = true;
+    }
+    
+    // 3. APPLY DEDUPLICATION LOGIC
+    // Only count ECT and CE marks if we haven't seen this packet before
+    if (!packet_feedback->ecn_already_reported) {
+      if (packet_info.ecn == EcnMarking::kEct0 ||
+          packet_info.ecn == EcnMarking::kEct1 ||
+          packet_info.ecn == EcnMarking::kCe) {
+          ect_count++;
+      }
+      if (packet_info.ecn == EcnMarking::kCe) {
+        ce_count++;
+      }
+      
+      // Update the actual entry in the history_ map so we never count it again
+      auto it = history_.find(packet_feedback->sent.sequence_number);
+      if (it != history_.end()) {
+          it->second.ecn_already_reported = true;
+      }
+    }
 
+    // 4. BUILD THE RESULT VECTOR
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
+    
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
       
