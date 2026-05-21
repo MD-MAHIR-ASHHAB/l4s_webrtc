@@ -118,14 +118,8 @@ void ReceiveSideCongestionController::
 void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
     RTC_NO_THREAD_SAFETY_ANALYSIS {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  
-  if (send_rfc8888_congestion_feedback_) {
-    RTC_LOG(LS_INFO) << "-----------------up and down, up and down-----------------";
-    RTC_LOG(LS_VERBOSE) << "L4S: Triggering immediate congestion control feedback";
-    congestion_control_feedback_generator_.SendImmediateFeedback();
-  } else {
-    RTC_LOG(LS_WARNING) << "L4S: Immediate feedback requested but RFC 8888 feedback not enabled";
-  }
+  RTC_LOG(LS_VERBOSE)
+      << "L4S: Immediate congestion control feedback is disabled; keeping regular feedback only";
 }
 
 CongestionControlFeedbackGenerator* 
