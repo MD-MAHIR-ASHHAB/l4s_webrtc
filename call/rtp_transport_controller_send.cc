@@ -779,9 +779,9 @@ bool RtpTransportControllerSend::ProcessL4sFeedbackForImmediateHandling(
     }
   }
   
-  // if (ce_count > 0) {
-  //   RTC_LOG(LS_INFO) << "L4S Sender: CE markings present Succefully and falied and succefully received in feedback batch, but immediate processing is disabled";
-  // }
+  if (ce_count > 0) {
+    RTC_LOG(LS_VERBOSE) << "L4S Sender: CE markings present Succefully and falied and succefully received in feedback batch, but immediate processing is disabled";
+  }
 
   // Keep all feedback on the regular batch path.
   return false;
