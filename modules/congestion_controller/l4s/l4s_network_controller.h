@@ -158,7 +158,7 @@ private:
 
 
   // --- NEW: Bully Resistance Counter ---
-  int consecutive_md_cuts_ = 0;
+  // int consecutive_md_cuts_ = 0;
 
   static constexpr int kNonCeThresholdBase = 10;
   static constexpr int kNonCeThresholdMin = 8;
