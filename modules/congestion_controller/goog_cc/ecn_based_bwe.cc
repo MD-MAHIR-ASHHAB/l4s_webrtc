@@ -1,11 +1,11 @@
 /*
- *  Copyright (c) 2026 The WebRTC project authors. All Rights Reserved.
+ * Copyright (c) 2026 The WebRTC project authors. All Rights Reserved.
  *
- *  Use of this source code is governed by a BSD-style license
- *  that can be found in the LICENSE file in the root of the source
- *  tree. An additional intellectual property rights grant can be found
- *  in the file PATENTS.  All contributing project authors may
- *  be found in the AUTHORS file in the root of the source tree.
+ * Use of this source code is governed by a BSD-style license
+ * that can be found in the LICENSE file in the root of the source
+ * tree. An additional intellectual property rights grant can be found
+ * in the file PATENTS.  All contributing project authors may
+ * be found in the AUTHORS file in the root of the source tree.
  */
 
 #include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
@@ -16,6 +16,8 @@
 
 namespace webrtc {
 
+EcnBasedBwe::EcnBasedBwe() = default;
+
 void EcnBasedBwe::SetMinMaxBitrate(DataRate min_bitrate, DataRate max_bitrate) {
   if (min_bitrate.IsFinite()) {
     min_bitrate_ = min_bitrate;
@@ -23,70 +25,90 @@ void EcnBasedBwe::SetMinMaxBitrate(DataRate min_bitrate, DataRate max_bitrate) {
   if (max_bitrate.IsFinite()) {
     max_bitrate_ = std::max(min_bitrate_, max_bitrate);
   }
+  current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
 }
 
-void EcnBasedBwe::Reset() {
-  ecn_limited_bandwidth_ = DataRate::PlusInfinity();
-  last_ce_feedback_time_ = Timestamp::MinusInfinity();
-  ce_fraction_ewma_ = 0.0;
-  update_count_ = 0;
+void EcnBasedBwe::SetTargetBitrate(DataRate starting_rate) {
+  if (starting_rate.IsFinite() && starting_rate > DataRate::Zero()) {
+    current_target_rate_ = std::clamp(starting_rate, min_bitrate_, max_bitrate_);
+  }
 }
 
-void EcnBasedBwe::UpdateBandwidthEstimate(const TransportPacketsFeedback& report,
-                                          DataRate delay_based_estimate,
-                                          bool /* in_alr */) {
-  if (report.packet_feedbacks.empty() || !delay_based_estimate.IsFinite()) {
-    return;
+void EcnBasedBwe::UpdateRtt(TimeDelta rtt) {
+  if (rtt.IsFinite() && rtt > TimeDelta::Zero()) {
+    current_rtt_ = rtt;
+  }
+}
+
+EcnBasedBwe::Result EcnBasedBwe::IncomingPacketFeedbackVector(
+    const TransportPacketsFeedback& report,
+    std::optional<DataRate> acknowledged_bitrate) {
+    
+  Result result;
+  
+  if (report.packet_feedbacks.empty()) {
+    return result;
   }
 
-  int ect_count = 0;
-  int ce_count = 0;
-  for (const PacketResult& packet : report.packet_feedbacks) {
-    if (packet.ecn == EcnMarking::kCe) {
-      ++ce_count;
-      ++ect_count;
-    } else if (packet.ecn == EcnMarking::kEct0 ||
-               packet.ecn == EcnMarking::kEct1) {
-      ++ect_count;
+  Timestamp now = report.feedback_time;
+  if (last_update_time_.IsInfinite()) {
+    last_update_time_ = now;
+    return result;
+  }
+
+  TimeDelta delta_time = now - last_update_time_;
+  last_update_time_ = now;
+
+  // --- 1. DCTCP Alpha Calculation ---
+  int total_ecn_packets = report.ect_count + report.ce_count;
+  double raw_ce_ratio = 0.0;
+  
+  if (total_ecn_packets > 0) {
+    raw_ce_ratio = static_cast<double>(report.ce_count) / total_ecn_packets;
+  }
+
+  // Classic DCTCP gain factor (g = 1/16)
+  constexpr double g = 1.0 / 16.0; 
+  alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
+
+  // --- 2. Rate Control State Machine ---
+  bool executed_md = false;
+
+  if (report.ce_count > 0) {
+    // Multiplicative Decrease (MD)
+    // Enforce 1-RTT pipeline delay to prevent multiple cuts for the same congestion event
+    TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
+    
+    if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
+      
+      double reduction_factor = 1.0 - (alpha_ / 2.0);
+      current_target_rate_ = current_target_rate_ * reduction_factor;
+      
+      last_md_time_ = now;
+      executed_md = true;
+      
+      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Executed Cut. alpha: " << alpha_ 
+                          << ", raw_ce: " << raw_ce_ratio
+                          << ", new target: " << current_target_rate_.kbps() << " kbps";
     }
+  } else if (total_ecn_packets > 0) {
+    // Additive Increase (AI)
+    // Only increase if we actually received an ECN-capable batch with zero CE marks
+    
+    // Standard AI step: Increase by 40 kbps per second
+    DataRate ai_step = DataRate::BitsPerSec(40000.0 * delta_time.seconds<double>());
+    current_target_rate_ += ai_step;
   }
 
-  ++update_count_;
-  if (ce_count == 0) {
-    return;
-  }
+  // --- 3. Enforce Bounds and Output ---
+  current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
 
-  const double ecn_fraction =
-      ect_count > 0 ? static_cast<double>(ce_count) / ect_count : 1.0;
-  ce_fraction_ewma_ = 0.8 * ce_fraction_ewma_ + 0.2 * ecn_fraction;
+  result.updated = true;
+  result.target_bitrate = current_target_rate_;
+  // Signal recovery if we successfully stepped up without encountering congestion
+  result.recovered_from_overuse = !executed_md && (total_ecn_packets > 0); 
 
-  double backoff_fraction = std::clamp(0.5 * ce_fraction_ewma_, 0.05, 0.5);
-  DataRate candidate = delay_based_estimate * (1.0 - backoff_fraction);
-  candidate = std::max(candidate, min_bitrate_);
-  if (max_bitrate_.IsFinite()) {
-    candidate = std::min(candidate, max_bitrate_);
-  }
-
-  if (!ecn_limited_bandwidth_.IsFinite()) {
-    ecn_limited_bandwidth_ = candidate;
-  } else {
-    ecn_limited_bandwidth_ = std::min(ecn_limited_bandwidth_, candidate);
-  }
-  last_ce_feedback_time_ = report.feedback_time;
-}
-
-std::optional<DataRate> EcnBasedBwe::GetEcnLimitedBandwidth(
-    Timestamp at_time) const {
-  if (!last_ce_feedback_time_.IsFinite()) {
-    return std::nullopt;
-  }
-  if (at_time - last_ce_feedback_time_ > kEcnHoldDuration) {
-    return std::nullopt;
-  }
-  if (!ecn_limited_bandwidth_.IsFinite()) {
-    return std::nullopt;
-  }
-  return ecn_limited_bandwidth_;
+  return result;
 }
 
 }  // namespace webrtc

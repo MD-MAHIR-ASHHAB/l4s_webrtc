@@ -428,7 +428,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
                      << "CE Count: " << report.ce_count;
   }
 
-  
+
   if (report.packet_feedbacks.empty()) {
     // TODO(bugs.webrtc.org/10125): Design a better mechanism to safe-guard
     // against building very large network queues.
@@ -485,6 +485,10 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     }
     if (feedback_min_rtt.IsFinite()) {
       bandwidth_estimation_->UpdateRtt(feedback_min_rtt, report.feedback_time);
+    }
+  // Keep ECN Controller's RTT synchronized
+    if (ecn_based_bwe_) {
+      ecn_based_bwe_->UpdateRtt(feedback_min_rtt);
     }
 
     expected_packets_since_last_loss_update_ +=
@@ -556,6 +560,35 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   result = delay_based_bwe_->IncomingPacketFeedbackVector(
       report, acknowledged_bitrate, probe_bitrate, estimate_,
       alr_start_time.has_value());
+
+
+   // --- 2. PLUG IN YOUR ECN-BASED BWE ---
+  // Only override the result if the transport actually supports ECN 
+  // (meaning the adapter saw at least one ECT/CE mark and proved no bleaching occurred)
+  if (ecn_based_bwe_ && report.transport_supports_ecn) {
+    
+    // Assume your EcnBasedBwe has a similar interface to DelayBasedBwe
+    EcnBasedBwe::Result ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
+        report, acknowledged_bitrate, probe_bitrate, estimate_,
+        alr_start_time.has_value());
+
+    // If your ECN module calculated a new target rate based on CE marks, 
+    // we overwrite the delay-based result with your ECN result!
+    if (ecn_result.updated) {
+      result.updated = true;
+      
+      // The ultimate fusion: You can either strictly use ECN, or take the minimum 
+      // of both to be ultra-conservative. 
+      // For a pure ECN controller, just do:
+      result.target_bitrate = ecn_result.target_bitrate;
+      
+      result.recovered_from_overuse = ecn_result.recovered_from_overuse;
+      
+      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Overriding GCC target rate to: " 
+                          << result.target_bitrate.kbps() << " kbps";
+    }
+  }
+  // -------------------------------------- 
 
   if (result.updated) {
     if (result.probe) {
