@@ -422,12 +422,12 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     TransportPacketsFeedback report) {
 
 
-      // --- ADD THIS VERIFICATION LOG ---
-  if (!report.packet_feedbacks.empty()) {
-    RTC_LOG(LS_INFO) << "[GCC FRONT DOOR] Received feedback batch! "
-                     << report.packet_feedbacks.size() << " packets. "
-                     << "CE Count: " << report.ce_count;
-  }
+  //     // --- ADD THIS VERIFICATION LOG ---
+  // if (!report.packet_feedbacks.empty()) {
+  //   RTC_LOG(LS_INFO) << "[GCC FRONT DOOR] Received feedback batch! "
+  //                    << report.packet_feedbacks.size() << " packets. "
+  //                    << "CE Count: " << report.ce_count;
+  // }
 
 
   if (report.packet_feedbacks.empty()) {
