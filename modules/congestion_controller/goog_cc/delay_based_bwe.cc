@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -42,13 +41,6 @@ namespace webrtc {
 namespace {
 constexpr TimeDelta kStreamTimeOut = TimeDelta::Seconds(2);
 constexpr TimeDelta kSendTimeGroupLength = TimeDelta::Millis(5);
-
-std::string TimestampToLogString(Timestamp timestamp) {
-  if (!timestamp.IsFinite()) {
-    return "inf";
-  }
-  return std::to_string(timestamp.ms());
-}
 
 // This ssrc is used to fulfill the current API but will be removed
 // after the API has been changed.
@@ -200,24 +192,9 @@ void DelayBasedBwe::IncomingPacketFeedback(const PacketResult& packet_feedback,
       (separate_audio_.enabled && packet_feedback.sent_packet.audio)
           ? audio_inter_arrival_delta_.get()
           : video_inter_arrival_delta_.get();
-
-  RTC_LOG(LS_INFO)
-      << "DelayBasedBwe packet seq=" << packet_feedback.sent_packet.sequence_number
-      << " sent_time_ms=" << TimestampToLogString(packet_feedback.sent_packet.send_time)
-      << " receive_time_ms=" << TimestampToLogString(packet_feedback.receive_time)
-      << " at_time_ms=" << at_time.ms()
-      << " audio=" << packet_feedback.sent_packet.audio;
-
   bool calculated_deltas = inter_arrival_for_packet->ComputeDeltas(
       packet_feedback.sent_packet.send_time, packet_feedback.receive_time,
       at_time, packet_size.bytes(), &send_delta, &recv_delta, &size_delta);
-
-    RTC_LOG(LS_INFO)
-      << "DelayBasedBwe deltas seq=" << packet_feedback.sent_packet.sequence_number
-      << " calculated=" << calculated_deltas
-      << " send_delta_ms=" << send_delta.ms()
-      << " recv_delta_ms=" << recv_delta.ms()
-      << " size_delta=" << size_delta;
 
   delay_detector_for_packet->Update(recv_delta.ms<double>(),
                                     send_delta.ms<double>(),
