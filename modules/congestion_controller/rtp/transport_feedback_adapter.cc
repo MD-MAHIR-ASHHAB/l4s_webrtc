@@ -33,10 +33,11 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/network/sent_packet.h"
 #include "rtc_base/network_route.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
-constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
+//constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
 
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
@@ -104,47 +105,51 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   PacketFeedback feedback;
 
   feedback.creation_time = creation_time;
-  // Note, if transport sequence number header extension is used, transport
-  // sequence numbers are wrapped to 16 bit. See
-  // RtpSenderEgress::CompleteSendPacket.
   feedback.sent.sequence_number = seq_num_unwrapper_.Unwrap(
       packet_to_send.transport_sequence_number().value_or(0));
   feedback.sent.size = DataSize::Bytes(packet_to_send.size() + overhead_bytes);
-  feedback.sent.audio =
-      packet_to_send.packet_type() == RtpPacketMediaType::kAudio;
+  feedback.sent.audio = packet_to_send.packet_type() == RtpPacketMediaType::kAudio;
   feedback.network_route = network_route_;
   feedback.sent.pacing_info = pacing_info;
   feedback.ssrc = packet_to_send.Ssrc();
   feedback.rtp_sequence_number = packet_to_send.SequenceNumber();
-  feedback.is_retransmission =
-      packet_to_send.packet_type() == RtpPacketMediaType::kRetransmission;
+  feedback.is_retransmission = packet_to_send.packet_type() == RtpPacketMediaType::kRetransmission;
+  
+  feedback.sent_ecn_marking = current_ecn_marking_;
 
+  // Pure GCC History Cleanup
+  constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
   while (!history_.empty() &&
-         creation_time - history_.begin()->second.creation_time >
-             kSendTimeHistoryWindow) {
-    // TODO(sprang): Warn if erasing (too many) old items?
+         creation_time - history_.begin()->second.creation_time > kSendTimeHistoryWindow) {
     if (history_.begin()->second.sent.sequence_number > last_ack_seq_num_)
       in_flight_.RemoveInFlightPacketBytes(history_.begin()->second);
 
     const PacketFeedback& packet = history_.begin()->second;
     rtp_to_transport_sequence_number_.erase(
-        {.ssrc = packet.ssrc,
-         .rtp_sequence_number = packet.rtp_sequence_number});
+        {.ssrc = packet.ssrc, .rtp_sequence_number = packet.rtp_sequence_number});
     history_.erase(history_.begin());
   }
-  // Note that it can happen that the same SSRC and sequence number is sent
-  // again. e.g, audio retransmission.
+
   rtp_to_transport_sequence_number_.emplace(
       SsrcAndRtpSequencenumber(
-          {.ssrc = feedback.ssrc,
-           .rtp_sequence_number = feedback.rtp_sequence_number}),
+          {.ssrc = feedback.ssrc, .rtp_sequence_number = feedback.rtp_sequence_number}),
       feedback.sent.sequence_number);
   history_.emplace(feedback.sent.sequence_number, feedback);
 }
 
+
+
 std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     const SentPacketInfo& sent_packet) {
   auto send_time = Timestamp::Millis(sent_packet.send_time_ms);
+  
+  // Validate send time
+  if (!send_time.IsFinite() || send_time.us() < 0) {
+    RTC_LOG(LS_WARNING) << "Invalid send time in ProcessSentPacket: " 
+                        << sent_packet.send_time_ms << " ms";
+    return std::nullopt;
+  }
+  
   // TODO(srte): Only use one way to indicate that packet feedback is used.
   if (sent_packet.info.included_in_feedback || sent_packet.packet_id != -1) {
     int64_t unwrapped_seq_num =
@@ -154,6 +159,13 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
       bool packet_retransmit = it->second.sent.send_time.IsFinite();
       it->second.sent.send_time = send_time;
       last_send_time_ = std::max(last_send_time_, send_time);
+      
+      // Log successful send time update for debugging
+      if (!packet_retransmit) {
+        RTC_LOG(LS_VERBOSE) << "Updated send time for packet seq=" << unwrapped_seq_num
+                            << " to " << send_time.us() << " us";
+      }
+      
       // TODO(srte): Don't do this on retransmit.
       if (!pending_untracked_size_.IsZero()) {
         if (send_time < last_untracked_send_time_)
@@ -169,6 +181,11 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
         it->second.sent.data_in_flight = GetOutstandingData();
         return it->second.sent;
       }
+    } else {
+      // Packet not found in history - this might explain later feedback lookup failures
+      RTC_LOG(LS_WARNING) << "ProcessSentPacket: Packet seq=" << unwrapped_seq_num
+                          << " not found in history. History size: " << history_.size()
+                          << ". This might cause feedback lookup failures later.";
     }
   } else if (sent_packet.info.included_in_allocation) {
     if (send_time < last_send_time_) {
@@ -185,6 +202,11 @@ std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessTransportFeedback(
     const rtcp::TransportFeedback& feedback,
     Timestamp feedback_receive_time) {
+  
+  int ect_count = 0;
+  int ce_count = 0;
+
+
   if (feedback.GetPacketStatusCount() == 0) {
     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
     return std::nullopt;
@@ -200,8 +222,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     const TimeDelta delta =
         feedback.GetBaseDelta(last_transport_feedback_base_time_)
             .RoundDownTo(TimeDelta::Millis(1));
-    // Protect against assigning current_offset_ negative value.
-    if (delta < Timestamp::Zero() - current_offset_) {
+    
+    // Add safety checks to prevent extreme values that could cause unit_base.h assertion
+    if (!delta.IsFinite()) {
+      RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
+      current_offset_ = feedback_receive_time;
+    } else if (delta < Timestamp::Zero() - current_offset_) {
       RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
       current_offset_ = feedback_receive_time;
     } else {
@@ -225,18 +251,23 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
       ++failed_lookups;
       return;
     }
-
+    if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
+      packet_feedback->receive_time =
+          current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+      
+      // Ensure the calculated receive time is valid
+      if (!packet_feedback->receive_time.IsFinite()) {
+        RTC_LOG(LS_WARNING) << "Invalid receive_time calculated in Transport Feedback processing";
+        packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
+      }
+    }
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
-      if (delta_since_base.IsFinite()) {
-        result.receive_time = current_offset_ + delta_since_base.RoundDownTo(
-                                                    TimeDelta::Millis(1));
-      }
-      result.rtp_packet_info = {
-          .ssrc = packet_feedback->ssrc,
-          .rtp_sequence_number = packet_feedback->rtp_sequence_number,
-          .is_retransmission = packet_feedback->is_retransmission};
+      result.receive_time = packet_feedback->receive_time;
+
+      // Use the ECN marking that was applied when the packet was sent
+      result.ecn = packet_feedback->sent_ecn_marking;
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -247,56 +278,109 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_WARNING)
         << "Failed to lookup send time for " << failed_lookups << " packet"
         << (failed_lookups > 1 ? "s" : "")
-        << ". Packets reordered or send time history too small?";
+        << " out of " << feedback.GetPacketStatusCount() << " total packets."
+        << " Packets reordered or send time history too small?";
+    
+    // If we failed to lookup most packets, this might indicate a serious timing issue
+    double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
+    if (failure_rate > 0.5) {
+      RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
+                        << "%. This suggests a timing or history management issue.";
+    }
   }
   if (ignored > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
+  // For Transport Feedback, we need to determine ECN support by checking if any 
+  // ECN-capable packets were successfully received with ECN markings preserved.
+  bool supports_ecn = false;
+
+  // Uncomment the following lines to enable logging of ECN marking counts
+  //int ecn_marked_sent = 0;
+  //int ecn_marked_received = 0;
+  
+  for (const auto& result : packet_result_vector) {
+    // Only process packets that were actually received (have finite receive times)
+    if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
+      if (result.ecn == EcnMarking::kEct0 ||
+          result.ecn == EcnMarking::kEct1|| 
+          result.ecn == EcnMarking::kCe) {
+        ect_count++;
+        supports_ecn = true;
+      }
+      if (result.ecn == EcnMarking::kCe) {
+        ce_count++;
+      }
+    }
+  }
+
+  
+  // Log the processed feedback details
+  // Uncomment the following line to enable logging of transport feedback processing
+  // RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
+  //                  << packet_result_vector.size() << " packets, "
+  //                  << "ECN marked sent: " << ecn_marked_sent
+  //                  << ", ECN marked received: " << ecn_marked_received
+  //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
+  
   return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, /*suports_ecn=*/false);
+                             feedback_receive_time, supports_ecn, ect_count, ce_count);
 }
+
 
 std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     const rtcp::CongestionControlFeedback& feedback,
     Timestamp feedback_receive_time) {
+
   if (feedback.packets().empty()) {
-    RTC_LOG(LS_INFO) << "Empty congestion control feedback packet received.";
     return std::nullopt;
   }
   if (current_offset_.IsInfinite()) {
     current_offset_ = feedback_receive_time;
   }
-  TimeDelta feedback_delta = last_feedback_compact_ntp_time_
-                                 ? CompactNtpIntervalToTimeDelta(
-                                       feedback.report_timestamp_compact_ntp() -
-                                       *last_feedback_compact_ntp_time_)
-                                 : TimeDelta::Zero();
+  
+  TimeDelta feedback_delta = TimeDelta::Zero();
+  if (last_feedback_compact_ntp_time_) {
+    uint32_t current_ntp = feedback.report_timestamp_compact_ntp();
+    uint32_t last_ntp = *last_feedback_compact_ntp_time_;
+    uint32_t ntp_diff = current_ntp - last_ntp;
+    
+    if (ntp_diff > 0x7FFF'FFFF) { 
+      feedback_delta = TimeDelta::Zero();
+    } else {
+      feedback_delta = CompactNtpIntervalToTimeDelta(ntp_diff);
+    }
+  }
   last_feedback_compact_ntp_time_ = feedback.report_timestamp_compact_ntp();
+  
   if (feedback_delta < TimeDelta::Zero()) {
-    RTC_LOG(LS_WARNING) << "Unexpected feedback ntp time delta "
-                        << feedback_delta << ".";
     current_offset_ = feedback_receive_time;
-  } else {
+  } else if (feedback_delta.IsFinite()) {
     current_offset_ += feedback_delta;
+  } else {
+    current_offset_ = feedback_receive_time;
   }
 
   int ignored_packets = 0;
   int failed_lookups = 0;
-  // NEW: Track ECN metrics for this batch
+  
+  // ECN Trackers
   bool supports_ecn = false; 
   int ect_count = 0;
-  int ce_count = 0;
-
-
+  int ce_count = 0; 
+  
   std::vector<PacketResult> packet_result_vector;
-  for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
-       feedback.packets()) {
+  
+  for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info : feedback.packets()) {
+       
+    // This now erases the packet from history_ natively!
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         {.ssrc = packet_info.ssrc,
          .rtp_sequence_number = packet_info.sequence_number},
         /*received=*/packet_info.arrival_time_offset.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       continue;
@@ -305,59 +389,62 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
       ++ignored_packets;
       continue;
     }
+
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
-    if (packet_info.arrival_time_offset.IsFinite()) {
-      result.receive_time = current_offset_ - packet_info.arrival_time_offset;
-      
-      // NEW: Count ECN marks ONLY if the packet was successfully received
-      if (packet_info.ecn != EcnMarking::kNotEct) {
-        supports_ecn = true;
-      }
-      if (packet_info.ecn == EcnMarking::kEct0 ||
-          packet_info.ecn == EcnMarking::kEct1 ||
-          packet_info.ecn == EcnMarking::kCe) {
-        ect_count++;
-      }
-      if (packet_info.ecn == EcnMarking::kCe) {
-        ce_count++;
-      }
-    }
-    result.ecn = packet_info.ecn;
     result.rtp_packet_info = {
         .ssrc = packet_feedback->ssrc,
         .rtp_sequence_number = packet_feedback->rtp_sequence_number,
         .is_retransmission = packet_feedback->is_retransmission};
+    
+    // Only process timing and ECN if the packet successfully arrived
+    if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
+      result.receive_time = current_offset_ - packet_info.arrival_time_offset;
+      
+      if (!result.receive_time.IsFinite()) {
+        result.receive_time = Timestamp::PlusInfinity(); 
+      } else {
+        // ECN COUNTING: Only happens for verified, successfully received packets
+        if (packet_info.ecn != EcnMarking::kNotEct) {
+          supports_ecn = true;
+        }
+        if (packet_info.ecn == EcnMarking::kEct0 ||
+            packet_info.ecn == EcnMarking::kEct1 ||
+            packet_info.ecn == EcnMarking::kCe) {
+          ect_count++;
+        }
+        if (packet_info.ecn == EcnMarking::kCe) {
+          ce_count++;
+        }
+      }
+    }
+    
+    result.ecn = packet_info.ecn;
     packet_result_vector.push_back(result);
   }
 
   if (failed_lookups > 0) {
-    RTC_LOG(LS_WARNING)
-        << "Failed to lookup send time for " << failed_lookups << " packet"
-        << (failed_lookups > 1 ? "s" : "")
-        << ". Packets reordered or send time history too small?";
-  }
-  if (ignored_packets > 0) {
-    RTC_LOG(LS_INFO) << "Ignoring " << ignored_packets
-                     << " packets because they were sent on a different route.";
+    RTC_LOG(LS_WARNING) << "Failed to lookup send time for " << failed_lookups << " packets.";
   }
 
-  // Feedback is expected to be sorted in send order.
-  absl::c_sort(packet_result_vector, [](const PacketResult& lhs,
-                                        const PacketResult& rhs) {
+  absl::c_sort(packet_result_vector, [](const PacketResult& lhs, const PacketResult& rhs) {
     return lhs.sent_packet.sequence_number < rhs.sent_packet.sequence_number;
   });
+  
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn, ect_count, ce_count);
 }
+
+
+
 
 std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ToTransportFeedback(
     std::vector<PacketResult> packet_results,
     Timestamp feedback_receive_time,
     bool supports_ecn,
-    int ect_count = 0,    // NEW
-    int ce_count = 0) {   // NEW
+    int ect_count = 0,
+    int ce_count = 0) {
   TransportPacketsFeedback msg;
   msg.feedback_time = feedback_receive_time;
   if (packet_results.empty()) {
@@ -366,9 +453,8 @@ TransportFeedbackAdapter::ToTransportFeedback(
   msg.packet_feedbacks = std::move(packet_results);
   msg.data_in_flight = in_flight_.GetOutstandingData(network_route_);
   msg.transport_supports_ecn = supports_ecn;
-  msg.ect_count = ect_count; // NEW
-  msg.ce_count = ce_count;   // NEW
-
+  msg.ect_count = ect_count;   
+  msg.ce_count = ce_count;  
   return msg;
 }
 
@@ -395,8 +481,6 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
     int64_t transport_seq_num,
     bool received) {
   if (transport_seq_num > last_ack_seq_num_) {
-    // Starts at history_.begin() if last_ack_seq_num_ < 0, since any
-    // valid sequence number is >= 0.
     for (auto it = history_.upper_bound(last_ack_seq_num_);
          it != history_.upper_bound(transport_seq_num); ++it) {
       in_flight_.RemoveInFlightPacketBytes(it->second);
@@ -407,28 +491,25 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   auto it = history_.find(transport_seq_num);
   if (it == history_.end()) {
     RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with "
-                        << transport_seq_num
-                        << ". Send time history too small?";
+                        << transport_seq_num << ". Send time history too small?";
     return std::nullopt;
   }
 
   if (it->second.sent.send_time.IsInfinite()) {
-    // TODO(srte): Fix the tests that makes this happen and make this a
-    // DCHECK.
-    RTC_DLOG(LS_ERROR)
-        << "Received feedback before packet was indicated as sent";
+    RTC_DLOG(LS_ERROR) << "Received feedback before packet was indicated as sent";
     return std::nullopt;
   }
 
   PacketFeedback packet_feedback = it->second;
+  
+  // Pure GCC Behavior: Erase immediately upon successful retrieval
   if (received) {
-    // Note: Lost packets are not removed from history because they might
-    // be reported as received by a later feedback.
     rtp_to_transport_sequence_number_.erase(
         {.ssrc = packet_feedback.ssrc,
          .rtp_sequence_number = packet_feedback.rtp_sequence_number});
-    history_.erase(it);
+    history_.erase(it); 
   }
+  
   return packet_feedback;
 }
 
