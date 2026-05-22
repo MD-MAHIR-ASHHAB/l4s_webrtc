@@ -361,16 +361,6 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
 
 
 
-    RTC_LOG(LS_INFO)
-        << "CongestionControlFeedback packet SSRC=" << packet_info.ssrc
-        << " seq=" << packet_info.sequence_number
-        << " sent_time_ms=" << packet_feedback->sent.send_time.ms()
-        << " receive_time_ms=" << result.receive_time.ms()
-        << " current_offset_ms=" << current_offset_.ms()
-        << " arrival_time_offset_ms="
-        << (packet_info.arrival_time_offset.IsFinite()
-                ? packet_info.arrival_time_offset.ms()
-                : -1);
       // --- DEDUPLICATION & COUNTING LOGIC ---
       // Only process ECN metrics if the packet was successfully received
       // AND we haven't already counted it in a previous overlapping report.
