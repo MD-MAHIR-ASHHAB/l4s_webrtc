@@ -35,19 +35,13 @@ struct PacketFeedback {
   // Time corresponding to when this object was created.
   Timestamp creation_time = Timestamp::MinusInfinity();
   SentPacket sent;
-  // Time corresponding to when the packet was received. Timestamped with the
-  // receiver's clock. For unreceived packet, Timestamp::PlusInfinity() is
-  // used.
-  Timestamp receive_time = Timestamp::PlusInfinity();
 
   // The network route that this packet is associated with.
   NetworkRoute network_route;
 
   uint32_t ssrc = 0;
   uint16_t rtp_sequence_number = 0;
-  
-  // ECN marking that was applied when this packet was sent
-  EcnMarking sent_ecn_marking = EcnMarking::kNotEct;
+  bool is_retransmission = false;
 };
 
 class InFlightBytesTracker {
@@ -91,9 +85,6 @@ class TransportFeedbackAdapter {
   void SetNetworkRoute(const NetworkRoute& network_route);
 
   DataSize GetOutstandingData() const;
-  
-  // Set the ECN marking that will be applied to outgoing packets
-  void SetEcnMarking(EcnMarking ecn_marking) { current_ecn_marking_ = ecn_marking; }
 
  private:
   enum class SendTimeHistoryStatus { kNotAdded, kOk, kDuplicate };
@@ -117,9 +108,8 @@ class TransportFeedbackAdapter {
   std::optional<TransportPacketsFeedback> ToTransportFeedback(
       std::vector<PacketResult> packet_results,
       Timestamp feedback_receive_time,
-      bool supports_ecn,
-      int ect_count,
-      int ce_count);
+      bool supports_ecn,int ect_count = 0,    // NEW
+    int ce_count = 0);
 
   DataSize pending_untracked_size_ = DataSize::Zero();
   Timestamp last_send_time_ = Timestamp::MinusInfinity();
@@ -144,9 +134,6 @@ class TransportFeedbackAdapter {
   std::map<SsrcAndRtpSequencenumber, int64_t /*transport_sequence_number*/>
       rtp_to_transport_sequence_number_;
   std::map<int64_t, PacketFeedback> history_;
-  
-  // Current ECN marking being applied to outgoing packets
-  EcnMarking current_ecn_marking_ = EcnMarking::kEct1;
 };
 
 }  // namespace webrtc
