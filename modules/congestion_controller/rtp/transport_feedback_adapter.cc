@@ -198,118 +198,130 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
   return std::nullopt;
 }
 
+// std::optional<TransportPacketsFeedback>
+// TransportFeedbackAdapter::ProcessTransportFeedback(
+//     const rtcp::TransportFeedback& feedback,
+//     Timestamp feedback_receive_time) {
+  
+//   int ect_count = 0;
+//   int ce_count = 0;
+//   bool supports_ecn = false;
+
+//   if (feedback.GetPacketStatusCount() == 0) {
+//     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
+//     return std::nullopt;
+//   }
+
+//   // Add timestamp deltas to a local time base selected on first packet arrival.
+//   // This won't be the true time base, but makes it easier to manually inspect
+//   // time stamps.
+//   if (last_transport_feedback_base_time_.IsInfinite()) {
+//     current_offset_ = feedback_receive_time;
+//   } else {
+//     // TODO(srte): We shouldn't need to do rounding here.
+//     const TimeDelta delta =
+//         feedback.GetBaseDelta(last_transport_feedback_base_time_)
+//             .RoundDownTo(TimeDelta::Millis(1));
+    
+//     // Add safety checks to prevent extreme values that could cause unit_base.h assertion
+//     if (!delta.IsFinite()) {
+//       RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
+//       current_offset_ = feedback_receive_time;
+//     } else if (delta < Timestamp::Zero() - current_offset_) {
+//       RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
+//       current_offset_ = feedback_receive_time;
+//     } else {
+//       current_offset_ += delta;
+//     }
+//   }
+//   last_transport_feedback_base_time_ = feedback.BaseTime();
+
+//   std::vector<PacketResult> packet_result_vector;
+//   packet_result_vector.reserve(feedback.GetPacketStatusCount());
+
+//   size_t failed_lookups = 0;
+//   size_t ignored = 0;
+
+//   feedback.ForAllPackets([&](uint16_t sequence_number, TimeDelta delta_since_base) {
+//     int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
+//     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
+//         seq_num, /*received=*/delta_since_base.IsFinite());
+        
+//     if (!packet_feedback) {
+//       ++failed_lookups;
+//       return;
+//     }
+    
+//     if (packet_feedback->network_route == network_route_) {
+//       PacketResult result;
+//       result.sent_packet = packet_feedback->sent;
+//       result.ecn = packet_feedback->sent_ecn_marking;
+
+//       // Calculate receive time and assign directly to 'result'
+//       if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
+//         result.receive_time = current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+        
+//         if (!result.receive_time.IsFinite()) {
+//           result.receive_time = Timestamp::PlusInfinity();
+//         } else {
+//           // ECN COUNTING: Only count if successfully received
+//           if (result.ecn != EcnMarking::kNotEct) {
+//             supports_ecn = true;
+//           }
+//           if (result.ecn == EcnMarking::kEct0 ||
+//               result.ecn == EcnMarking::kEct1 || 
+//               result.ecn == EcnMarking::kCe) {
+//             ect_count++;
+//           }
+//           if (result.ecn == EcnMarking::kCe) {
+//             ce_count++;
+//           }
+//         }
+//       } else {
+//         result.receive_time = Timestamp::PlusInfinity();
+//       }
+
+//       packet_result_vector.push_back(result);
+//     } else {
+//       ++ignored;
+//     }
+//   });
+
+//   if (failed_lookups > 0) {
+//     RTC_LOG(LS_WARNING)
+//         << "Failed to lookup send time for " << failed_lookups << " packet"
+//         << (failed_lookups > 1 ? "s" : "")
+//         << " out of " << feedback.GetPacketStatusCount() << " total packets."
+//         << " Packets reordered or send time history too small?";
+    
+//     // If we failed to lookup most packets, this might indicate a serious timing issue
+//     double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
+//     if (failure_rate > 0.5) {
+//       RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
+//                         << "%. This suggests a timing or history management issue.";
+//     }
+//   }
+//   if (ignored > 0) {
+//     RTC_LOG(LS_INFO) << "Ignoring " << ignored
+//                      << " packets because they were sent on a different route.";
+//   }
+
+//   return ToTransportFeedback(std::move(packet_result_vector),
+//                              feedback_receive_time, supports_ecn, ect_count, ce_count);
+// }
+
+
 std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessTransportFeedback(
     const rtcp::TransportFeedback& feedback,
     Timestamp feedback_receive_time) {
+    
+  // TWCC processing is intentionally disabled!
+  // We are exclusively using RFC 8888 to ensure GCC receives a single, 
+  // unified feedback stream that includes ECN marks.
   
-  int ect_count = 0;
-  int ce_count = 0;
-  bool supports_ecn = false;
-
-  if (feedback.GetPacketStatusCount() == 0) {
-    RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
-    return std::nullopt;
-  }
-
-  // Add timestamp deltas to a local time base selected on first packet arrival.
-  // This won't be the true time base, but makes it easier to manually inspect
-  // time stamps.
-  if (last_transport_feedback_base_time_.IsInfinite()) {
-    current_offset_ = feedback_receive_time;
-  } else {
-    // TODO(srte): We shouldn't need to do rounding here.
-    const TimeDelta delta =
-        feedback.GetBaseDelta(last_transport_feedback_base_time_)
-            .RoundDownTo(TimeDelta::Millis(1));
-    
-    // Add safety checks to prevent extreme values that could cause unit_base.h assertion
-    if (!delta.IsFinite()) {
-      RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
-      current_offset_ = feedback_receive_time;
-    } else if (delta < Timestamp::Zero() - current_offset_) {
-      RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
-      current_offset_ = feedback_receive_time;
-    } else {
-      current_offset_ += delta;
-    }
-  }
-  last_transport_feedback_base_time_ = feedback.BaseTime();
-
-  std::vector<PacketResult> packet_result_vector;
-  packet_result_vector.reserve(feedback.GetPacketStatusCount());
-
-  size_t failed_lookups = 0;
-  size_t ignored = 0;
-
-  feedback.ForAllPackets([&](uint16_t sequence_number, TimeDelta delta_since_base) {
-    int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
-    std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
-        seq_num, /*received=*/delta_since_base.IsFinite());
-        
-    if (!packet_feedback) {
-      ++failed_lookups;
-      return;
-    }
-    
-    if (packet_feedback->network_route == network_route_) {
-      PacketResult result;
-      result.sent_packet = packet_feedback->sent;
-      result.ecn = packet_feedback->sent_ecn_marking;
-
-      // Calculate receive time and assign directly to 'result'
-      if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
-        result.receive_time = current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
-        
-        if (!result.receive_time.IsFinite()) {
-          result.receive_time = Timestamp::PlusInfinity();
-        } else {
-          // ECN COUNTING: Only count if successfully received
-          if (result.ecn != EcnMarking::kNotEct) {
-            supports_ecn = true;
-          }
-          if (result.ecn == EcnMarking::kEct0 ||
-              result.ecn == EcnMarking::kEct1 || 
-              result.ecn == EcnMarking::kCe) {
-            ect_count++;
-          }
-          if (result.ecn == EcnMarking::kCe) {
-            ce_count++;
-          }
-        }
-      } else {
-        result.receive_time = Timestamp::PlusInfinity();
-      }
-
-      packet_result_vector.push_back(result);
-    } else {
-      ++ignored;
-    }
-  });
-
-  if (failed_lookups > 0) {
-    RTC_LOG(LS_WARNING)
-        << "Failed to lookup send time for " << failed_lookups << " packet"
-        << (failed_lookups > 1 ? "s" : "")
-        << " out of " << feedback.GetPacketStatusCount() << " total packets."
-        << " Packets reordered or send time history too small?";
-    
-    // If we failed to lookup most packets, this might indicate a serious timing issue
-    double failure_rate = static_cast<double>(failed_lookups) / feedback.GetPacketStatusCount();
-    if (failure_rate > 0.5) {
-      RTC_LOG(LS_ERROR) << "High packet lookup failure rate: " << (failure_rate * 100) 
-                        << "%. This suggests a timing or history management issue.";
-    }
-  }
-  if (ignored > 0) {
-    RTC_LOG(LS_INFO) << "Ignoring " << ignored
-                     << " packets because they were sent on a different route.";
-  }
-
-  return ToTransportFeedback(std::move(packet_result_vector),
-                             feedback_receive_time, supports_ecn, ect_count, ce_count);
+  return std::nullopt;
 }
-
 
 std::optional<TransportPacketsFeedback>
 TransportFeedbackAdapter::ProcessCongestionControlFeedback(
