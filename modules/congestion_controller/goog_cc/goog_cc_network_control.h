@@ -108,7 +108,7 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   std::unique_ptr<DelayBasedBwe> delay_based_bwe_;
   std::unique_ptr<AcknowledgedBitrateEstimatorInterface>
       acknowledged_bitrate_estimator_;
-
+std::unique_ptr<EcnBasedBwe> ecn_based_bwe_; 
   std::optional<NetworkControllerConfig> initial_config_;
 
   DataRate min_target_rate_ = DataRate::Zero();
