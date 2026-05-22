@@ -37,8 +37,12 @@ class EcnBasedBwe {
 
   ECNResult IncomingPacketFeedbackVector(
       const TransportPacketsFeedback& report,
-      std::optional<DataRate> acknowledged_bitrate);
+      std::optional<DataRate> acknowledged_bitrate,
+      std::optional<DataRate> probe_bitrate,
+      std::optional<NetworkStateEstimate> estimate,
+      bool in_alr);
 
+      
  private:
   DataRate min_bitrate_ = DataRate::KilobitsPerSec(20);
   DataRate max_bitrate_ = DataRate::PlusInfinity();

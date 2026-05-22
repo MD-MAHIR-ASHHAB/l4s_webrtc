@@ -40,9 +40,12 @@ void EcnBasedBwe::UpdateRtt(TimeDelta rtt) {
   }
 }
 
-EcnBasedBwe::Result EcnBasedBwe::IncomingPacketFeedbackVector(
+EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     const TransportPacketsFeedback& report,
-    std::optional<DataRate> acknowledged_bitrate) {
+    std::optional<DataRate> acknowledged_bitrate,
+    std::optional<DataRate> probe_bitrate,
+    std::optional<NetworkStateEstimate> estimate,
+    bool in_alr) {
     
   Result result;
   
