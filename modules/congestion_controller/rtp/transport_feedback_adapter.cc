@@ -609,13 +609,6 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   if (received && packet_feedback.sent.sequence_number > last_ack_seq_num_) {
     last_ack_seq_num_ = packet_feedback.sent.sequence_number;
   }
-
-  if (received) {
-    rtp_to_transport_sequence_number_.erase(
-        {.ssrc = packet_feedback.ssrc,
-         .rtp_sequence_number = packet_feedback.rtp_sequence_number});
-    history_.erase(it);
-  }
   
   return packet_feedback;
 }
