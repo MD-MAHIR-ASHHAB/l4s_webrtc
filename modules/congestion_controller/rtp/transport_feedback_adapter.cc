@@ -37,7 +37,7 @@
 
 namespace webrtc {
 
-//constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(180);
+constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
 
 void InFlightBytesTracker::AddInFlightPacketBytes(
     const PacketFeedback& packet) {
@@ -199,38 +199,17 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
   // Default to ECT(1) for now if L4S is potentially enabled, otherwise NotECT
   feedback.sent_ecn_marking = current_ecn_marking_;
 
-  // NEW: Simple bulk cleanup strategy for L4S immediate feedback
-  // When history reaches 50k packets, remove the oldest 15k packets in one go
-  constexpr size_t kMaxHistorySize = 50000;        // Trigger cleanup at 50k packets
-  constexpr size_t kBulkCleanupCount = 15000;      // Remove 15k oldest packets
-  
-  if (history_.size() >= kMaxHistorySize) {
-    RTC_LOG(LS_INFO) << "History size reached " << history_.size() 
-                     << " packets, removing oldest " << kBulkCleanupCount << " packets";
-    
-    size_t removed_count = 0;
-    auto it = history_.begin();
-    
-    while (it != history_.end() && removed_count < kBulkCleanupCount) {
-      const PacketFeedback& packet = it->second;
-      
-      // Remove from in-flight tracking if still pending
-      if (packet.sent.sequence_number > last_ack_seq_num_) {
-        in_flight_.RemoveInFlightPacketBytes(packet);
-      }
-      
-      // Remove from RTP sequence lookup
-      rtp_to_transport_sequence_number_.erase(
-          {.ssrc = packet.ssrc,
-           .rtp_sequence_number = packet.rtp_sequence_number});
-      
-      // Remove from history and advance iterator
-      it = history_.erase(it);
-      removed_count++;
-    }
-    
-    RTC_LOG(LS_INFO) << "Bulk cleanup completed: removed " << removed_count 
-                     << " packets, history size now: " << history_.size();
+  while (!history_.empty() &&
+         creation_time - history_.begin()->second.creation_time >
+             kSendTimeHistoryWindow) {
+    if (history_.begin()->second.sent.sequence_number > last_ack_seq_num_)
+      in_flight_.RemoveInFlightPacketBytes(history_.begin()->second);
+
+    const PacketFeedback& packet = history_.begin()->second;
+    rtp_to_transport_sequence_number_.erase(
+        {.ssrc = packet.ssrc,
+         .rtp_sequence_number = packet.rtp_sequence_number});
+    history_.erase(history_.begin());
   }
 
   // Note that it can happen that the same SSRC and sequence number is sent
@@ -253,13 +232,6 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     const SentPacketInfo& sent_packet) {
   auto send_time = Timestamp::Millis(sent_packet.send_time_ms);
   
-  // Validate send time
-  if (!send_time.IsFinite() || send_time.us() < 0) {
-    RTC_LOG(LS_WARNING) << "Invalid send time in ProcessSentPacket: " 
-                        << sent_packet.send_time_ms << " ms";
-    return std::nullopt;
-  }
-  
   // TODO(srte): Only use one way to indicate that packet feedback is used.
   if (sent_packet.info.included_in_feedback || sent_packet.packet_id != -1) {
     int64_t unwrapped_seq_num =
@@ -269,12 +241,6 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
       bool packet_retransmit = it->second.sent.send_time.IsFinite();
       it->second.sent.send_time = send_time;
       last_send_time_ = std::max(last_send_time_, send_time);
-      
-      // Log successful send time update for debugging
-      if (!packet_retransmit) {
-        RTC_LOG(LS_VERBOSE) << "Updated send time for packet seq=" << unwrapped_seq_num
-                            << " to " << send_time.us() << " us";
-      }
       
       // TODO(srte): Don't do this on retransmit.
       if (!pending_untracked_size_.IsZero()) {
@@ -627,59 +593,28 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
 
   auto it = history_.find(transport_seq_num);
   if (it == history_.end()) {
-    // Enhanced diagnostic logging
-    RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with seq="
+    RTC_LOG(LS_WARNING) << "Failed to lookup send time for packet with "
                         << transport_seq_num
-                        << ". Send time history too small? History size: " 
-                        << history_.size()
-                        << ", last_ack_seq_num: " << last_ack_seq_num_
-                        << ", seq_num_range: [" 
-                        << (history_.empty() ? -1 : history_.begin()->first) << ", "
-                        << (history_.empty() ? -1 : history_.rbegin()->first) << "]";
-    
-    // Additional debugging: check if packet is in a reasonable range
-    if (!history_.empty()) {
-      int64_t min_seq = history_.begin()->first;
-      int64_t max_seq = history_.rbegin()->first;
-      if (transport_seq_num < min_seq) {
-        RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
-                            << " is older than oldest in history (" << min_seq << ")";
-      } else if (transport_seq_num > max_seq) {
-        RTC_LOG(LS_WARNING) << "Packet seq=" << transport_seq_num 
-                            << " is newer than newest in history (" << max_seq << ")";
-      }
-    }
+                        << ". Send time history too small?";
     return std::nullopt;
   }
 
   if (it->second.sent.send_time.IsInfinite()) {
-    auto now = Timestamp::Millis(webrtc::TimeMillis());
-    auto age = now - it->second.creation_time;
-    RTC_LOG(LS_WARNING) << "Received feedback before packet was indicated as sent for seq="
-                        << transport_seq_num << ", age=" << age.seconds() << "s"
-                        << ", creation_time=" << it->second.creation_time.us() << "us"
-                        << " - using creation_time as conservative send_time fallback";
-    // Use creation_time as a conservative fallback rather than discarding the
-    // packet entirely.  Discarding it removes the CE-mark from the feedback
-    // batch seen by the L4S controller, preventing the Prague MD from firing.
-    // creation_time slightly predates the actual OS send callback so RTT will
-    // be marginally over-estimated, but that is far less harmful than losing
-    // the congestion signal.  This situation is transient and disappears once
-    // the CE rate-limiter bypass (SendImmediateFeedback fix) keeps the receiver
-    // backlog within one RTT.
-    it->second.sent.send_time = it->second.creation_time;
+    RTC_DLOG(LS_ERROR)
+        << "Received feedback before packet was indicated as sent";
+    return std::nullopt;
   }
 
   PacketFeedback packet_feedback = it->second;
-  
-  // Don't remove packets immediately from history to avoid lookup failures
-  // Let the time-based cleanup in AddPacket handle removal after proper aging
-  // This fixes the issue where immediate removal causes subsequent feedback
-  // to fail lookups for the same packets
-  
-  // Only update the last_ack_seq_num_ to track acknowledged packets for cleanup
   if (received && packet_feedback.sent.sequence_number > last_ack_seq_num_) {
     last_ack_seq_num_ = packet_feedback.sent.sequence_number;
+  }
+
+  if (received) {
+    rtp_to_transport_sequence_number_.erase(
+        {.ssrc = packet_feedback.ssrc,
+         .rtp_sequence_number = packet_feedback.rtp_sequence_number});
+    history_.erase(it);
   }
   
   return packet_feedback;
