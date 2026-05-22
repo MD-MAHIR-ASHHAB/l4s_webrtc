@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -41,6 +42,13 @@ namespace webrtc {
 namespace {
 constexpr TimeDelta kStreamTimeOut = TimeDelta::Seconds(2);
 constexpr TimeDelta kSendTimeGroupLength = TimeDelta::Millis(5);
+
+std::string TimestampToLogString(Timestamp timestamp) {
+  if (!timestamp.IsFinite()) {
+    return "inf";
+  }
+  return std::to_string(timestamp.ms());
+}
 
 // This ssrc is used to fulfill the current API but will be removed
 // after the API has been changed.
@@ -195,8 +203,8 @@ void DelayBasedBwe::IncomingPacketFeedback(const PacketResult& packet_feedback,
 
   RTC_LOG(LS_INFO)
       << "DelayBasedBwe packet seq=" << packet_feedback.sent_packet.sequence_number
-      << " sent_time_ms=" << packet_feedback.sent_packet.send_time.ms()
-      << " receive_time_ms=" << packet_feedback.receive_time.ms()
+      << " sent_time_ms=" << TimestampToLogString(packet_feedback.sent_packet.send_time)
+      << " receive_time_ms=" << TimestampToLogString(packet_feedback.receive_time)
       << " at_time_ms=" << at_time.ms()
       << " audio=" << packet_feedback.sent_packet.audio;
 

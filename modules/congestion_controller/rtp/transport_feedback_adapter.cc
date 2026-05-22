@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -36,6 +37,17 @@
 #include "rtc_base/time_utils.h"
 
 namespace webrtc {
+
+namespace {
+
+std::string TimestampToLogString(Timestamp timestamp) {
+  if (!timestamp.IsFinite()) {
+    return "inf";
+  }
+  return std::to_string(timestamp.ms());
+}
+
+}  // namespace
 
 constexpr TimeDelta kSendTimeHistoryWindow = TimeDelta::Seconds(60);
 
@@ -337,9 +349,9 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
 
     RTC_LOG(LS_INFO)
         << "TransportFeedback packet seq=" << seq_num
-        << " sent_time_ms=" << packet_feedback->sent.send_time.ms()
-        << " receive_time_ms=" << packet_feedback->receive_time.ms()
-        << " current_offset_ms=" << current_offset_.ms();
+      << " sent_time_ms=" << TimestampToLogString(packet_feedback->sent.send_time)
+      << " receive_time_ms=" << TimestampToLogString(packet_feedback->receive_time)
+      << " current_offset_ms=" << TimestampToLogString(current_offset_);
     
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
@@ -350,9 +362,9 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
 
         RTC_LOG(LS_INFO)
           << "TransportFeedback packet seq=" << packet_feedback->sent.sequence_number
-          << " sent_time_ms=" << packet_feedback->sent.send_time.ms()
-          << " receive_time_ms=" << result.receive_time.ms()
-          << " current_offset_ms=" << current_offset_.ms();
+          << " sent_time_ms=" << TimestampToLogString(packet_feedback->sent.send_time)
+          << " receive_time_ms=" << TimestampToLogString(result.receive_time)
+          << " current_offset_ms=" << TimestampToLogString(current_offset_);
 
       // --- FIX: Check ECN Support BEFORE deduplication ---
       if (result.ecn != EcnMarking::kNotEct) {
