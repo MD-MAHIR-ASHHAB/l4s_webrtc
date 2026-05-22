@@ -118,13 +118,8 @@ void ReceiveSideCongestionController::
 void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
     RTC_NO_THREAD_SAFETY_ANALYSIS {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  
-  if (send_rfc8888_congestion_feedback_) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Triggering immediate congestion control feedback";
-    congestion_control_feedback_generator_.SendImmediateFeedback();
-  } else {
-    RTC_LOG(LS_WARNING) << "L4S: Immediate feedback requested but RFC 8888 feedback not enabled";
-  }
+  RTC_LOG(LS_INFO)
+      << "L4S: Immediate congestion control feedback is disabled; keeping regular feedback only";
 }
 
 CongestionControlFeedbackGenerator* 
@@ -140,22 +135,6 @@ void ReceiveSideCongestionController::OnReceivedPacket(
   bool has_transport_sequence_number =
       packet.HasExtension<TransportSequenceNumber>() ||
       packet.HasExtension<TransportSequenceNumberV2>();
-  
-// RTC_LOG(LS_INFO) << "Received packet with media type: "
-//                  << MediaTypeToString(media_type)
-//                  << ", sequence number: "
-//                  << (packet.sequence_number() < 0 ? "N/A" : std::to_string(packet.sequence_number()))
-//                  << ", packet size: "
-//                  << packet.size() << " bytes, SSRC: "
-//                  << packet.Ssrc()
-//                  << ", sequence number: "
-//                  << packet.SequenceNumber()
-//                  << ", arrival time: "
-//                  << packet.arrival_time().us() << " us"
-//                  << ", ECN marking: "
-//                  << (packet.ecn() == EcnMarking::kNotEct ? "Not ECT" :
-//                      packet.ecn() == EcnMarking::kEct0 ? "ECT(0)" :
-//                      packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE");
 
 
   if (send_rfc8888_congestion_feedback_) {
