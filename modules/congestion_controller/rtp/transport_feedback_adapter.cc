@@ -295,13 +295,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     const TimeDelta delta =
         feedback.GetBaseDelta(last_transport_feedback_base_time_)
             .RoundDownTo(TimeDelta::Millis(1));
-    
     if (!delta.IsFinite()) {
-      RTC_LOG(LS_WARNING) << "Non-finite base delta received in feedback, resetting offset";
-      current_offset_ = feedback_receive_time;
+      RTC_LOG(LS_WARNING)
+          << "Non-finite base delta received in feedback, keeping previous offset";
     } else if (delta < Timestamp::Zero() - current_offset_) {
-      RTC_LOG(LS_WARNING) << "Unexpected feedback timestamp received.";
-      current_offset_ = feedback_receive_time;
+      RTC_LOG(LS_WARNING)
+          << "Unexpected feedback timestamp received, keeping previous offset.";
     } else {
       current_offset_ += delta;
     }
@@ -335,6 +334,12 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
         packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
       }
     }
+
+    RTC_LOG(LS_VERBOSE)
+        << "TransportFeedback packet seq=" << seq_num
+        << " sent_time_ms=" << packet_feedback->sent.send_time.ms()
+        << " receive_time_ms=" << packet_feedback->receive_time.ms()
+        << " current_offset_ms=" << current_offset_.ms();
     
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
@@ -436,13 +441,12 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   last_feedback_compact_ntp_time_ = feedback.report_timestamp_compact_ntp();
   if (feedback_delta < TimeDelta::Zero()) {
     RTC_LOG(LS_WARNING) << "Unexpected feedback ntp time delta "
-                        << feedback_delta << ".";
-    current_offset_ = feedback_receive_time;
+                        << feedback_delta << ". Keeping previous offset.";
   } else if (feedback_delta.IsFinite()) {
     current_offset_ += feedback_delta;
   } else {
-    RTC_LOG(LS_WARNING) << "Non-finite feedback delta detected, resetting offset";
-    current_offset_ = feedback_receive_time;
+    RTC_LOG(LS_WARNING)
+        << "Non-finite feedback delta detected, keeping previous offset";
   }
 
 int ignored_packets = 0;
@@ -508,6 +512,17 @@ int ignored_packets = 0;
       }
     }
     result.ecn = packet_info.ecn;
+
+    RTC_LOG(LS_VERBOSE)
+        << "CongestionControlFeedback packet SSRC=" << packet_info.ssrc
+        << " seq=" << packet_info.sequence_number
+        << " sent_time_ms=" << packet_feedback->sent.send_time.ms()
+        << " receive_time_ms=" << result.receive_time.ms()
+        << " current_offset_ms=" << current_offset_.ms()
+        << " arrival_time_offset_ms="
+        << (packet_info.arrival_time_offset.IsFinite()
+                ? packet_info.arrival_time_offset.ms()
+                : -1);
     
     packet_result_vector.push_back(result);
   }
