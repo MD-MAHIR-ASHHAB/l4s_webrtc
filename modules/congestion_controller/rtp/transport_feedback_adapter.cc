@@ -305,37 +305,6 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
-  // For Transport Feedback, we need to determine ECN support by checking if any 
-  // ECN-capable packets were successfully received with ECN markings preserved.
-  bool supports_ecn = false;
-
-  // Uncomment the following lines to enable logging of ECN marking counts
-  //int ecn_marked_sent = 0;
-  //int ecn_marked_received = 0;
-  
-  for (const auto& result : packet_result_vector) {
-    // Only process packets that were actually received (have finite receive times)
-    if (result.sent_packet.sequence_number > 0 && result.receive_time.IsFinite()) { 
-      if (result.ecn == EcnMarking::kEct0 ||
-          result.ecn == EcnMarking::kEct1|| 
-          result.ecn == EcnMarking::kCe) {
-        ect_count++;
-        supports_ecn = true;
-      }
-      if (result.ecn == EcnMarking::kCe) {
-        ce_count++;
-      }
-    }
-  }
-
-  
-  // Log the processed feedback details
-  // Uncomment the following line to enable logging of transport feedback processing
-  // RTC_LOG(LS_INFO) << "Transport Feedback processed: " 
-  //                  << packet_result_vector.size() << " packets, "
-  //                  << "ECN marked sent: " << ecn_marked_sent
-  //                  << ", ECN marked received: " << ecn_marked_received
-  //                  << ", ECN support detected: " << (supports_ecn ? "YES" : "NO");
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn, ect_count, ce_count);
