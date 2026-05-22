@@ -27,6 +27,7 @@
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
 #include "modules/congestion_controller/goog_cc/loss_based_bandwidth_estimation.h"
 #include "modules/congestion_controller/goog_cc/loss_based_bwe_v2.h"
 #include "rtc_base/experiments/field_trial_parser.h"
@@ -170,6 +171,7 @@ class SendSideBandwidthEstimation {
   const FieldTrialsView* key_value_config_;
   RttBasedBackoff rtt_backoff_;
   LinkCapacityTracker link_capacity_;
+  EcnBasedBwe ecn_based_bandwidth_estimator_;
 
   std::deque<std::pair<Timestamp, DataRate> > min_bitrate_history_;
 
@@ -196,6 +198,7 @@ class SendSideBandwidthEstimation {
   // send side delay based estimate.
   DataRate receiver_limit_;
   DataRate delay_based_limit_;
+  DataRate ecn_limit_ = DataRate::PlusInfinity();
   Timestamp time_last_decrease_;
   Timestamp first_report_time_;
   int initially_lost_packets_;

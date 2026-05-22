@@ -807,43 +807,13 @@ void RtpTransportControllerSend::MaybeCreateControllers() {
       Timestamp::Millis(env_.clock().TimeInMilliseconds());
   initial_config_.stream_based_config = streams_config_;
 
-  // TODO(srte): Use fallback controller if no feedback is available.
-  bool use_l4s =
-      !env_.field_trials().IsDisabled("WebRTC-L4S") ||
-      env_.field_trials().IsEnabled("WebRTC-L4SController");
-  
   NetworkControllerFactoryInterface* factory_to_use;
-  if (use_l4s) {
-    L4SFactoryConfig config;
-    config.use_ect1_marking = true;
-    config.fallback_to_gcc = true;
+  RTC_LOG(LS_INFO) << "Creating GCC network controller factory";
+  factory_to_use = controller_factory_fallback_.get();
 
-    // Parse field trial parameters
-    FieldTrialParameter<bool> use_ect1("use_ect1", true);
-    FieldTrialParameter<bool> fallback("fallback_to_gcc", true);
-    ParseFieldTrial({&use_ect1, &fallback},
-                   env_.field_trials().Lookup("WebRTC-L4SController"));
-
-    config.use_ect1_marking = use_ect1.Get();
-    config.fallback_to_gcc = fallback.Get();
-
-    RTC_LOG(LS_INFO) << "Creating L4S network controller factory with "
-                   << "use_ect1=" << (config.use_ect1_marking ? "true" : "false")
-                   << ", fallback_to_gcc=" << (config.fallback_to_gcc ? "true" : "false");
-
-    // Create a new L4S factory and use it
-    auto l4s_factory = std::make_unique<L4SFactory>(config);
-    factory_to_use = l4s_factory.get();
-    
-    // Transfer ownership
-    controller_factory_override_ = std::move(l4s_factory);
-    
-    // Enable ECN feedback if using L4S
-    EnableCongestionControlFeedbackAccordingToRfc8888();
-  } else {
-    RTC_LOG(LS_INFO) << "Creating fallback network controller factory";
-    factory_to_use = controller_factory_fallback_.get();
-  }
+  // Keep RFC 8888/ECN signaling enabled so a later ECN-aware GCC helper can
+  // consume CE-marked feedback without needing the L4S controller.
+  EnableCongestionControlFeedbackAccordingToRfc8888();
 
   controller_ = factory_to_use->Create(initial_config_);
   process_interval_ = factory_to_use->GetProcessInterval();

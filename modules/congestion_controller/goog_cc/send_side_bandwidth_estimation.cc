@@ -27,6 +27,7 @@
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
+#include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
 #include "logging/rtc_event_log/events/rtc_event_bwe_update_loss_based.h"
 #include "modules/congestion_controller/goog_cc/loss_based_bwe_v2.h"
 #include "modules/remote_bitrate_estimator/include/bwe_defines.h"
@@ -211,6 +212,7 @@ SendSideBandwidthEstimation::SendSideBandwidthEstimation(
       last_round_trip_time_(TimeDelta::Zero()),
       receiver_limit_(DataRate::PlusInfinity()),
       delay_based_limit_(DataRate::PlusInfinity()),
+      ecn_limit_(DataRate::PlusInfinity()),
       time_last_decrease_(Timestamp::MinusInfinity()),
       first_report_time_(Timestamp::MinusInfinity()),
       initially_lost_packets_(0),
@@ -255,6 +257,8 @@ void SendSideBandwidthEstimation::OnRouteChange() {
   current_target_ = DataRate::Zero();
   min_bitrate_configured_ = kCongestionControllerMinBitrate;
   max_bitrate_configured_ = kDefaultMaxBitrate;
+  ecn_based_bandwidth_estimator_.Reset();
+  ecn_limit_ = DataRate::PlusInfinity();
   last_low_bitrate_log_ = Timestamp::MinusInfinity();
   has_decreased_since_last_fraction_loss_ = false;
   last_loss_feedback_ = Timestamp::MinusInfinity();
@@ -264,6 +268,7 @@ void SendSideBandwidthEstimation::OnRouteChange() {
   last_round_trip_time_ = TimeDelta::Zero();
   receiver_limit_ = DataRate::PlusInfinity();
   delay_based_limit_ = DataRate::PlusInfinity();
+  ecn_limit_ = DataRate::PlusInfinity();
   time_last_decrease_ = Timestamp::MinusInfinity();
   first_report_time_ = Timestamp::MinusInfinity();
   initially_lost_packets_ = 0;
@@ -365,6 +370,8 @@ void SendSideBandwidthEstimation::SetAcknowledgedRate(
     loss_based_bandwidth_estimator_v1_.UpdateAcknowledgedBitrate(
         *acknowledged_rate, at_time);
   }
+  ecn_based_bandwidth_estimator_.SetMinMaxBitrate(min_bitrate_configured_,
+                                                  max_bitrate_configured_);
   if (LossBasedBandwidthEstimatorV2Enabled()) {
     loss_based_bandwidth_estimator_v2_->SetAcknowledgedBitrate(
         *acknowledged_rate);
@@ -380,6 +387,11 @@ void SendSideBandwidthEstimation::UpdateLossBasedEstimator(
     loss_based_bandwidth_estimator_v1_.UpdateLossStatistics(
         report.packet_feedbacks, report.feedback_time);
   }
+  ecn_based_bandwidth_estimator_.UpdateBandwidthEstimate(
+      report, delay_based_limit_, in_alr);
+  ecn_limit_ = ecn_based_bandwidth_estimator_
+                    .GetEcnLimitedBandwidth(report.feedback_time)
+                    .value_or(DataRate::PlusInfinity());
   if (LossBasedBandwidthEstimatorV2Enabled()) {
     loss_based_bandwidth_estimator_v2_->UpdateBandwidthEstimate(
         report.packet_feedbacks, delay_based_limit_, in_alr);
@@ -631,7 +643,8 @@ DataRate SendSideBandwidthEstimation::GetUpperLimit() const {
   DataRate upper_limit = delay_based_limit_;
   if (disable_receiver_limit_caps_only_)
     upper_limit = std::min(upper_limit, receiver_limit_);
-  return std::min(upper_limit, max_bitrate_configured_);
+  upper_limit = std::min(upper_limit, max_bitrate_configured_);
+  return std::min(upper_limit, ecn_limit_);
 }
 
 void SendSideBandwidthEstimation::MaybeLogLowBitrateWarning(DataRate bitrate,

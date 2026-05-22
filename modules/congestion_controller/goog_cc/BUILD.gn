@@ -168,6 +168,8 @@ rtc_library("loss_based_bwe_v1") {
 
 rtc_library("send_side_bwe") {
   sources = [
+    "ecn_based_bwe.cc",
+    "ecn_based_bwe.h",
     "send_side_bandwidth_estimation.cc",
     "send_side_bandwidth_estimation.h",
   ]
