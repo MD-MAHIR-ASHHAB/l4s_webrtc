@@ -1,11 +1,11 @@
 /*
- *  Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
+ * Copyright (c) 2015 The WebRTC project authors. All Rights Reserved.
  *
- *  Use of this source code is governed by a BSD-style license
- *  that can be found in the LICENSE file in the root of the source
- *  tree. An additional intellectual property rights grant can be found
- *  in the file PATENTS.  All contributing project authors may
- *  be found in the AUTHORS file in the root of the source tree.
+ * Use of this source code is governed by a BSD-style license
+ * that can be found in the LICENSE file in the root of the source
+ * tree. An additional intellectual property rights grant can be found
+ * in the file PATENTS.  All contributing project authors may
+ * be found in the AUTHORS file in the root of the source tree.
  */
 
 #ifndef MODULES_CONGESTION_CONTROLLER_RTP_TRANSPORT_FEEDBACK_ADAPTER_H_
@@ -18,6 +18,7 @@
 #include <tuple>
 #include <vector>
 
+#include "api/transport/ecn_marking.h"  // ADDED: Required for EcnMarking enum
 #include "api/transport/network_types.h"
 #include "api/units/data_size.h"
 #include "api/units/timestamp.h"
@@ -42,6 +43,9 @@ struct PacketFeedback {
   uint32_t ssrc = 0;
   uint16_t rtp_sequence_number = 0;
   bool is_retransmission = false;
+  
+  // ADDED: Track what ECN mark was applied when this packet was sent
+  EcnMarking sent_ecn_marking = EcnMarking::kNotEct; 
 };
 
 class InFlightBytesTracker {
@@ -86,6 +90,9 @@ class TransportFeedbackAdapter {
 
   DataSize GetOutstandingData() const;
 
+  // ADDED: Setter so rtp_transport_controller_send can update the active marking
+  void SetEcnMarking(EcnMarking marking);
+
  private:
   enum class SendTimeHistoryStatus { kNotAdded, kOk, kDuplicate };
 
@@ -105,16 +112,21 @@ class TransportFeedbackAdapter {
   std::optional<PacketFeedback> RetrievePacketFeedback(
       const SsrcAndRtpSequencenumber& key,
       bool received);
+      
   std::optional<TransportPacketsFeedback> ToTransportFeedback(
       std::vector<PacketResult> packet_results,
       Timestamp feedback_receive_time,
-      bool supports_ecn,int ect_count = 0,    // NEW
-    int ce_count = 0);
+      bool supports_ecn,
+      int ect_count = 0,
+      int ce_count = 0);
 
   DataSize pending_untracked_size_ = DataSize::Zero();
   Timestamp last_send_time_ = Timestamp::MinusInfinity();
   Timestamp last_untracked_send_time_ = Timestamp::MinusInfinity();
   RtpSequenceNumberUnwrapper seq_num_unwrapper_;
+
+  // ADDED: Store the current ECN marking to apply to new packets
+  EcnMarking current_ecn_marking_ = EcnMarking::kNotEct;
 
   // Sequence numbers are never negative, using -1 as it always < a real
   // sequence number.
