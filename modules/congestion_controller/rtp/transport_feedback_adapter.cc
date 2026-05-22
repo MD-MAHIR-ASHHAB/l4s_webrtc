@@ -205,7 +205,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   
   int ect_count = 0;
   int ce_count = 0;
-
+  bool supports_ecn = false;
 
   if (feedback.GetPacketStatusCount() == 0) {
     RTC_LOG(LS_INFO) << "Empty transport feedback packet received.";
@@ -348,47 +348,52 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
     Timestamp feedback_receive_time) {
 
   if (feedback.packets().empty()) {
+    RTC_LOG(LS_INFO) << "Empty congestion control feedback packet received.";
     return std::nullopt;
   }
   if (current_offset_.IsInfinite()) {
     current_offset_ = feedback_receive_time;
   }
-  
   TimeDelta feedback_delta = TimeDelta::Zero();
   if (last_feedback_compact_ntp_time_) {
     uint32_t current_ntp = feedback.report_timestamp_compact_ntp();
     uint32_t last_ntp = *last_feedback_compact_ntp_time_;
     uint32_t ntp_diff = current_ntp - last_ntp;
     
-    if (ntp_diff > 0x7FFF'FFFF) { 
+    if (ntp_diff > 0x7FFF'FFFF) {
+      RTC_LOG(LS_WARNING) << "Ignoring very large NTP timestamp difference: " 
+                          << ntp_diff << " (current: " << current_ntp 
+                          << ", last: " << last_ntp << ")";
       feedback_delta = TimeDelta::Zero();
     } else {
       feedback_delta = CompactNtpIntervalToTimeDelta(ntp_diff);
     }
   }
   last_feedback_compact_ntp_time_ = feedback.report_timestamp_compact_ntp();
-  
   if (feedback_delta < TimeDelta::Zero()) {
+    RTC_LOG(LS_WARNING) << "Unexpected feedback ntp time delta " << feedback_delta << ".";
     current_offset_ = feedback_receive_time;
   } else if (feedback_delta.IsFinite()) {
     current_offset_ += feedback_delta;
   } else {
+    RTC_LOG(LS_WARNING) << "Non-finite feedback delta detected, resetting offset";
     current_offset_ = feedback_receive_time;
   }
 
   int ignored_packets = 0;
   int failed_lookups = 0;
   
-  // ECN Trackers
-  bool supports_ecn = false; 
+  // Trackers initialized outside the loop
+  bool supports_ecn = false;  
   int ect_count = 0;
   int ce_count = 0; 
   
   std::vector<PacketResult> packet_result_vector;
   
-  for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info : feedback.packets()) {
+  for (const rtcp::CongestionControlFeedback::PacketInfo& packet_info :
+       feedback.packets()) {
        
-    // This now erases the packet from history_ natively!
+    // 1. LOOKUP FIRST. If this fails, we skip and DO NOT count ECN.
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         {.ssrc = packet_info.ssrc,
          .rtp_sequence_number = packet_info.sequence_number},
@@ -396,6 +401,8 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
         
     if (!packet_feedback) {
       ++failed_lookups;
+      RTC_LOG(LS_VERBOSE) << "Failed to find packet feedback for SSRC=" 
+                          << packet_info.ssrc << " seq=" << packet_info.sequence_number;
       continue;
     }
     if (packet_feedback->network_route != network_route_) {
@@ -405,26 +412,23 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
 
     PacketResult result;
     result.sent_packet = packet_feedback->sent;
-    result.rtp_packet_info = {
-        .ssrc = packet_feedback->ssrc,
-        .rtp_sequence_number = packet_feedback->rtp_sequence_number,
-        .is_retransmission = packet_feedback->is_retransmission};
     
-    // Only process timing and ECN if the packet successfully arrived
+    // 2. ONLY PROCESS ARRIVALS. 
     if (packet_info.arrival_time_offset.IsFinite() && current_offset_.IsFinite()) {
       result.receive_time = current_offset_ - packet_info.arrival_time_offset;
       
       if (!result.receive_time.IsFinite()) {
+        RTC_LOG(LS_WARNING) << "Invalid receive_time calculated from timestamp arithmetic";
         result.receive_time = Timestamp::PlusInfinity(); 
       } else {
-        // ECN COUNTING: Only happens for verified, successfully received packets
+        // 3. COUNT ECN ONLY FOR SUCCESSFULLY DELIVERED, VERIFIED PACKETS!
         if (packet_info.ecn != EcnMarking::kNotEct) {
           supports_ecn = true;
         }
         if (packet_info.ecn == EcnMarking::kEct0 ||
             packet_info.ecn == EcnMarking::kEct1 ||
             packet_info.ecn == EcnMarking::kCe) {
-          ect_count++;
+            ect_count++;
         }
         if (packet_info.ecn == EcnMarking::kCe) {
           ce_count++;
@@ -437,7 +441,10 @@ TransportFeedbackAdapter::ProcessCongestionControlFeedback(
   }
 
   if (failed_lookups > 0) {
-    RTC_LOG(LS_WARNING) << "Failed to lookup send time for " << failed_lookups << " packets.";
+    RTC_LOG(LS_WARNING) << "Failed to lookup send time for " << failed_lookups << " packet(s).";
+  }
+  if (ignored_packets > 0) {
+    RTC_LOG(LS_INFO) << "Ignoring " << ignored_packets << " packets (different route).";
   }
 
   absl::c_sort(packet_result_vector, [](const PacketResult& lhs, const PacketResult& rhs) {
