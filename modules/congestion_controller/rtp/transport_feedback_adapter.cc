@@ -305,7 +305,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
     RTC_LOG(LS_INFO) << "Ignoring " << ignored
                      << " packets because they were sent on a different route.";
   }
-  
+
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn, ect_count, ce_count);
 }
@@ -500,6 +500,11 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
   }
   
   return packet_feedback;
+}
+
+
+void TransportFeedbackAdapter::SetEcnMarking(EcnMarking marking) {
+  current_ecn_marking_ = marking;
 }
 
 }  // namespace webrtc
