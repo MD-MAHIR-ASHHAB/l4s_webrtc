@@ -192,9 +192,24 @@ void DelayBasedBwe::IncomingPacketFeedback(const PacketResult& packet_feedback,
       (separate_audio_.enabled && packet_feedback.sent_packet.audio)
           ? audio_inter_arrival_delta_.get()
           : video_inter_arrival_delta_.get();
+
+    RTC_LOG(LS_INFO)
+      << "DelayBasedBwe packet seq=" << packet_feedback.sent_packet.sequence_number
+      << " sent_time_ms=" << packet_feedback.sent_packet.send_time.ms()
+      << " receive_time_ms=" << packet_feedback.receive_time.ms()
+      << " feedback_time_ms=" << msg.feedback_time.ms()
+      << " audio=" << packet_feedback.sent_packet.audio;
+
   bool calculated_deltas = inter_arrival_for_packet->ComputeDeltas(
       packet_feedback.sent_packet.send_time, packet_feedback.receive_time,
       at_time, packet_size.bytes(), &send_delta, &recv_delta, &size_delta);
+
+    RTC_LOG(LS_INFO)
+      << "DelayBasedBwe deltas seq=" << packet_feedback.sent_packet.sequence_number
+      << " calculated=" << calculated_deltas
+      << " send_delta_ms=" << send_delta.ms()
+      << " recv_delta_ms=" << recv_delta.ms()
+      << " size_delta=" << size_delta;
 
   delay_detector_for_packet->Update(recv_delta.ms<double>(),
                                     send_delta.ms<double>(),

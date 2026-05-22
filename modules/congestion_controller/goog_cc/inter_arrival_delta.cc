@@ -41,14 +41,28 @@ bool InterArrivalDelta::ComputeDeltas(Timestamp send_time,
   if (current_timestamp_group_.IsFirstPacket()) {
     // We don't have enough data to update the filter, so we store it until we
     // have two frames of data to process.
+    RTC_LOG(LS_INFO)
+        << "InterArrivalDelta first packet send_time_ms=" << send_time.ms()
+        << " arrival_time_ms=" << arrival_time.ms()
+        << " system_time_ms=" << system_time.ms();
     current_timestamp_group_.send_time = send_time;
     current_timestamp_group_.first_send_time = send_time;
     current_timestamp_group_.first_arrival = arrival_time;
   } else if (current_timestamp_group_.first_send_time > send_time) {
     // Reordered packet.
+    RTC_LOG(LS_INFO)
+        << "InterArrivalDelta reordered packet send_time_ms=" << send_time.ms()
+        << " arrival_time_ms=" << arrival_time.ms()
+        << " first_send_time_ms=" << current_timestamp_group_.first_send_time.ms()
+        << " current_group_send_time_ms=" << current_timestamp_group_.send_time.ms();
     return false;
   } else if (NewTimestampGroup(arrival_time, send_time)) {
     // First packet of a later send burst, the previous packets sample is ready.
+    RTC_LOG(LS_INFO)
+        << "InterArrivalDelta new burst send_time_ms=" << send_time.ms()
+        << " arrival_time_ms=" << arrival_time.ms()
+        << " current_group_complete_time_ms=" << current_timestamp_group_.complete_time.ms()
+        << " prev_group_complete_time_ms=" << prev_timestamp_group_.complete_time.ms();
     if (prev_timestamp_group_.complete_time.IsFinite()) {
       *send_time_delta =
           current_timestamp_group_.send_time - prev_timestamp_group_.send_time;
