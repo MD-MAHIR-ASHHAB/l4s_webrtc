@@ -242,32 +242,45 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
   size_t failed_lookups = 0;
   size_t ignored = 0;
 
-  feedback.ForAllPackets([&](uint16_t sequence_number,
-                             TimeDelta delta_since_base) {
+  feedback.ForAllPackets([&](uint16_t sequence_number, TimeDelta delta_since_base) {
     int64_t seq_num = seq_num_unwrapper_.Unwrap(sequence_number);
     std::optional<PacketFeedback> packet_feedback = RetrievePacketFeedback(
         seq_num, /*received=*/delta_since_base.IsFinite());
+        
     if (!packet_feedback) {
       ++failed_lookups;
       return;
     }
-    if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
-      packet_feedback->receive_time =
-          current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
-      
-      // Ensure the calculated receive time is valid
-      if (!packet_feedback->receive_time.IsFinite()) {
-        RTC_LOG(LS_WARNING) << "Invalid receive_time calculated in Transport Feedback processing";
-        packet_feedback->receive_time = Timestamp::PlusInfinity(); // Mark as not received
-      }
-    }
+    
     if (packet_feedback->network_route == network_route_) {
       PacketResult result;
       result.sent_packet = packet_feedback->sent;
-      result.receive_time = packet_feedback->receive_time;
-
-      // Use the ECN marking that was applied when the packet was sent
       result.ecn = packet_feedback->sent_ecn_marking;
+
+      // Calculate receive time and assign directly to 'result'
+      if (delta_since_base.IsFinite() && current_offset_.IsFinite()) {
+        result.receive_time = current_offset_ + delta_since_base.RoundDownTo(TimeDelta::Millis(1));
+        
+        if (!result.receive_time.IsFinite()) {
+          result.receive_time = Timestamp::PlusInfinity();
+        } else {
+          // ECN COUNTING: Only count if successfully received
+          if (result.ecn != EcnMarking::kNotEct) {
+            supports_ecn = true;
+          }
+          if (result.ecn == EcnMarking::kEct0 ||
+              result.ecn == EcnMarking::kEct1 || 
+              result.ecn == EcnMarking::kCe) {
+            ect_count++;
+          }
+          if (result.ecn == EcnMarking::kCe) {
+            ce_count++;
+          }
+        }
+      } else {
+        result.receive_time = Timestamp::PlusInfinity();
+      }
+
       packet_result_vector.push_back(result);
     } else {
       ++ignored;
@@ -443,8 +456,8 @@ TransportFeedbackAdapter::ToTransportFeedback(
     std::vector<PacketResult> packet_results,
     Timestamp feedback_receive_time,
     bool supports_ecn,
-    int ect_count = 0,
-    int ce_count = 0) {
+    int ect_count,
+    int ce_count) {
   TransportPacketsFeedback msg;
   msg.feedback_time = feedback_receive_time;
   if (packet_results.empty()) {
