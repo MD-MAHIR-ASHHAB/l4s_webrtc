@@ -120,6 +120,7 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
                                                         &env_.event_log())),
       alr_detector_(std::make_unique<AlrDetector>(&env_.field_trials(),
                                                   &env_.event_log())),
+      ecn_based_bwe_(std::make_unique<EcnBasedBwe>()),
       probe_bitrate_estimator_(new ProbeBitrateEstimator(&env_.event_log())),
       network_estimator_(std::move(goog_cc_config.network_state_estimator)),
       network_state_predictor_(
@@ -568,7 +569,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   if (ecn_based_bwe_ && report.transport_supports_ecn) {
     
     // Assume your EcnBasedBwe has a similar interface to DelayBasedBwe
-    EcnBasedBwe::Result ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
+    EcnBasedBwe::ECNResult ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
         report, acknowledged_bitrate, probe_bitrate, estimate_,
         alr_start_time.has_value());
 

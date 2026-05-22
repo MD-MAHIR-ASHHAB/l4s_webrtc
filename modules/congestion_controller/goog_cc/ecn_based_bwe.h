@@ -16,13 +16,13 @@
 #include "api/units/data_rate.h"
 #include "api/units/time_delta.h"
 #include "api/units/timestamp.h"
-#include "modules/rtp_rtcp/source/rtcp_packet/transport_feedback.h"
+#include "modules/congestion_controller/rtp/transport_feedback_adapter.h" // Needed for TransportPacketsFeedback
 
 namespace webrtc {
 
 class EcnBasedBwe {
  public:
-  struct Result {
+  struct ECNResult {
     bool updated = false;
     DataRate target_bitrate = DataRate::Zero();
     bool recovered_from_overuse = false;
@@ -35,7 +35,7 @@ class EcnBasedBwe {
   void SetTargetBitrate(DataRate starting_rate);
   void UpdateRtt(TimeDelta rtt);
 
-  Result IncomingPacketFeedbackVector(
+  ECNResult IncomingPacketFeedbackVector(
       const TransportPacketsFeedback& report,
       std::optional<DataRate> acknowledged_bitrate);
 

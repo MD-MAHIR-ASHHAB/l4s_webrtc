@@ -36,6 +36,7 @@
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
+#include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
 
 namespace webrtc {
 struct GoogCcConfig {

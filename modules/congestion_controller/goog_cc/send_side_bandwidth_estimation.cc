@@ -257,8 +257,8 @@ void SendSideBandwidthEstimation::OnRouteChange() {
   current_target_ = DataRate::Zero();
   min_bitrate_configured_ = kCongestionControllerMinBitrate;
   max_bitrate_configured_ = kDefaultMaxBitrate;
-  ecn_based_bandwidth_estimator_.Reset();
-  ecn_limit_ = DataRate::PlusInfinity();
+  // ecn_based_bandwidth_estimator_.Reset();
+  // ecn_limit_ = DataRate::PlusInfinity();
   last_low_bitrate_log_ = Timestamp::MinusInfinity();
   has_decreased_since_last_fraction_loss_ = false;
   last_loss_feedback_ = Timestamp::MinusInfinity();
@@ -387,11 +387,11 @@ void SendSideBandwidthEstimation::UpdateLossBasedEstimator(
     loss_based_bandwidth_estimator_v1_.UpdateLossStatistics(
         report.packet_feedbacks, report.feedback_time);
   }
-  ecn_based_bandwidth_estimator_.UpdateBandwidthEstimate(
-      report, delay_based_limit_, in_alr);
-  ecn_limit_ = ecn_based_bandwidth_estimator_
-                    .GetEcnLimitedBandwidth(report.feedback_time)
-                    .value_or(DataRate::PlusInfinity());
+  // ecn_based_bandwidth_estimator_.UpdateBandwidthEstimate(
+  //     report, delay_based_limit_, in_alr);
+  // ecn_limit_ = ecn_based_bandwidth_estimator_
+  //                   .GetEcnLimitedBandwidth(report.feedback_time)
+  //                   .value_or(DataRate::PlusInfinity());
   if (LossBasedBandwidthEstimatorV2Enabled()) {
     loss_based_bandwidth_estimator_v2_->UpdateBandwidthEstimate(
         report.packet_feedbacks, delay_based_limit_, in_alr);
