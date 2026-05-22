@@ -47,7 +47,7 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     std::optional<NetworkStateEstimate> estimate,
     bool in_alr) {
     
-  Result result;
+  ECNResult result;
   
   if (report.packet_feedbacks.empty()) {
     return result;
