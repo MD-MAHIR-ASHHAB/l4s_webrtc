@@ -75,41 +75,40 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
   alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
 
   // --- 2. Rate Control State Machine ---
+  // Only execute Multiplicative Decrease (MD) on CE marks. Do not perform
+  // additive increases here — let the existing GCC AIMD/rate-control logic
+  // handle increases so AI remains adaptive and consistent with delay/loss.
   bool executed_md = false;
 
   if (report.ce_count > 0) {
     // Multiplicative Decrease (MD)
     // Enforce 1-RTT pipeline delay to prevent multiple cuts for the same congestion event
     TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
-    
+
     if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
-      
       double reduction_factor = 1.0 - (alpha_ / 2.0);
       current_target_rate_ = current_target_rate_ * reduction_factor;
-      
+
       last_md_time_ = now;
       executed_md = true;
-      
-      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Executed Cut. alpha: " << alpha_ 
-                          << ", raw_ce: " << raw_ce_ratio
-                          << ", new target: " << current_target_rate_.kbps() << " kbps";
+
+      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut. alpha: " << alpha_
+                       << ", raw_ce: " << raw_ce_ratio
+                       << ", new target: " << current_target_rate_.kbps()
+                       << " kbps";
     }
-  } else if (total_ecn_packets > 0) {
-    // Additive Increase (AI)
-    // Only increase if we actually received an ECN-capable batch with zero CE marks
-    
-    // Standard AI step: Increase by 40 kbps per second
-    DataRate ai_step = DataRate::BitsPerSec(40000.0 * delta_time.seconds<double>());
-    current_target_rate_ += ai_step;
   }
 
   // --- 3. Enforce Bounds and Output ---
   current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
 
-  result.updated = true;
-  result.target_bitrate = current_target_rate_;
-  // Signal recovery if we successfully stepped up without encountering congestion
-  result.recovered_from_overuse = !executed_md && (total_ecn_packets > 0); 
+  // Only report an update when we executed a multiplicative decrease. When
+  // no CE marks are seen, do not override GCC's adaptive increase logic.
+  result.updated = executed_md;
+  if (result.updated) {
+    result.target_bitrate = current_target_rate_;
+    result.recovered_from_overuse = false;
+  }
 
   return result;
 }

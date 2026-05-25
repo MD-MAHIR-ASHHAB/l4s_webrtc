@@ -564,29 +564,43 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
 
 
    // --- 2. PLUG IN YOUR ECN-BASED BWE ---
-  // Only override the result if the transport actually supports ECN 
-  // (meaning the adapter saw at least one ECT/CE mark and proved no bleaching occurred)
+  // Treat ECN-based BWE as a cap provider rather than an override. If the ECN
+  // module observed CE marks it will request a multiplicative decrease; we
+  // enforce that by capping the delay-based target or, if delay-based did not
+  // produce an update, by producing an update that lowers the current target.
+  std::optional<DataRate> ecn_cap;
   if (ecn_based_bwe_ && report.transport_supports_ecn) {
-    
-    // Assume your EcnBasedBwe has a similar interface to DelayBasedBwe
     EcnBasedBwe::ECNResult ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
         report, acknowledged_bitrate, probe_bitrate, estimate_,
         alr_start_time.has_value());
 
-    // If your ECN module calculated a new target rate based on CE marks, 
-    // we overwrite the delay-based result with your ECN result!
     if (ecn_result.updated) {
-      result.updated = true;
-      
-      // The ultimate fusion: You can either strictly use ECN, or take the minimum 
-      // of both to be ultra-conservative. 
-      // For a pure ECN controller, just do:
-      result.target_bitrate = ecn_result.target_bitrate;
-      
-      result.recovered_from_overuse = ecn_result.recovered_from_overuse;
-      
-      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Overriding GCC target rate to: " 
+      ecn_cap = ecn_result.target_bitrate;
+      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Suggested cap: "
+                          << ecn_cap->kbps() << " kbps";
+    }
+  }
+
+  // If ECN provided a cap, apply it conservatively.
+  if (ecn_cap.has_value()) {
+    if (result.updated) {
+      // Apply cap to the delay-based target.
+      result.target_bitrate = std::min(result.target_bitrate, *ecn_cap);
+      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Capped GCC target rate to: "
                           << result.target_bitrate.kbps() << " kbps";
+    } else {
+      // Delay-based didn't request an update, but ECN demands a reduction.
+      // Force an update to lower the current target to the ECN cap (or keep
+      // current target if already below the cap).
+      DataRate current_target = bandwidth_estimation_->target_rate();
+      DataRate new_target = std::min(current_target, *ecn_cap);
+      if (new_target < current_target) {
+        result.updated = true;
+        result.target_bitrate = new_target;
+        result.recovered_from_overuse = false;
+        RTC_LOG(LS_VERBOSE) << "[ECN BWE] Forcing reduction to ECN cap: "
+                            << result.target_bitrate.kbps() << " kbps";
+      }
     }
   }
   // -------------------------------------- 
