@@ -62,17 +62,17 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
   TimeDelta delta_time = now - last_update_time_;
   last_update_time_ = now;
 
-  // --- 1. DCTCP Alpha Calculation ---
-  int total_ecn_packets = report.ect_count + report.ce_count;
-  double raw_ce_ratio = 0.0;
+  // // --- 1. DCTCP Alpha Calculation ---
+  // int total_ecn_packets = report.ect_count + report.ce_count;
+  // double raw_ce_ratio = 0.0;
   
-  if (total_ecn_packets > 0) {
-    raw_ce_ratio = static_cast<double>(report.ce_count) / total_ecn_packets;
-  }
+  // if (total_ecn_packets > 0) {
+  //   raw_ce_ratio = static_cast<double>(report.ce_count) / total_ecn_packets;
+  // }
 
-  // Classic DCTCP gain factor (g = 1/16)
-  constexpr double g = 1.0 / 16.0; 
-  alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
+  // // Classic DCTCP gain factor (g = 1/16)
+  // constexpr double g = 1.0 / 16.0; 
+  // alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
 
   // --- 2. Rate Control State Machine ---
   // Only execute Multiplicative Decrease (MD) on CE marks. Do not perform
@@ -86,15 +86,14 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
 
     if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
-      double reduction_factor = 1.0 - (alpha_ / 2.0);
+      // double reduction_factor = 1.0 - (alpha_ / 2.0);
+      double reduction_factor = 0.5;
       current_target_rate_ = current_target_rate_ * reduction_factor;
 
       last_md_time_ = now;
       executed_md = true;
 
-      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut. alpha: " << alpha_
-                       << ", raw_ce: " << raw_ce_ratio
-                       << ", new target: " << current_target_rate_.kbps()
+      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut accoridng to RFC 3168, new target: " << current_target_rate_.kbps()
                        << " kbps";
     }
   }
