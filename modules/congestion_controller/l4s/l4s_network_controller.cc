@@ -230,6 +230,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
   } 
 }
 
+void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
+  direction_flag_ = 1;
+  non_ce_packet_count_ = 0;
+  consecutive_md_cuts_ = 0;
+  ai_bits_accumulator_ = 0.0;
+  last_ai_update_time_ = current_time;
+  additive_hold_until_ = Timestamp::MinusInfinity();
+  last_update_time_ = current_time;
+  last_feedback_time_ = current_time;
+}
+
 
 void webrtc::PragueCapacityEstimator::UpdateEcnActivity(Timestamp current_time) {
   // Track any ECN activity (ECT or CE packets) to maintain confidence
@@ -1942,6 +1953,9 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
   // wait 5 RTTs from the last CE mark, then enter recovery.
   if (ce_count == 0 && ect_count > 0) {
     if (CanEnterRecoveryState(now)) {
+      if (prague_estimator_) {
+        prague_estimator_->EnterAdditiveMode(now);
+      }
       recovery_mode_active_ = true;
       recovery_probe_bootstrapped_ = false;
       recovery_start_time_ = now;
@@ -1951,10 +1965,10 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
                                : TimeDelta::Millis(200);
       TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
 
-      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after CE stayed quiet for "
-                       << quiet_window.ms() << "ms (" 
-                       << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
-                       << effective_rtt.ms() << "ms)";
+      RTC_LOG(LS_INFO) << "L4S: Bridged Prague from reduction to additive and entered recovery after CE stayed quiet for "
+               << quiet_window.ms() << "ms ("
+               << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
+               << effective_rtt.ms() << "ms)";
     } else if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
       RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode while discovery is active";
     } else if (last_congestion_signal_.IsInfinite()) {
