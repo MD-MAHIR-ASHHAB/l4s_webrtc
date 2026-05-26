@@ -96,6 +96,7 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
                                                  GoogCcConfig goog_cc_config,
                                                  test::MetricsLogger* metrics_logger)
     : env_(config.env),
+      packet_feedback_only_(false),
       safe_reset_on_route_change_("Enabled"),
       safe_reset_acknowledged_rate_("ack"),
       use_min_allocatable_as_lower_bound_(
