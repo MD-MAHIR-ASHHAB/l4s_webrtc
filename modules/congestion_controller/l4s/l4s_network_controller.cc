@@ -1928,6 +1928,8 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 
 
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
+
+
   // Handle recovery mode detection based on clean ECT1 packets
   if (ce_count == 0 && ect_count > 0) {
     if (clean_ect_run_start_.IsInfinite()) {
@@ -2004,14 +2006,15 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
                         << ", min_clean_ms=" << min_clean_duration.ms()
                         << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
     }
-  } else if (ce_count > 0) {
-
-    RTC_LOG(LS_INFO) << "L4S down: Not entering recovery mode after " << consecutive_clean_packets_
+    else{
+          RTC_LOG(LS_INFO) << "L4S down: Not entering recovery mode after " << consecutive_clean_packets_
                 << " clean ECT packets (threshold=" << recovery_threshold
                 << ", rtt=" << effective_rtt.ms() << "ms"
                 << ", clean_ms=" << clean_duration.ms()
                 << ", min_clean_ms=" << min_clean_duration.ms()
                 << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
+    }
+  } else if (ce_count > 0) {
     // Reset clean packet count on congestion
     consecutive_clean_packets_ = 0;
     clean_ect_run_start_ = Timestamp::MinusInfinity();
