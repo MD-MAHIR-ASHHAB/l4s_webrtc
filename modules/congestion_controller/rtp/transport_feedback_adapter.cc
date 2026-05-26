@@ -579,14 +579,14 @@ int ignored_packets = 0;
   });
   
 // Add this right before the return statement
-  // if (!packet_result_vector.empty()) {
-  //   RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
-  //                    << "  Packets Acknowledged: " << packet_result_vector.size() << "\n"
-  //                    << "  ECT Marks: " << ect_count << "\n"
-  //                    << "  CE Marks: " << ce_count << "\n"
-  //                    << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
-  //                    << "======================================";
-  // }
+  if (!packet_result_vector.empty()) {
+    RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
+                     << "  Packets Acknowledged: " << packet_result_vector.size() << "\n"
+                     << "  ECT Marks: " << ect_count << "\n"
+                     << "  CE Marks: " << ce_count << "\n"
+                     << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
+                     << "======================================";
+  }
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn,ect_count, ce_count);

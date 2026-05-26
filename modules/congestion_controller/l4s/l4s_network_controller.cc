@@ -74,7 +74,7 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 
 //hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
 
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio,int window_packet_count, Timestamp current_time) {
   last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  // CE-marked packets detected
@@ -132,7 +132,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
          
          // Keep the gate locked, do not reduce further. 
          // Note: alpha_ continues to update above, so if the bully leaves, we still have accurate state.
-         last_md_time_ = current_time; 
+
+
+        //  last_md_time_ = current_time; 
          last_congestion_signal_ = current_time;
          return;
       }
@@ -170,7 +172,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
   
   }
   else {  // No CE marks in this batch
-    non_ce_packet_count_++;
+    // THE RFC 8888 FIX: Count actual clean packets, not evaluation windows!
+    non_ce_packet_count_ += window_packet_count;
     
     // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
     // Calculate a physical clearance window based on the bloated RTT
@@ -186,16 +189,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
     // Only switch back to Additive Increase if enough PACKETS have passed 
     // AND enough physical TIME has passed to flush the queue.
     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
+    
+    // Because non_ce_packet_count_ now scales accurately with RFC 8888, 
+    // this threshold will break us out of Reduction precisely when the queue drains.
     if (direction_flag_ == -1 &&
         non_ce_packet_count_ >= adaptive_non_ce_threshold &&
         clearance_time_met) {
+        
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
+      consecutive_md_cuts_ = 0; // Reset Bully Resistance
 
-
-
-      // --- FEATURE 2 (CLEANUP): Reset the Bully Resistance Counter ---
-      consecutive_md_cuts_ = 0;
       
       
       RTC_LOG(LS_VERBOSE)
@@ -1137,7 +1141,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
 
 
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, window_total, feedback.feedback_time);
       }
 
       // ---  The Historical Safety Floor ---
