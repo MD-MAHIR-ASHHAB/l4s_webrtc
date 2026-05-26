@@ -449,6 +449,10 @@ std::vector<ProbeClusterConfig> GoogCcNetworkController::ResetConstraints(
     delay_based_bwe_->SetStartBitrate(*starting_rate_);
   delay_based_bwe_->SetMinBitrate(min_data_rate_);
 
+  if (ecn_based_bwe_) {
+    ecn_based_bwe_->SetMinMaxBitrate(min_data_rate_, max_data_rate_);
+  }
+
   return probe_controller_->SetBitrates(
       min_data_rate_, starting_rate_.value_or(DataRate::Zero()), max_data_rate_,
       new_constraints.at_time);
@@ -1070,6 +1074,12 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
   // Periodically export all metrics to JSON
+  // ExportToJsonFile("gcc_test_c2.json");
+}
+
+
+GCCMetricsCollector::~GCCMetricsCollector() {
+  RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
   ExportToJsonFile("gcc_test_c2.json");
 }
 
