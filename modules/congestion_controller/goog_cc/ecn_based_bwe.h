@@ -42,14 +42,14 @@ class EcnBasedBwe {
       std::optional<NetworkStateEstimate> estimate,
       bool in_alr);
 
-      
+
  private:
   DataRate min_bitrate_ = DataRate::KilobitsPerSec(20);
   DataRate max_bitrate_ = DataRate::PlusInfinity();
   
   // The sovereign state of the ECN controller
   DataRate current_target_rate_ = DataRate::KilobitsPerSec(300); 
-  double alpha_ = 0.0;
+  // double alpha_ = 0.0;
   
   Timestamp last_md_time_ = Timestamp::MinusInfinity();
   Timestamp last_update_time_ = Timestamp::MinusInfinity();

@@ -267,10 +267,10 @@ NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
   // Log metrics periodically on each process interval
   LogPeriodicMetrics(msg.at_time);
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+ 
+ 
   return update;
 
-
-  return update;
 }
 
 NetworkControlUpdate GoogCcNetworkController::OnRemoteBitrateReport(
