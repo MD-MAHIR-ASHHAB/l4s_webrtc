@@ -44,6 +44,8 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
+#include "api/test/metrics/global_metrics_logger_and_exporter.h"
+#include "api/test/metrics/metrics_logger.h"
 
 namespace webrtc {
 
@@ -91,9 +93,10 @@ BandwidthLimitedCause GetBandwidthLimitedCause(LossBasedState loss_based_state,
 }  // namespace
 
 GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
-                                                 GoogCcConfig goog_cc_config)
+                                                 GoogCcConfig goog_cc_config,
+                                                 test::MetricsLogger* metrics_logger)
     : env_(config.env),
-      packet_feedback_only_(goog_cc_config.feedback_only),
+      packet_feedback_only_(false),
       safe_reset_on_route_change_("Enabled"),
       safe_reset_acknowledged_rate_("ack"),
       use_min_allocatable_as_lower_bound_(
@@ -141,7 +144,21 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
           config.stream_based_config.min_total_allocated_bitrate.value_or(
               DataRate::Zero())),
       max_padding_rate_(config.stream_based_config.max_padding_rate.value_or(
-          DataRate::Zero())) {
+          DataRate::Zero())),
+      metrics_enabled_(true),
+      current_active_controller_("GCC_initializing") {
+
+  using webrtc::test::GetGlobalMetricsLogger;
+  test::MetricsLogger* logger_to_use = metrics_logger;
+  if (!logger_to_use) {
+    logger_to_use = GetGlobalMetricsLogger();
+  }
+  metrics_collector_ = std::make_unique<GCCMetricsCollector>(
+      logger_to_use, goog_cc_config.test_case_name, &env_.clock());
+  RTC_LOG(LS_INFO) << "GCC: Metrics collection enabled for test case: "
+                   << goog_cc_config.test_case_name;
+
+
   RTC_DCHECK(config.constraints.at_time.IsFinite());
   ParseFieldTrial(
       {&safe_reset_on_route_change_, &safe_reset_acknowledged_rate_},
@@ -246,7 +263,14 @@ NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
     update.congestion_window = current_data_window_;
   }
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+
+  // Log metrics periodically on each process interval
+  LogPeriodicMetrics(msg.at_time);
+  MaybeTriggerOnNetworkChanged(&update, msg.at_time);
+ 
+ 
   return update;
+
 }
 
 NetworkControlUpdate GoogCcNetworkController::OnRemoteBitrateReport(
@@ -262,9 +286,22 @@ NetworkControlUpdate GoogCcNetworkController::OnRemoteBitrateReport(
 
 NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
     RoundTripTimeUpdate msg) {
-  if (packet_feedback_only_ || msg.smoothed)
+  RTC_LOG(LS_VERBOSE) << "GCC RTT update: " << msg.round_trip_time.ms()
+                      << " ms";
+  if (msg.smoothed) {
     return NetworkControlUpdate();
+  }
   RTC_DCHECK(!msg.round_trip_time.IsZero());
+
+  last_rtt_ = msg.round_trip_time;
+  
+  // Log RTT metrics.
+  if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+  }
+
   if (delay_based_bwe_)
     delay_based_bwe_->OnRttUpdate(msg.round_trip_time);
   bandwidth_estimation_->UpdateRtt(msg.round_trip_time, msg.receive_time);
@@ -286,6 +323,36 @@ NetworkControlUpdate GoogCcNetworkController::OnSentPacket(
                                                 TimeDelta::Zero());
   }
   bandwidth_estimation_->OnSentPacket(sent_packet);
+
+
+  // --- NEW: Calculate Pacer's Actual Send Rate ---
+  constexpr TimeDelta kSendWindow = TimeDelta::Millis(500); 
+  
+  if (sent_packet.send_time.IsFinite()) {
+    send_rate_window_.emplace_back(sent_packet.send_time, sent_packet.size.bytes());
+  }
+
+  // Evict packets older than the window
+  while (!send_rate_window_.empty() && 
+         (sent_packet.send_time - send_rate_window_.front().first) > kSendWindow) {
+    send_rate_window_.pop_front();
+  }
+
+  // Calculate the transmission rate if we have a valid time gap
+  if (send_rate_window_.size() > 1) {
+    Timestamp window_start = send_rate_window_.front().first;
+    Timestamp window_end = send_rate_window_.back().first;
+    TimeDelta window_interval = window_end - window_start;
+
+    if (window_interval >= TimeDelta::Millis(100)) {
+      int64_t window_bytes = 0;
+      for (const auto& entry : send_rate_window_) {
+        window_bytes += entry.second;
+      }
+      last_send_rate_ = DataRate::BitsPerSec(
+          static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    }
+  }
 
   if (congestion_window_pushback_controller_) {
     congestion_window_pushback_controller_->UpdateOutstandingData(
@@ -391,8 +458,17 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     TransportLossReport msg) {
   if (packet_feedback_only_)
     return NetworkControlUpdate();
+
   int64_t total_packets_delta =
       msg.packets_received_delta + msg.packets_lost_delta;
+
+  // NEW: Update loss metrics for logging
+  if (total_packets_delta > 0) {
+    last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets_delta;
+  } else {
+    last_loss_fraction_ = 0.0;
+  }
+  last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
   bandwidth_estimation_->UpdatePacketsLost(
       msg.packets_lost_delta, total_packets_delta, msg.receive_time);
   return NetworkControlUpdate();
@@ -645,6 +721,56 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     update.congestion_window = current_data_window_;
   }
 
+
+  // --- Throughput calculation using a sliding window for stability ---
+  constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
+  Timestamp now = report.feedback_time;
+
+  // Add new packets to the window
+  for (const auto& packet : report.packet_feedbacks) {
+    if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
+      throughput_window_.emplace_back(packet.receive_time, packet.sent_packet.size.bytes());
+    }
+  }
+  // Remove old packets outside the window
+  while (!throughput_window_.empty() && now - throughput_window_.front().first > kThroughputWindow) {
+    throughput_window_.pop_front();
+  }
+  // Calculate throughput over the window
+  int64_t window_bytes = 0;
+  Timestamp window_start = now;
+  Timestamp window_end = now;
+  if (!throughput_window_.empty()) {
+    window_start = throughput_window_.front().first;
+    window_end = throughput_window_.back().first;
+    for (const auto& entry : throughput_window_) {
+      window_bytes += entry.second;
+    }
+  }
+  TimeDelta window_interval = window_end - window_start;
+  if (window_interval > TimeDelta::Millis(1)) {
+    last_actual_bitrate_ = DataRate::BitsPerSec(static_cast<int64_t>((window_bytes * 8) / window_interval.seconds<double>()));
+    
+    RTC_LOG(LS_VERBOSE) << "GCC Throughput Calculation: "
+              << "packets=" << throughput_window_.size()
+              << " bytes=" << window_bytes
+              << " interval=" << window_interval.ms() << " ms"
+              << " throughput=" << last_actual_bitrate_.bps() / 1e6
+              << " Mbps"
+              << " ack_estimate="
+              << (acknowledged_bitrate_estimator_->bitrate()
+                    .has_value()
+                  ? acknowledged_bitrate_estimator_->bitrate()
+                      ->bps() /
+                      1e6
+                  : 0.0)
+              << " Mbps";
+  } else {
+    last_actual_bitrate_ = DataRate::Zero();
+  }
+
+
+
   return update;
 }
 
@@ -791,5 +917,238 @@ PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
   msg.pad_window = padding_rate * msg.time_window;
   return msg;
 }
+
+
+
+
+// GCCMetricsCollector implementation
+webrtc::GCCMetricsCollector::GCCMetricsCollector(webrtc::test::MetricsLogger* logger,
+                                                 const std::string& test_case_name,
+                                                 webrtc::Clock* clock)
+    : logger_(logger),
+      test_case_name_(test_case_name),
+      clock_(clock) {
+  RTC_CHECK(logger_);
+  RTC_CHECK(clock_);
+  RTC_LOG(LS_INFO) << "GCCMetricsCollector initialized for test case: " << test_case_name_;
+}
+
+void GCCMetricsCollector::LogBandwidthMetrics(
+    Timestamp at_time,
+    DataRate target_bitrate,
+    DataRate actual_bitrate,
+    std::optional<DataRate> acked_bitrate,
+    std::optional<DataRate> send_rate) {
+    
+  if (at_time - last_acked_rate_log_ < kAckedRateLogInterval) {
+    return;
+  }
+  last_acked_rate_log_ = at_time;
+
+  // 1. Target Rate (The Software Budget)
+  if (target_bitrate.IsFinite()) {
+      logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
+                                    target_bitrate.bps() / 1e6,
+                                    webrtc::test::Unit::kUnitless,
+                                    webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                    {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+
+  // 2. Send Rate (The Pacer's Physical Exhaust)
+  DataRate tx_rate = send_rate.value_or(DataRate::Zero());
+  logger_->LogSingleValueMetric("send_rate_mbps", test_case_name_,
+                                tx_rate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  // 3. Actual Rate (Raw Physical Throughput Window)
+  logger_->LogSingleValueMetric("actual_rate_mbps", test_case_name_,
+                                actual_bitrate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+
+  // 4. Acked Rate (GCC-Parity Kalman Filtered Throughput)
+  DataRate filtered_acked_rate = acked_bitrate.value_or(DataRate::Zero());
+  UpdateAckedRateStats(filtered_acked_rate); 
+  logger_->LogSingleValueMetric("acked_rate_mbps", test_case_name_,
+                                filtered_acked_rate.bps() / 1e6,
+                                webrtc::test::Unit::kUnitless,
+                                webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+
+
+void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
+                                         TimeDelta jitter) {
+  if (at_time - last_delay_log_ < kDelayLogInterval) {
+    return;
+  }
+  
+  last_delay_log_ = at_time;
+  UpdateDelayStats(rtt, one_way_delay);
+  logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
+                                webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  if (one_way_delay.IsFinite()) {
+    logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+  if (jitter.IsFinite()) {
+    // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
+    //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+  }
+}
+
+void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction,
+                                         int packets_lost_count) {
+  if (at_time - last_loss_log_ < kLossLogInterval) {
+    return;
+  }
+  
+  last_loss_log_ = at_time;
+  UpdateLossStats(loss_fraction);
+  
+  logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
+                                webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+  logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost_count,
+                                webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+}
+
+
+void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
+  if (at_time - last_summary_log_ < kSummaryLogInterval) {
+    return;
+  }
+  
+  last_summary_log_ = at_time;
+  
+  // Log summary statistics
+  if (acked_rate_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("acked_rate_avg_mbps", test_case_name_, acked_rate_stats_.GetAverage() / 1e6,
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "acked_rate"}});
+    logger_->LogSingleValueMetric("acked_rate_std_mbps", test_case_name_, acked_rate_stats_.GetStandardDeviation() / 1e6,
+                                  webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "acked_rate"}});
+  }
+
+  if (rtt_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("rtt_avg_ms", test_case_name_, rtt_stats_.GetAverage(),
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "rtt"}});
+    logger_->LogSingleValueMetric("rtt_std_ms", test_case_name_, rtt_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "rtt"}});
+  }
+
+  if (delay_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(),
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "delay"}});
+    logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
+  }
+
+  if (loss_stats_.NumSamples() > 0) {
+    logger_->LogSingleValueMetric("packet_loss_avg_fraction", test_case_name_,
+                                  loss_stats_.GetAverage(),
+                                  webrtc::test::Unit::kUnitless,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "average"}, {"metric", "packet_loss"}});
+    logger_->LogSingleValueMetric("packet_loss_std_fraction", test_case_name_,
+                                  loss_stats_.GetStandardDeviation(),
+                                  webrtc::test::Unit::kUnitless,
+                                  webrtc::test::ImprovementDirection::kSmallerIsBetter,
+                                  {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
+  }
+  // Periodically export all metrics to JSON
+  ExportToJsonFile("gcc_test_c2.json");
+}
+
+void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
+  acked_rate_stats_.AddSample(acked_rate.bps());
+}
+
+void GCCMetricsCollector::UpdateDelayStats(TimeDelta rtt,
+                                           TimeDelta one_way_delay) {
+  if (rtt.IsFinite()) {
+    rtt_stats_.AddSample(rtt.ms());
+  }
+  if (one_way_delay.IsFinite()) {
+    delay_stats_.AddSample(one_way_delay.ms());
+  }
+}
+
+void GCCMetricsCollector::UpdateLossStats(double loss_fraction) {
+  loss_stats_.AddSample(loss_fraction);
+}
+
+// GCCNetworkController metrics helper methods implementation
+void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
+  if (!metrics_enabled_ || !metrics_collector_) {
+    return;
+  }
+  
+  if (at_time - metrics_last_logged_ < kMetricsLoggingInterval) {
+    return;
+  }
+  metrics_last_logged_ = at_time;
+  
+  // Pull the Kalman-filtered acked rate
+  DataRate acknowledged_rate =
+      acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
+
+  // Log all 4 bandwidth metrics simultaneously
+  metrics_collector_->LogBandwidthMetrics(at_time, 
+                                          last_target_rate_,     // 1. Target
+                                          last_actual_bitrate_,  // 2. Actual
+                                          acknowledged_rate,     // 3. Acked
+                                          last_send_rate_);      // 4. Send
+  
+  // Log delay metrics
+  if (last_rtt_.IsFinite()) {
+    metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); 
+  }
+  
+  // Log loss metrics
+  metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); 
+
+  // Log periodic summary
+  metrics_collector_->LogPeriodicSummary(at_time);
+}
+
+
+
+void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
+  if (!logger_) return;
+  auto metrics = logger_->GetCollectedMetrics();
+  FILE* f = fopen(filename.c_str(), "w");
+  if (!f) return;
+  fprintf(f, "[\n");
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    const auto& m = metrics[i];
+    fprintf(f, "  {\n");
+    fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
+    fprintf(f, "    \"samples\": [");
+    for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
+      const auto& s = m.time_series.samples[j];
+      fprintf(f, "%s{\"timestamp_ms\": %lld, \"value\": %f}",
+        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.ms()),
+        s.value);
+    }
+    fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
+  }
+  fprintf(f, "]\n");
+  fclose(f);
+}
+
 
 }  // namespace webrtc
