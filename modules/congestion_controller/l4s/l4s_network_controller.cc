@@ -2016,6 +2016,9 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     }
   } else if (ce_count > 0) {
     // Reset clean packet count on congestion
+
+
+    RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
     consecutive_clean_packets_ = 0;
     clean_ect_run_start_ = Timestamp::MinusInfinity();
     
