@@ -202,7 +202,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
       
       
-      RTC_LOG(LS_VERBOSE)
+      RTC_LOG(LS_INFO)
           << "Prague: Queue drained. Switched to additive mode after "
           << clearance_window.ms() << "ms cooldown (threshold="
           << adaptive_non_ce_threshold << ", rtt_ms="
