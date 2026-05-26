@@ -285,6 +285,8 @@ private:
   void StartProbeHold(Timestamp now);
   
   // Convergence detection
+  // Recovery entry is intentionally simple: wait for 5 RTTs of CE silence,
+  // and never enter while discovery mode is active.
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   
   // Recovery detection
@@ -387,14 +389,12 @@ private:
   // Recovery state tracking
   bool recovery_mode_active_ = false;
   bool recovery_probe_bootstrapped_ = false;
-  int consecutive_clean_packets_ = 0;  // ECT1 without CE
-  Timestamp clean_ect_run_start_ = Timestamp::MinusInfinity();
   Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
   // After a successful convergence exit, block re-entry for this duration to
   // prevent the rapid enter/exit oscillation seen when the network is stable.
   Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
-  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
+  static constexpr double kRecoveryCeQuietRttMultiplier = 5.0;
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;

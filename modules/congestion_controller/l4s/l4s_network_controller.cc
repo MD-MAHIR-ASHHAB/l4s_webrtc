@@ -665,8 +665,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
 
   recovery_mode_active_ = false;
   recovery_probe_bootstrapped_ = false;
-  consecutive_clean_packets_ = 0;
-  clean_ect_run_start_ = Timestamp::MinusInfinity();
   recovery_start_time_ = Timestamp::MinusInfinity();
   recovery_cooldown_until_ = Timestamp::MinusInfinity();
 
@@ -1674,7 +1672,19 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
 
 
 bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
-  return recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_;
+  if (!prague_estimator_ || prague_estimator_->IsDiscoveryModeActive() || recovery_mode_active_) {
+    return false;
+  }
+
+  if (last_congestion_signal_.IsInfinite()) {
+    return false;
+  }
+
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                           : TimeDelta::Millis(100);
+  return (now - last_congestion_signal_) >=
+         (effective_rtt * kRecoveryCeQuietRttMultiplier);
 }
 
 // 
@@ -1928,99 +1938,39 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 
 
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
-
-
-  // Handle recovery mode detection based on clean ECT1 packets
+  // Recovery is driven by CE silence: once CE stops and discovery is off,
+  // wait 5 RTTs from the last CE mark, then enter recovery.
   if (ce_count == 0 && ect_count > 0) {
-    if (clean_ect_run_start_.IsInfinite()) {
-      clean_ect_run_start_ = now;
-    }
-    consecutive_clean_packets_ += ect_count;
-    
-    // Trigger recovery mode if enough clean packets seen, not already in discovery,
-    // and the post-convergence cooldown has expired.
-    bool cooldown_expired = recovery_cooldown_until_.IsInfinite() ||
-                            now >= recovery_cooldown_until_;
-    // Dynamic recovery threshold: the fixed count of 20 represents very
-    // different durations at different bitrates (e.g. 45 ms at 5 Mbps vs
-    // 444 ms at 500 Kbps).  Instead, compute the threshold as the number of
-    // packets that fit in 1.5 RTTs at the current rate so that recovery always
-    // waits at least 1.5 round-trips before probing, regardless of bitrate.
-    //
-    //   effective_rtt   = clamp(last_rtt_, 50 ms, 300 ms)
-    //   target_duration = 1.5 × effective_rtt
-    //   threshold       = clamp(packets/s × target_duration, recovery_min_clean_packets, 500)
-    //
-    // kRecoveryPacketThreshold (20) acts as the floor so the condition is
-    // never trivially satisfied on very low-rate paths.
-    TimeDelta effective_rtt =
-        last_rtt_.IsFinite()
-            ? std::clamp(last_rtt_,
-                         TimeDelta::Millis(50),
-                         TimeDelta::Millis(300))
-            : TimeDelta::Millis(100);  // safe default until RTT is measured
-    double target_duration_s = effective_rtt.seconds<double>() * 1.5;
-    double rate_bps = target_rate_.has_value()
-                          ? static_cast<double>(target_rate_->bps())
-                          : 2'000'000.0;  // 2 Mbps safe default
-    double packets_per_sec = rate_bps / (1400.0 * 8.0);
-    int dynamic_threshold = static_cast<int>(packets_per_sec * target_duration_s);
-    int recovery_threshold = std::clamp(
-      dynamic_threshold,
-      std::max(config_.recovery_min_clean_packets, kRecoveryPacketThreshold),
-      500);
+    if (CanEnterRecoveryState(now)) {
+      recovery_mode_active_ = true;
+      recovery_probe_bootstrapped_ = false;
+      recovery_start_time_ = now;
 
-    TimeDelta clean_duration = now - clean_ect_run_start_;
-    TimeDelta min_clean_duration =
-      std::max(config_.recovery_min_clean_duration, effective_rtt * 2.0);
-    
-      bool clean_duration_ok = clean_duration >= min_clean_duration || (consecutive_clean_packets_ >= recovery_threshold);
-    bool rate_ok = target_rate_.value_or(DataRate::Zero()) >=
-             config_.recovery_probe_min_rate;
+      TimeDelta effective_rtt =
+          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                               : TimeDelta::Millis(200);
+      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
 
-    // --- CRITICAL FIX: Calculate the physical queue bloat ---
-    TimeDelta rtt_bloat = TimeDelta::Zero();
-    if (last_rtt_.IsFinite() && base_rtt_.IsFinite()) {
-        rtt_bloat = last_rtt_ - base_rtt_;
-    }
-
-    // Do not attempt to probe for the network ceiling if the application 
-    // is currently the bottleneck OR if the queue is still clearing.
-    if (consecutive_clean_packets_ >= recovery_threshold &&
-        clean_duration_ok &&
-        rate_ok &&
-        !recovery_mode_active_ &&
-        !prague_estimator_->IsDiscoveryModeActive() &&
-        cooldown_expired &&
-        // !IsApplicationLimited() && 
-        rtt_bloat < TimeDelta::Millis(30)) { // <--- THE LATENCY GATE
-
-        recovery_mode_active_ = true;
-        recovery_probe_bootstrapped_ = false;
-        recovery_start_time_ = now;
-
-        RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
-                        << " clean ECT packets (threshold=" << recovery_threshold
-                        << ", rtt=" << effective_rtt.ms() << "ms"
-                        << ", clean_ms=" << clean_duration.ms()
-                        << ", min_clean_ms=" << min_clean_duration.ms()
-                        << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
-    }
-    else{
-          RTC_LOG(LS_INFO) << "L4S down: Not entering recovery mode after " << consecutive_clean_packets_
-                << " clean ECT packets (threshold=" << recovery_threshold
-                << ", rtt=" << effective_rtt.ms() << "ms"
-                << ", clean_ms=" << clean_duration.ms()
-                << ", min_clean_ms=" << min_clean_duration.ms()
-                << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
+      RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after CE stayed quiet for "
+                       << quiet_window.ms() << "ms (" 
+                       << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
+                       << effective_rtt.ms() << "ms)";
+    } else if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode while discovery is active";
+    } else if (last_congestion_signal_.IsInfinite()) {
+      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode yet - no CE signal observed";
+    } else {
+      TimeDelta effective_rtt =
+          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                               : TimeDelta::Millis(200);
+      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+      TimeDelta ce_quiet_time = now - last_congestion_signal_;
+      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode yet - CE quiet for "
+                       << ce_quiet_time.ms() << "ms, need "
+                       << quiet_window.ms() << "ms";
     }
   } else if (ce_count > 0) {
-    // Reset clean packet count on congestion
-
-
     RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
-    consecutive_clean_packets_ = 0;
-    clean_ect_run_start_ = Timestamp::MinusInfinity();
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
@@ -2044,8 +1994,6 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
-      consecutive_clean_packets_ = 0;
-      clean_ect_run_start_ = Timestamp::MinusInfinity();
 
       if (has_converged) {
         // Impose a cooldown so the controller doesn't oscillate back into
