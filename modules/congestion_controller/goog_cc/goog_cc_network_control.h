@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <fstream>
 
 #include "api/environment/environment.h"
 #include "api/network_state_predictor.h"
@@ -113,7 +114,8 @@ class GCCMetricsCollector {
 class GoogCcNetworkController : public NetworkControllerInterface {
  public:
   GoogCcNetworkController(NetworkControllerConfig config,
-                          GoogCcConfig goog_cc_config);
+                          GoogCcConfig goog_cc_config,
+                          test::MetricsLogger* metrics_logger = nullptr);
 
   GoogCcNetworkController() = delete;
   GoogCcNetworkController(const GoogCcNetworkController&) = delete;
