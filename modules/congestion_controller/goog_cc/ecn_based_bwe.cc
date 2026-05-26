@@ -82,32 +82,20 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
 
   if (report.ce_count > 0) {
     // Multiplicative Decrease (MD)
-    // Enforce 1-RTT pipeline delay to prevent multiple cuts for the same congestion event
     TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
 
     if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
-      // double reduction_factor = 1.0 - (alpha_ / 2.0);
+      
+      // Because of SetTargetBitrate() in the parent controller, current_target_rate_
+      // is guaranteed to perfectly match GCC's Current BWE right now.
       double reduction_factor = 0.5;
-
-      // SYNC FIX: Ensure we cut from the actual current throughput, not a stale low value
-      DataRate base_rate = current_target_rate_;
-      if (acknowledged_bitrate.has_value() && *acknowledged_bitrate > current_target_rate_) {
-          base_rate = *acknowledged_bitrate;
-      }
-      current_target_rate_ = base_rate * reduction_factor;
+      current_target_rate_ = current_target_rate_ * reduction_factor;
 
       last_md_time_ = now;
       executed_md = true;
 
-      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut accoridng to RFC 3168, new target: " << current_target_rate_.kbps()
-                       << " kbps";
-    }
-    else{
-            // SYNC FIX: If there is no congestion, GCC is handling the Additive Increase.
-      // We must track the physical throughput upwards so our next cut is accurate!
-      if (acknowledged_bitrate.has_value() && *acknowledged_bitrate > current_target_rate_) {
-          current_target_rate_ = *acknowledged_bitrate;
-      }
+      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut according to RFC 3168, new target: " 
+                       << current_target_rate_.kbps() << " kbps";
     }
   }
 

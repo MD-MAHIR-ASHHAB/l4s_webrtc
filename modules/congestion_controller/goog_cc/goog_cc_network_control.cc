@@ -650,6 +650,11 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   // produce an update, by producing an update that lowers the current target.
   std::optional<DataRate> ecn_cap;
   if (ecn_based_bwe_ && report.transport_supports_ecn) {
+    // --- EXACT SYNC FIX ---
+    // Force the ECN module's internal state to exactly match GCC's overarching target
+    // before computing any Multiplicative Decreases.
+    ecn_based_bwe_->SetTargetBitrate(bandwidth_estimation_->target_rate());
+
     EcnBasedBwe::ECNResult ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
         report, acknowledged_bitrate, probe_bitrate, estimate_,
         alr_start_time.has_value());
