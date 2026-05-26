@@ -114,7 +114,8 @@ class GCCMetricsCollector {
 class GoogCcNetworkController : public NetworkControllerInterface {
  public:
   GoogCcNetworkController(NetworkControllerConfig config,
-                          GoogCcConfig goog_cc_config);
+                          GoogCcConfig goog_cc_config,
+                          test::MetricsLogger* metrics_logger = nullptr);
 
   GoogCcNetworkController() = delete;
   GoogCcNetworkController(const GoogCcNetworkController&) = delete;
