@@ -70,6 +70,24 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 }
 
 
+// int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
+//   // Calculate the current Bandwidth-Delay Product in terms of packets
+//   double rtt_s = (current_rtt_.IsFinite() && !current_rtt_.IsZero()) ? current_rtt_.seconds<double>() : 0.175;
+//   double current_bps = static_cast<double>(congestion_based_estimate_.bps());
+//   double packet_size_bits = 1400.0 * 8.0;
+  
+//   // BDP packets = (bits/sec * RTT) / bits_per_packet
+//   int bdp_packets = static_cast<int>((current_bps * rtt_s) / packet_size_bits);
+  
+//   // Refined Rule: To declare a queue "drained", we need to see exactly 1.5 * BDP 
+//   // worth of packets pass through cleanly. This proves the entire flight window 
+//   // has recycled without a single CE mark.
+//   int threshold = static_cast<int>(bdp_packets * 1.5);
+  
+//   // Guard with rational bounds for WebRTC paces
+//   return std::clamp(threshold, 15, 150); 
+// }
+
 
 
 //hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
@@ -1949,10 +1967,12 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       dynamic_threshold,
       std::max(config_.recovery_min_clean_packets, kRecoveryPacketThreshold),
       500);
+
     TimeDelta clean_duration = now - clean_ect_run_start_;
     TimeDelta min_clean_duration =
       std::max(config_.recovery_min_clean_duration, effective_rtt * 2.0);
-    bool clean_duration_ok = clean_duration >= min_clean_duration;
+    
+      bool clean_duration_ok = clean_duration >= min_clean_duration || (consecutive_clean_packets_ >= recovery_threshold);
     bool rate_ok = target_rate_.value_or(DataRate::Zero()) >=
              config_.recovery_probe_min_rate;
 
@@ -1985,6 +2005,13 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
                         << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
     }
   } else if (ce_count > 0) {
+
+    RTC_LOG(LS_INFO) << "L4S down: Not entering recovery mode after " << consecutive_clean_packets_
+                << " clean ECT packets (threshold=" << recovery_threshold
+                << ", rtt=" << effective_rtt.ms() << "ms"
+                << ", clean_ms=" << clean_duration.ms()
+                << ", min_clean_ms=" << min_clean_duration.ms()
+                << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
     // Reset clean packet count on congestion
     consecutive_clean_packets_ = 0;
     clean_ect_run_start_ = Timestamp::MinusInfinity();
