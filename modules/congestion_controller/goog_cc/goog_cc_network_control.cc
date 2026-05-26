@@ -1070,7 +1070,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
   // Periodically export all metrics to JSON
-  ExportToJsonFile("gcc_test_1.json");
+  ExportToJsonFile("gcc_test_c3.json");
 }
 
 void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
