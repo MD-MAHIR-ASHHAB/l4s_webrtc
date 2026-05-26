@@ -59,7 +59,7 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     return result;
   }
 
-  TimeDelta delta_time = now - last_update_time_;
+  // TimeDelta delta_time = now - last_update_time_;
   last_update_time_ = now;
 
   // // --- 1. DCTCP Alpha Calculation ---
