@@ -1108,7 +1108,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   const int64_t first_seq = feedback.packet_feedbacks.front().sent_packet.sequence_number;
   const int64_t last_seq = feedback.packet_feedbacks.back().sent_packet.sequence_number;
 
-  RTC_LOG(LS_INFO) << "L4S: RFC 8888 batch at controller intake"
+  RTC_LOG(LS_INFO) << "L4S: report at batch at controller intake"
                    << " | packets=" << feedback.packet_feedbacks.size()
                    << " | seq_range=[" << first_seq << ", " << last_seq << "]"
                    << " | feedback_time_ms=" << feedback.feedback_time.ms()
