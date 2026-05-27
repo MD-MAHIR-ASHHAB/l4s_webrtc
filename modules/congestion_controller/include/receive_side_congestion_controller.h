@@ -90,7 +90,7 @@ class ReceiveSideCongestionController : public CallStatsObserver {
   // arbitrary thread by external projects.
   SequenceChecker sequence_checker_;
 
-  bool send_rfc8888_congestion_feedback_ = false;
+  bool send_rfc8888_congestion_feedback_ = true;
   TransportSequenceNumberFeedbackGenenerator
       transport_sequence_number_feedback_generator_;
   CongestionControlFeedbackGenerator congestion_control_feedback_generator_

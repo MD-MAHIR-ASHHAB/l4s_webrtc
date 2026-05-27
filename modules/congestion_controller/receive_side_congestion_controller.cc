@@ -96,7 +96,7 @@ ReceiveSideCongestionController::ReceiveSideCongestionController(
           &remb_throttler_)),
       using_absolute_send_time_(false),
       packets_since_absolute_send_time_(0) {
-  FieldTrialParameter<bool> force_send_rfc8888_feedback("force_send", false);
+  FieldTrialParameter<bool> force_send_rfc8888_feedback("force_send", true);
   ParseFieldTrial(
       {&force_send_rfc8888_feedback},
       env.field_trials().Lookup("WebRTC-RFC8888CongestionControlFeedback"));

@@ -99,10 +99,18 @@ void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
 }
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
+  // --- CRITICAL L4S FIX: Stop stacking the future! ---
+  if (now < last_feedback_sent_time_) {
+    now = last_feedback_sent_time_;
+  }
+  
+  // DELETE THIS BLOCK COMPLETELY:
+  /*
   if (now < next_possible_feedback_send_time_) {
-    // Adjust timestamp to prevent timing issues
     now = next_possible_feedback_send_time_;
   }
+  */
+ 
   uint32_t compact_ntp =
       CompactNtp(env_.clock().ConvertTimestampToNtpTime(now));
   std::vector<rtcp::CongestionControlFeedback::PacketInfo> rtcp_packet_info;
