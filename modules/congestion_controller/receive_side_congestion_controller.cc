@@ -141,34 +141,19 @@ void ReceiveSideCongestionController::OnReceivedPacket(
       packet.HasExtension<TransportSequenceNumber>() ||
       packet.HasExtension<TransportSequenceNumberV2>();
   
-// RTC_LOG(LS_INFO) << "Received packet with media type: "
-//                  << MediaTypeToString(media_type)
-//                  << ", sequence number: "
-//                  << (packet.sequence_number() < 0 ? "N/A" : std::to_string(packet.sequence_number()))
-//                  << ", packet size: "
-//                  << packet.size() << " bytes, SSRC: "
-//                  << packet.Ssrc()
-//                  << ", sequence number: "
-//                  << packet.SequenceNumber()
-//                  << ", arrival time: "
-//                  << packet.arrival_time().us() << " us"
-//                  << ", ECN marking: "
-//                  << (packet.ecn() == EcnMarking::kNotEct ? "Not ECT" :
-//                      packet.ecn() == EcnMarking::kEct0 ? "ECT(0)" :
-//                      packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE");
-
-
   if (send_rfc8888_congestion_feedback_) {
     RTC_DCHECK_RUN_ON(&sequence_checker_);
     congestion_control_feedback_generator_.OnReceivedPacket(packet);
-    // TODO(https://bugs.webrtc.org/374197376): Utilize RFC 8888 feedback, which
-    // provides comprehensive details similar to transport-cc. To ensure a
-    // smooth transition, we will continue using transport sequence number
-    // feedback temporarily. Once validation is complete, we will fully
-    // transition to using RFC 8888 feedback exclusively.
+    
+    // --- L4S HYBRID FIX: EXCLUSIVE 8888 ROUTING ---
+    // We intentionally disable the temporary TWCC fallback to prevent 
+    // history-erasure collisions on the sender-side TransportFeedbackAdapter.
+    /*
     if (has_transport_sequence_number) {
       transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
     }
+    */
+    
     return;
   }
   if (media_type == MediaType::AUDIO && !has_transport_sequence_number) {
