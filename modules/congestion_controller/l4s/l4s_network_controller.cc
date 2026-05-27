@@ -1951,51 +1951,19 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
   // Recovery is driven by CE silence: once CE stops and discovery is off,
   // wait 5 RTTs from the last CE mark, then enter recovery.
-  if (ce_count == 0 && ect_count > 0) {
-    if (CanEnterRecoveryState(now)) {
-      if (prague_estimator_) {
-        prague_estimator_->EnterAdditiveMode(now);
-      }
-      recovery_mode_active_ = true;
-      recovery_probe_bootstrapped_ = false;
-      recovery_start_time_ = now;
-
-      TimeDelta effective_rtt =
-          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
-                               : TimeDelta::Millis(200);
-      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
-
-      RTC_LOG(LS_INFO) << "L4S: Bridged Prague from reduction to additive and entered recovery after CE stayed quiet for "
-               << quiet_window.ms() << "ms ("
-               << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
-               << effective_rtt.ms() << "ms)";
-    } else if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
-      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode while discovery is active";
-    } else if (last_congestion_signal_.IsInfinite()) {
-      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode yet - no CE signal observed";
-    } else {
-      TimeDelta effective_rtt =
-          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
-                               : TimeDelta::Millis(200);
-      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
-      TimeDelta ce_quiet_time = now - last_congestion_signal_;
-      RTC_LOG(LS_INFO) << "L4S: Not entering recovery mode yet - CE quiet for "
-                       << ce_quiet_time.ms() << "ms, need "
-                       << quiet_window.ms() << "ms";
-    }
-  } else if (ce_count > 0) {
-    RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
+  if (ce_count > 0) {
+    RTC_LOG(LS_VERBOSE) << "L4S: Resetting clean packet count due to CE marks";
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
       recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
-      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
+      RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode due to CE marks";
     }
+    return;
   }
-  
-  // Check recovery mode exit conditions
+
   if (recovery_mode_active_) {
     TimeDelta recovery_duration = now - recovery_start_time_;
     
@@ -2013,12 +1981,47 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
         // Impose a cooldown so the controller doesn't oscillate back into
         // recovery immediately on a stable, low-congestion network.
         recovery_cooldown_until_ = now + kRecoveryCooldown;
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - convergence achieved, "
+        RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode - convergence achieved, "
                          << "cooldown until +" << kRecoveryCooldown.seconds<int>() << "s";
       } else {
         recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - timeout";
+        RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode - timeout";
       }
+    }
+    return;
+  }
+
+  if (ce_count == 0 && ect_count > 0) {
+    if (CanEnterRecoveryState(now)) {
+      if (prague_estimator_) {
+        prague_estimator_->EnterAdditiveMode(now);
+      }
+      recovery_mode_active_ = true;
+      recovery_probe_bootstrapped_ = false;
+      recovery_start_time_ = now;
+
+      TimeDelta effective_rtt =
+          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                               : TimeDelta::Millis(200);
+      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+
+      RTC_LOG(LS_VERBOSE) << "L4S: Bridged Prague from reduction to additive and entered recovery after CE stayed quiet for "
+               << quiet_window.ms() << "ms ("
+               << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
+               << effective_rtt.ms() << "ms)";
+    } else if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode while discovery is active";
+    } else if (last_congestion_signal_.IsInfinite()) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - no CE signal observed";
+    } else {
+      TimeDelta effective_rtt =
+          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                               : TimeDelta::Millis(200);
+      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+      TimeDelta ce_quiet_time = now - last_congestion_signal_;
+      // RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - CE quiet for "
+      //                  << ce_quiet_time.ms() << "ms, need "
+      //                  << quiet_window.ms() << "ms";
     }
   }
 }
