@@ -1182,7 +1182,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   }
 
   // 5. Recovery logic always sees the raw batch info
-  HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
+  HandleRecoveryDetection(batch_ce_count, feedback.feedback_time);
 }
 
 
@@ -1948,12 +1948,11 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 
 
 
-void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
+void webrtc::L4SNetworkController::HandleRecoveryDetection(int ce_count, Timestamp now) {
   // Recovery is driven by CE silence: once CE stops and discovery is off,
   // wait 5 RTTs from the last CE mark, then enter recovery.
   RTC_LOG(LS_INFO) << "L4S: counts in recovery:  "
-                       << ce_count << "ce count, "
-                       << ect_count << "ect count";
+                       << ce_count << "ce count, ";
   if (ce_count > 0) {
     RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
     
@@ -1994,7 +1993,7 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
     return;
   }
 
-  if (ce_count == 0 && ect_count > 0) {
+  if (ce_count == 0) {
     if (CanEnterRecoveryState(now)) {
       if (prague_estimator_) {
         prague_estimator_->EnterAdditiveMode(now);

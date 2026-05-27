@@ -293,7 +293,7 @@ private:
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   
   // Recovery detection
-  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
+  void HandleRecoveryDetection(int ce_count, Timestamp now);
 
   // ALR detection
   bool IsApplicationLimited() const;
