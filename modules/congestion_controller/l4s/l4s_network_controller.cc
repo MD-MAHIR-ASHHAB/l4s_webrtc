@@ -2019,9 +2019,9 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
                                : TimeDelta::Millis(200);
       TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
       TimeDelta ce_quiet_time = now - last_congestion_signal_;
-      // RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - CE quiet for "
-      //                  << ce_quiet_time.ms() << "ms, need "
-      //                  << quiet_window.ms() << "ms";
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - CE quiet for "
+                       << ce_quiet_time.ms() << "ms, need "
+                       << quiet_window.ms() << "ms";
     }
   }
 }
