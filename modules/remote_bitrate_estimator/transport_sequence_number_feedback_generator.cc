@@ -71,6 +71,12 @@ void TransportSequenceNumberFeedbackGenenerator::MaybeCullOldPackets(
 
 void TransportSequenceNumberFeedbackGenenerator::OnReceivedPacket(
     const RtpPacketReceived& packet) {
+// --- L4S ABLATION FIX: RECEIVER-SIDE TWCC MUTE ---
+  // We deliberately drop the packet here so the TWCC generator never builds 
+  // a history. This forces the receiver to rely exclusively on the parallel 
+  // RFC 8888 generator without needing to rewrite the SDP handshake.
+  return;
+
   if (packet.arrival_time().IsInfinite()) {
     RTC_LOG(LS_WARNING) << "Arrival time not set.";
     return;
