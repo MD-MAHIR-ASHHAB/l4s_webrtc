@@ -96,16 +96,7 @@ ReceiveSideCongestionController::ReceiveSideCongestionController(
           &remb_throttler_)),
       using_absolute_send_time_(false),
       packets_since_absolute_send_time_(0) {
-  FieldTrialParameter<bool> force_send_rfc8888_feedback("force_send", false);
-  ParseFieldTrial(
-      {&force_send_rfc8888_feedback},
-      env.field_trials().Lookup("WebRTC-RFC8888CongestionControlFeedback"));
-  if (force_send_rfc8888_feedback) {
-    EnableSendCongestionControlFeedbackAccordingToRfc8888();
-  }
-  
-  // Force enable RFC 8888 congestion control feedback programmatically
-  // This ensures ECN information is included in feedback packets
+  // Always enable RFC 8888 congestion control feedback by default
   EnableSendCongestionControlFeedbackAccordingToRfc8888();
 }
 
@@ -158,62 +149,25 @@ void ReceiveSideCongestionController::OnReceivedPacket(
 //                      packet.ecn() == EcnMarking::kEct1 ? "ECT(1)" : "CE");
 
 
-  if (send_rfc8888_congestion_feedback_) {
-    RTC_DCHECK_RUN_ON(&sequence_checker_);
-    congestion_control_feedback_generator_.OnReceivedPacket(packet);
-    // TODO(https://bugs.webrtc.org/374197376): Utilize RFC 8888 feedback, which
-    // provides comprehensive details similar to transport-cc. To ensure a
-    // smooth transition, we will continue using transport sequence number
-    // feedback temporarily. Once validation is complete, we will fully
-    // transition to using RFC 8888 feedback exclusively.
-    if (has_transport_sequence_number) {
-      transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
-    }
-    return;
-  }
-  if (media_type == MediaType::AUDIO && !has_transport_sequence_number) {
-    // For audio, we only support send side BWE.
-    return;
-  }
-
-  if (has_transport_sequence_number) {
-    // Send-side BWE.
-    transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
-  } else {
-    // Receive-side BWE.
-    MutexLock lock(&mutex_);
-    PickEstimator(packet.HasExtension<AbsoluteSendTime>());
-    rbe_->IncomingPacket(packet);
-  }
+  // Only use RFC 8888 feedback
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  congestion_control_feedback_generator_.OnReceivedPacket(packet);
 }
 
 void ReceiveSideCongestionController::OnBitrateChanged(int bitrate_bps) {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
   DataRate send_bandwidth_estimate = DataRate::BitsPerSec(bitrate_bps);
-  transport_sequence_number_feedback_generator_.OnSendBandwidthEstimateChanged(
-      send_bandwidth_estimate);
+  // transport_sequence_number_feedback_generator_.OnSendBandwidthEstimateChanged(send_bandwidth_estimate); // Disabled: RFC 8888 only
   congestion_control_feedback_generator_.OnSendBandwidthEstimateChanged(
       send_bandwidth_estimate);
 }
 
 TimeDelta ReceiveSideCongestionController::MaybeProcess() {
   Timestamp now = env_.clock().CurrentTime();
-  if (send_rfc8888_congestion_feedback_) {
-    RTC_DCHECK_RUN_ON(&sequence_checker_);
-    TimeDelta time_until_cc_rep =
-        congestion_control_feedback_generator_.Process(now);
-    TimeDelta time_until_rep =
-        transport_sequence_number_feedback_generator_.Process(now);
-    TimeDelta time_until = std::min(time_until_cc_rep, time_until_rep);
-    return std::max(time_until, TimeDelta::Zero());
-  }
-  mutex_.Lock();
-  TimeDelta time_until_rbe = rbe_->Process();
-  mutex_.Unlock();
-  TimeDelta time_until_rep =
-      transport_sequence_number_feedback_generator_.Process(now);
-  TimeDelta time_until = std::min(time_until_rbe, time_until_rep);
-  return std::max(time_until, TimeDelta::Zero());
+  // Only process RFC 8888 feedback
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  TimeDelta time_until_cc_rep = congestion_control_feedback_generator_.Process(now);
+  return std::max(time_until_cc_rep, TimeDelta::Zero());
 }
 
 void ReceiveSideCongestionController::SetMaxDesiredReceiveBitrate(

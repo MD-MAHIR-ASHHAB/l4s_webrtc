@@ -313,7 +313,7 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
         DataSize::Bytes(sent_packet.info.packet_size_bytes);
     last_untracked_send_time_ = std::max(last_untracked_send_time_, send_time);
   } else {
-    RTC_LOG(LS_INFO) << "ProcessSentPacket: skipping packet without feedback id"
+    RTC_LOG(LS_VERBOSE) << "ProcessSentPacket: skipping packet without feedback id"
                         << " included_in_feedback="
                         << sent_packet.info.included_in_feedback
                         << " packet_id=" << sent_packet.packet_id
