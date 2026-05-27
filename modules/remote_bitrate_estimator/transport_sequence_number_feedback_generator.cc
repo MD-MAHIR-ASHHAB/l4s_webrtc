@@ -77,56 +77,56 @@ void TransportSequenceNumberFeedbackGenenerator::OnReceivedPacket(
   // RFC 8888 generator without needing to rewrite the SDP handshake.
   return;
 
-  if (packet.arrival_time().IsInfinite()) {
-    RTC_LOG(LS_WARNING) << "Arrival time not set.";
-    return;
-  }
+  // if (packet.arrival_time().IsInfinite()) {
+  //   RTC_LOG(LS_WARNING) << "Arrival time not set.";
+  //   return;
+  // }
 
-  uint16_t seqnum = 0;
-  std::optional<FeedbackRequest> feedback_request;
-  if (!packet.GetExtension<TransportSequenceNumber>(&seqnum) &&
-      !packet.GetExtension<TransportSequenceNumberV2>(&seqnum,
-                                                      &feedback_request)) {
-    // This function expected to be called only for packets that have
-    // TransportSequenceNumber rtp header extension, however malformed RTP
-    // packet may contain unparsable TransportSequenceNumber.
-    RTC_DCHECK(packet.HasExtension<TransportSequenceNumber>() ||
-               packet.HasExtension<TransportSequenceNumberV2>())
-        << " Expected transport sequence number.";
-    return;
-  }
+  // uint16_t seqnum = 0;
+  // std::optional<FeedbackRequest> feedback_request;
+  // if (!packet.GetExtension<TransportSequenceNumber>(&seqnum) &&
+  //     !packet.GetExtension<TransportSequenceNumberV2>(&seqnum,
+  //                                                     &feedback_request)) {
+  //   // This function expected to be called only for packets that have
+  //   // TransportSequenceNumber rtp header extension, however malformed RTP
+  //   // packet may contain unparsable TransportSequenceNumber.
+  //   RTC_DCHECK(packet.HasExtension<TransportSequenceNumber>() ||
+  //              packet.HasExtension<TransportSequenceNumberV2>())
+  //       << " Expected transport sequence number.";
+  //   return;
+  // }
 
-  MutexLock lock(&lock_);
-  send_periodic_feedback_ = packet.HasExtension<TransportSequenceNumber>();
+  // MutexLock lock(&lock_);
+  // send_periodic_feedback_ = packet.HasExtension<TransportSequenceNumber>();
 
-  media_ssrc_ = packet.Ssrc();
-  int64_t seq = unwrapper_.Unwrap(seqnum);
+  // media_ssrc_ = packet.Ssrc();
+  // int64_t seq = unwrapper_.Unwrap(seqnum);
 
-  if (send_periodic_feedback_) {
-    MaybeCullOldPackets(seq, packet.arrival_time());
+  // if (send_periodic_feedback_) {
+  //   MaybeCullOldPackets(seq, packet.arrival_time());
 
-    if (!periodic_window_start_seq_ || seq < *periodic_window_start_seq_) {
-      periodic_window_start_seq_ = seq;
-    }
-  }
+  //   if (!periodic_window_start_seq_ || seq < *periodic_window_start_seq_) {
+  //     periodic_window_start_seq_ = seq;
+  //   }
+  // }
 
-  // We are only interested in the first time a packet is received.
-  if (packet_arrival_times_.has_received(seq)) {
-    return;
-  }
+  // // We are only interested in the first time a packet is received.
+  // if (packet_arrival_times_.has_received(seq)) {
+  //   return;
+  // }
 
-  packet_arrival_times_.AddPacket(seq, packet.arrival_time());
+  // packet_arrival_times_.AddPacket(seq, packet.arrival_time());
 
-  // Limit the range of sequence numbers to send feedback for.
-  if (periodic_window_start_seq_ <
-      packet_arrival_times_.begin_sequence_number()) {
-    periodic_window_start_seq_ = packet_arrival_times_.begin_sequence_number();
-  }
+  // // Limit the range of sequence numbers to send feedback for.
+  // if (periodic_window_start_seq_ <
+  //     packet_arrival_times_.begin_sequence_number()) {
+  //   periodic_window_start_seq_ = packet_arrival_times_.begin_sequence_number();
+  // }
 
-  if (feedback_request.has_value()) {
-    // Send feedback packet immediately.
-    SendFeedbackOnRequest(seq, *feedback_request);
-  }
+  // if (feedback_request.has_value()) {
+  //   // Send feedback packet immediately.
+  //   SendFeedbackOnRequest(seq, *feedback_request);
+  // }
 }
 
 TimeDelta TransportSequenceNumberFeedbackGenenerator::Process(Timestamp now) {
