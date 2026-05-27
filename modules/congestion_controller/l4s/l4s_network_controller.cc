@@ -2041,11 +2041,11 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ce_count, Timesta
     } else if (last_congestion_signal_.IsInfinite()) {
       RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - no CE signal observed";
     } else {
-      TimeDelta effective_rtt =
+      effective_rtt =
           last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
                                : TimeDelta::Millis(200);
-      TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
-      TimeDelta ce_quiet_time = now - last_congestion_signal_;
+      quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+      ce_quiet_time = now - last_congestion_signal_;
       RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - CE quiet for "
                        << ce_quiet_time.ms() << "ms, need "
                        << quiet_window.ms() << "ms";
