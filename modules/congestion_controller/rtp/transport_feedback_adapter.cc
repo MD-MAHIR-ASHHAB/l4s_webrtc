@@ -209,10 +209,16 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
                      << " packets, removing oldest " << kBulkCleanupCount << " packets";
     
     size_t removed_count = 0;
+    int64_t first_removed_seq = -1;
+    int64_t last_removed_seq = -1;
     auto it = history_.begin();
     
     while (it != history_.end() && removed_count < kBulkCleanupCount) {
       const PacketFeedback& packet = it->second;
+      if (removed_count == 0) {
+        first_removed_seq = packet.sent.sequence_number;
+      }
+      last_removed_seq = packet.sent.sequence_number;
       
       // Remove from in-flight tracking if still pending
       if (packet.sent.sequence_number > last_ack_seq_num_) {
@@ -230,7 +236,9 @@ void TransportFeedbackAdapter::AddPacket(const RtpPacketToSend& packet_to_send,
     }
     
     RTC_LOG(LS_INFO) << "Bulk cleanup completed: removed " << removed_count 
-                     << " packets, history size now: " << history_.size();
+                     << " packets, seq_range=[" << first_removed_seq << ", "
+                     << last_removed_seq << "], history size now: "
+                     << history_.size();
   }
 
   // Note that it can happen that the same SSRC and sequence number is sent
@@ -304,6 +312,12 @@ std::optional<SentPacket> TransportFeedbackAdapter::ProcessSentPacket(
     pending_untracked_size_ +=
         DataSize::Bytes(sent_packet.info.packet_size_bytes);
     last_untracked_send_time_ = std::max(last_untracked_send_time_, send_time);
+  } else {
+    RTC_LOG(LS_INFO) << "ProcessSentPacket: skipping packet without feedback id"
+                        << " included_in_feedback="
+                        << sent_packet.info.included_in_feedback
+                        << " packet_id=" << sent_packet.packet_id
+                        << " packet_size=" << sent_packet.info.packet_size_bytes;
   }
   return std::nullopt;
 }
