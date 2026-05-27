@@ -1951,8 +1951,11 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
   // Recovery is driven by CE silence: once CE stops and discovery is off,
   // wait 5 RTTs from the last CE mark, then enter recovery.
+  RTC_LOG(LS_INFO) << "L4S: counts in recovery:  "
+                       << ce_count << "ce count, "
+                       << ect_count << "ect count";
   if (ce_count > 0) {
-    RTC_LOG(LS_VERBOSE) << "L4S: Resetting clean packet count due to CE marks";
+    RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
