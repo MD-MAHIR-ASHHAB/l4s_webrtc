@@ -128,9 +128,9 @@ ReceiveSideCongestionController::GetCongestionControlFeedbackGenerator()
 void ReceiveSideCongestionController::OnReceivedPacket(
     const RtpPacketReceived& packet,
     MediaType media_type) {
-  bool has_transport_sequence_number =
-      packet.HasExtension<TransportSequenceNumber>() ||
-      packet.HasExtension<TransportSequenceNumberV2>();
+  // bool has_transport_sequence_number =
+  //     packet.HasExtension<TransportSequenceNumber>() ||
+  //     packet.HasExtension<TransportSequenceNumberV2>();
   
 // RTC_LOG(LS_INFO) << "Received packet with media type: "
 //                  << MediaTypeToString(media_type)
