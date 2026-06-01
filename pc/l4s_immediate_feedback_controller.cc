@@ -63,20 +63,18 @@ void L4sImmediateFeedbackController::OnNonCePacketReceived(
 
 void L4sImmediateFeedbackController::FlushBatchAndSwitchToImmediate() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  
-  // Send immediate feedback to flush any accumulated batch + current CE packet
-  feedback_generator_->SendImmediateFeedback();
-  
-  // Switch to immediate mode
+
+  // Immediate RTCP is disabled here; CE packets only update controller state
+  // and periodic RFC 8888 feedback will carry the congestion signal.
   current_mode_ = FeedbackMode::kImmediateMode;
-  ce_packets_in_immediate_mode_ = 1; // Count the current CE packet
+  ce_packets_in_immediate_mode_ = 1;
 }
 
 void L4sImmediateFeedbackController::SendImmediateFeedbackForPacket() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  
-  // Send immediate feedback for just this packet
-  feedback_generator_->SendImmediateFeedback();
+
+  RTC_LOG(LS_VERBOSE)
+      << "L4S: Immediate RTCP disabled; waiting for periodic RFC 8888 feedback";
 }
 
 void L4sImmediateFeedbackController::SwitchToBatchMode() {
