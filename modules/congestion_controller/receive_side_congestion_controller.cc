@@ -145,9 +145,9 @@ void ReceiveSideCongestionController::OnReceivedPacket(
     // smooth transition, we will continue using transport sequence number
     // feedback temporarily. Once validation is complete, we will fully
     // transition to using RFC 8888 feedback exclusively.
-    if (has_transport_sequence_number) {
-      transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
-    }
+    // if (has_transport_sequence_number) {
+    //   transport_sequence_number_feedback_generator_.OnReceivedPacket(packet);
+    // }
     return;
   }
   if (media_type == MediaType::AUDIO && !has_transport_sequence_number) {
