@@ -295,7 +295,7 @@ double webrtc::PragueCapacityEstimator::CalculateRecoveryStep(double current_bps
   double gap_bps = target_probe_bps - current_bps;
   
   // Approach the ceiling asymptotically (cover 33% of the remaining gap per second)
-  double catch_up_rate_bps_per_s = std::max(gap_bps * 0.33, 40000.0); // floor of 40 kbps/s
+  double catch_up_rate_bps_per_s = std::max(gap_bps * 0.33, 100000.0); // floor of 100 kbps/s
   
   // Safety cap: Never grow faster than ~500 kbps per second to prevent pacer micro-bursts
   catch_up_rate_bps_per_s = std::min(catch_up_rate_bps_per_s, 500000.0);
@@ -308,7 +308,7 @@ double webrtc::PragueCapacityEstimator::CalculateStableStep(double current_bps, 
   // Grow by a small percentage (7%) of the current rate per second.
   double increase_rate_bps_per_s = std::max(10000.0, current_bps * 0.07); // floor of 10 kbps/s
   
-  // Cap the growth to prevent sudden micro-bursts
+  // Safety cap: Never grow faster than ~500 kbps per second to prevent pacer micro-bursts
   increase_rate_bps_per_s = std::min(increase_rate_bps_per_s, 500000.0);
   
   return increase_rate_bps_per_s * elapsed_s;
