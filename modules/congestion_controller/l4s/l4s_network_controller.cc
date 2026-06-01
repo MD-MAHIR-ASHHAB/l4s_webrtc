@@ -1105,17 +1105,17 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     return;
   }
 
-  const int64_t first_seq = feedback.packet_feedbacks.front().sent_packet.sequence_number;
-  const int64_t last_seq = feedback.packet_feedbacks.back().sent_packet.sequence_number;
+  // const int64_t first_seq = feedback.packet_feedbacks.front().sent_packet.sequence_number;
+  // const int64_t last_seq = feedback.packet_feedbacks.back().sent_packet.sequence_number;
 
-  RTC_LOG(LS_INFO) << "L4S: report at batch at controller intake"
-                   << " | packets=" << feedback.packet_feedbacks.size()
-                   << " | seq_range=[" << first_seq << ", " << last_seq << "]"
-                   << " | feedback_time_ms=" << feedback.feedback_time.ms()
-                   << " | transport_supports_ecn="
-                   << (feedback.transport_supports_ecn ? "true" : "false")
-                   << " | batch_ect_count=" << feedback.ect_count
-                   << " | batch_ce_count=" << feedback.ce_count;
+  // RTC_LOG(LS_INFO) << "L4S: report at batch at controller intake"
+  //                  << " | packets=" << feedback.packet_feedbacks.size()
+  //                  << " | seq_range=[" << first_seq << ", " << last_seq << "]"
+  //                  << " | feedback_time_ms=" << feedback.feedback_time.ms()
+  //                  << " | transport_supports_ecn="
+  //                  << (feedback.transport_supports_ecn ? "true" : "false")
+  //                  << " | batch_ect_count=" << feedback.ect_count
+  //                  << " | batch_ce_count=" << feedback.ce_count;
 
   TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
 
