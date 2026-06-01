@@ -15,7 +15,12 @@ L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
                    << test_case_name_;
 }
 
-L4SMetricsCollector::~L4SMetricsCollector() = default;
+// Custom destructor to guarantee final metrics are written to disk on shutdown
+L4SMetricsCollector::~L4SMetricsCollector() {
+  RTC_LOG(LS_INFO) << "L4SMetricsCollector shutting down. Exporting final metrics for test case: " 
+                   << test_case_name_;
+  ExportToJsonFile("l4s_test_1.json");
+}
 
 void L4SMetricsCollector::LogBandwidthMetrics(
     Timestamp at_time,
