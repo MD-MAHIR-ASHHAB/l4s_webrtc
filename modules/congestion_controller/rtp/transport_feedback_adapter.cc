@@ -434,7 +434,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
                      << " packets because they were sent on a different route.";
   }
 
-  if (!packet_result_vector.empty()) {
+  if (!packet_result_vector.empty() && ce_count > 0)  {
     int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
     int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
     RTC_LOG(LS_INFO) << "====== TWCC PIPELINE ACTIVE ======\n"
@@ -442,7 +442,7 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
              << "  Seq Range: [" << min_seq << ", " << max_seq << "]\n"
              << "  ECT Marks: " << ect_count << "\n"
              << "  CE Marks: " << ce_count << "\n"
-             << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
+             << "  ECN Supported: " << (ce_count > 0 ? "true" : "false") << "\n"
              << "======================================";
   }
   
@@ -594,7 +594,7 @@ int ignored_packets = 0;
   });
   
 // Add this right before the return statement
-  if (!packet_result_vector.empty()) {
+  if (!packet_result_vector.empty() && ce_count > 0) {
     int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
     int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
     RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
