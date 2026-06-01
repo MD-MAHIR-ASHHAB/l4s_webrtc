@@ -1965,8 +1965,8 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ce_count, Timesta
   // wait 5 RTTs from the last CE mark, then enter recovery.
   // RTC_LOG(LS_INFO) << "L4S: counts in recovery:  "
   //                      << ce_count << "ce count, ";
-  // if (ce_count > 0) {
-  //   RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
+  if (ce_count > 0) {
+    // RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
