@@ -108,7 +108,7 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   // RTC_LOG(LS_INFO) << "FeedbackGenerator: Creating RFC8888 feedback with " << rtcp_packet_info.size() 
   //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   
-  // Do not send an empty RFC 8888 packet — the receiver rejects empty packet
+  // Do not send an empty RFC 8888 packet as the receiver rejects empty packet
   // lists and counts them as malformed, producing spurious "RTCP blocks skipped"
   // warnings.  State must NOT be reset here either; resetting before the guard
   // would clear marker_bit_seen_ and first_arrival_time_since_feedback_ even
