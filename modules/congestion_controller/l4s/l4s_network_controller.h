@@ -91,9 +91,12 @@ public:
   PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate);
   ~PragueCapacityEstimator();
 
-  // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
-  void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
+    // Prague DCTCP algorithm implementation
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, // <--- NEW PARAMETER
+                                Timestamp current_time);
+  // Explicit bridge used by the controller when CE has been quiet long enough
+  // to leave reduction and start recovery.
+  void EnterAdditiveMode(Timestamp current_time);  void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
   void OnAckedUpdate(Timestamp current_time,
@@ -394,6 +397,7 @@ private:
   Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
   static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
+  static constexpr double kRecoveryCeQuietRttMultiplier = 5.0;
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
