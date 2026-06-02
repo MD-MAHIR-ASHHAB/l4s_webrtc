@@ -86,17 +86,6 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
   return NextFeedbackTime() - now;
 }
 
-void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
-  RTC_DCHECK_RUN_ON(&sequence_checker_);
-  // CE feedback intentionally bypasses the minimum-interval rate limiter.
-  // RFC 9330 §4.2 requires the sender to act on CE marks within one RTT;
-  // delaying the signal by up to 25 ms defeats the purpose of the immediate
-  // feedback path.  SendFeedback() already clamps 'now' to
-  // next_possible_feedback_send_time_ internally so RTCP NTP timestamps
-  // remain monotonically increasing.
-  RTC_LOG(LS_VERBOSE) << "L4S: Sending immediate RTCP feedback due to CE detection";
-  SendFeedback(env_.clock().CurrentTime());
-}
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   if (now < next_possible_feedback_send_time_) {
@@ -120,7 +109,7 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   // RTC_LOG(LS_INFO) << "FeedbackGenerator: Creating RFC8888 feedback with " << rtcp_packet_info.size() 
   //                  << " packets (CE=" << ce_count << ", ECT=" << ect_count << ", NotECT=" << not_ect_count << ")";
   
-  // Do not send an empty RFC 8888 packet — the receiver rejects empty packet
+  // Do not send an empty RFC 8888 packet â€” the receiver rejects empty packet
   // lists and counts them as malformed, producing spurious "RTCP blocks skipped"
   // warnings.  State must NOT be reset here either; resetting before the guard
   // would clear marker_bit_seen_ and first_arrival_time_since_feedback_ even

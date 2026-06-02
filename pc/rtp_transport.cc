@@ -25,10 +25,7 @@
 #include "media/base/rtp_utils.h"
 #include "modules/rtp_rtcp/include/rtp_header_extension_map.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
-#include "p2p/base/packet_transport_internal.h"
-#include "pc/l4s_ecn_feedback_adapter.h"
-#include "pc/session_description.h"
-#include "rtc_base/checks.h"
+#include \#include "rtc_base/checks.h"
 #include "rtc_base/containers/flat_set.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/logging.h"
@@ -211,33 +208,6 @@ void RtpTransport::DemuxPacket(CopyOnWriteBuffer packet,
   RtpPacketReceived parsed_packet(&header_extension_map_);
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
-
-  // Parse packet first to get SSRC and sequence number for L4S processing
-  bool parse_successful = parsed_packet.Parse(packet);
-  if (!parse_successful) {
-    RTC_LOG(LS_ERROR)
-        << "Failed to parse the incoming RTP packet before demuxing. Drop it.";
-    return;
-  }
-
-  uint32_t ssrc = parsed_packet.Ssrc();
-  uint16_t sequence_number = parsed_packet.SequenceNumber();
-
-  // L4S ECN processing with hybrid batch/immediate feedback
-  if (ecn_feedback_observer_) {
-    if (ecn == EcnMarking::kCe) {
-      RTC_LOG(LS_INFO) << "L4S: CE-marked RTP packet detected! SSRC=" << ssrc 
-                       << " seq=" << sequence_number 
-                       << " - triggering L4S immediate feedback logic";
-      
-      // Notify L4S controller about CE packet
-      ecn_feedback_observer_->OnCongestionMarkingReceived(arrival_time, ssrc, sequence_number);
-    } else {
-      // For non-CE packets, notify observer (L4S controller will handle mode switching)
-      ecn_feedback_observer_->OnNonCePacketReceived(arrival_time, ssrc, sequence_number);
-    }
-  }
-
   // Continue with normal demuxing
   if (!rtp_demuxer_.OnRtpPacket(parsed_packet)) {
     RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
@@ -358,15 +328,5 @@ void RtpTransport::MaybeSignalReadyToSend() {
   }
 }
 
-void RtpTransport::SetEcnFeedbackObserver(EcnFeedbackObserver* observer) {
-  ecn_feedback_observer_ = observer;
-  RTC_LOG(LS_INFO) << "ECN feedback observer " 
-                   << (observer ? "registered" : "removed") 
-                   << " for immediate RTCP feedback";
-}
-
-void RtpTransport::RemoveEcnFeedbackObserver() {
-  SetEcnFeedbackObserver(nullptr);
-}
 
 }  // namespace webrtc
