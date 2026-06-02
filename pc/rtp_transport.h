@@ -39,30 +39,6 @@ namespace webrtc {
 
 class CopyOnWriteBuffer;
 
-// Forward declaration for L4S ECN feedback adapter
-class L4sEcnFeedbackAdapter;
-
-// Interface for receiving notifications about ECN-marked packet reception
-// Used to trigger immediate RTCP feedback for L4S congestion control
-class EcnFeedbackObserver {
- public:
-  virtual ~EcnFeedbackObserver() = default;
-  
-  // Called when a CE-marked RTP packet is received
-  // timestamp: arrival time of the CE-marked packet
-  // ssrc: SSRC of the media stream that received the CE marking
-  // sequence_number: RTP sequence number of the CE-marked packet
-  virtual void OnCongestionMarkingReceived(Timestamp timestamp,
-                                          uint32_t ssrc,
-                                          uint16_t sequence_number) = 0;
-  
-  // Called when a non-CE packet is received (optional for L4S state management)
-  // Default implementation does nothing for backward compatibility
-  virtual void OnNonCePacketReceived(Timestamp timestamp,
-                                     uint32_t ssrc,
-                                     uint16_t sequence_number) {}
-};
-
 class RtpTransport : public RtpTransportInternal {
  public:
   RtpTransport(const RtpTransport&) = delete;
@@ -112,10 +88,6 @@ class RtpTransport : public RtpTransportInternal {
                               RtpPacketSinkInterface* sink) override;
 
   bool UnregisterRtpDemuxerSink(RtpPacketSinkInterface* sink) override;
-
-  // ECN feedback observer management for immediate RTCP feedback
-  void SetEcnFeedbackObserver(EcnFeedbackObserver* observer);
-  void RemoveEcnFeedbackObserver();
 
  protected:
   // These methods will be used in the subclasses.
@@ -169,9 +141,6 @@ class RtpTransport : public RtpTransportInternal {
   bool processing_ready_to_send_ = false;
   bool processing_sent_packet_ = false;
   ScopedTaskSafety safety_;
-  
-  // Observer for ECN feedback to trigger immediate RTCP feedback
-  EcnFeedbackObserver* ecn_feedback_observer_ = nullptr;
 };
 
 }  // namespace webrtc

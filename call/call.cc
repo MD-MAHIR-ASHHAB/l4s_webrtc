@@ -1512,10 +1512,10 @@ void Call::NotifyBweOfReceivedPacket(const RtpPacketReceived& packet,
   transport_send_->OnReceivedPacket(packet_msg);
 
   // Register packet in the feedback tracker FIRST so that the CE packet
-  // is included when ProcessL4sEcnMarking() fires immediate RTCP feedback.
+  // is included when ProcessL4sEcnMarking() triggers the next RFC 8888 report.
   receive_side_cc_.OnReceivedPacket(packet, media_type);
 
-  // L4S ECN immediate feedback processing (runs after packet is registered)
+  // L4S ECN feedback processing (runs after packet is registered)
   ProcessL4sEcnMarking(packet);
 }
 
