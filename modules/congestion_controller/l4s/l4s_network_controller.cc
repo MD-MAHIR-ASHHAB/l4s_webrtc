@@ -70,169 +70,37 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 }
 
 
-
-
-//hold state during reduction, then context-aware AI step calculation with probe constraints and ALR safety, followed by mode escapes and alpha decay logic
-
-// void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
-//   last_feedback_time_ = current_time;
-
-//   if (ce_ratio > 0.0) {  // CE-marked packets detected
-//     non_ce_packet_count_ = 0;
-//     // --- FEATURE 1: The "Soft Exit" from Discovery ---
-//     if (discovery_mode_active_ && !first_ce_mark_detected_) {
-//       discovery_mode_active_ = false;
-//       first_ce_mark_detected_ = true;
-      
-//       if (ce_ratio < 0.10) {
-//         // The queue is just barely starting to form. Perfect match!
-//         // We switch to Stable/Avoidance state without slashing the rate.
-//         RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
-//         direction_flag_ = 1; // Stay in stable growth mode
-        
-//         TimeDelta hold_duration = current_rtt_.IsFinite() ? current_rtt_ * 2.0 : TimeDelta::Millis(200);
-        
-//         additive_hold_until_ = current_time + hold_duration;
-//         last_congestion_signal_ = current_time;
-//         return; // Skip the rate cut entirely!
-//       } else {
-//         RTC_LOG(LS_INFO) << "Prague: Hard Exit from discovery mode (ce_ratio=" << ce_ratio << " >= 0.10). Applying cut.";
-//       }
-//     }
-    
-//     // --- PILLAR 2A: WebRTC-Tuned Gain ---
-//     // Use 1/8 to make alpha grow fast enough to matter.
-//     if(consecutive_md_cuts_ < 3) { // Only update alpha if we're not in bully resistance hold
-//           constexpr double g = 1.0 / 8.0;
-//           alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-//     }
-
-
-//     // 1. Calculate the dynamic Pipeline Delay
-//     // This is the time it takes for a rate cut to reach the router, plus the time
-//     // it takes for the already-marked queue to flush to the receiver.
-//     TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
-//                             ? (current_rtt_ - baseline_rtt_) 
-//                             : TimeDelta::Millis(0);
-//     TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    
-//     // Ensure minimum safe cooldown
-//     pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
-
-//     // 2. Check the Cooldown Gate
-//     bool gate_open = last_md_time_.IsInfinite() || 
-//                      (current_time - last_md_time_ >= pipeline_delay);
-
-//     if (gate_open) {
-//       // --- FEATURE 2: Bully Resistance (Hold-Down) ---
-//       if (consecutive_md_cuts_ >= 3) {
-//          RTC_LOG(LS_WARNING) << "Prague: Bully Resistance Engaged! Max consecutive cuts reached (" 
-//                              << consecutive_md_cuts_ << "). Firmly holding rate at " 
-//                              << congestion_based_estimate_.kbps() << " kbps.";
-         
-//          // Keep the gate locked, do not reduce further. 
-//          // Note: alpha_ continues to update above, so if the bully leaves, we still have accurate state.
-//          last_md_time_ = current_time; 
-//          last_congestion_signal_ = current_time;
-//          return;
-//       }
-
-
-//       // 3. Make the Pure L4S Multiplicative Decrease
-//       direction_flag_ = -1;
-//       consecutive_md_cuts_++;
-
-//       double reduction_factor = 1.0 - (alpha_ / 2.0);
-
-//       // Safety bounds (always cut at least 5%, never cut below 20%)
-//       reduction_factor = std::min(reduction_factor, 0.95);
-//       reduction_factor = std::max(reduction_factor, 0.20);
-
-//       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-//       reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
-//       congestion_based_estimate_ = reduced;
-      
-//       // 4. Reset the Cooldown Gate
-//       last_md_time_ = current_time;
-//       last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
-
-//       RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
-//                        << ", reduction_factor=" << reduction_factor
-//                        << "), new rate=" << congestion_based_estimate_.bps() 
-//                        << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
-//     } else {
-//       // 5. During the cooldown, we do nothing to the target rate. 
-//       // We are waiting for the network to digest the previous cut.
-//       // (alpha_ is still being updated dynamically at the top of the function).
-//     }
-    
-//     last_congestion_signal_ = current_time;
-  
-//   }
-//   else {  // No CE marks in this batch
-//     non_ce_packet_count_++;
-    
-//     // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
-//     // Calculate a physical clearance window based on the bloated RTT
-//     TimeDelta clearance_window = TimeDelta::Millis(200); // Safe default
-//     if (current_rtt_.IsFinite()) {
-//         // Enforce a strict minimum 2x RTT wait before allowing growth
-//         clearance_window = current_rtt_ * 2.0; 
-//     }
-    
-//     bool clearance_time_met = last_md_time_.IsInfinite() || 
-//                               (current_time - last_md_time_ > clearance_window);
-
-//     // Only switch back to Additive Increase if enough PACKETS have passed 
-//     // AND enough physical TIME has passed to flush the queue.
-//     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-//     if (direction_flag_ == -1 &&
-//         non_ce_packet_count_ >= adaptive_non_ce_threshold &&
-//         clearance_time_met) {
-//       direction_flag_ = 1;
-//       non_ce_packet_count_ = 0;
-
-
-
-//       // --- FEATURE 2 (CLEANUP): Reset the Bully Resistance Counter ---
-//       consecutive_md_cuts_ = 0;
-      
-      
-//       RTC_LOG(LS_VERBOSE)
-//           << "Prague: Queue drained. Switched to additive mode after "
-//           << clearance_window.ms() << "ms cooldown (threshold="
-//           << adaptive_non_ce_threshold << ", rtt_ms="
-//           << (current_rtt_.IsFinite() ? current_rtt_.ms() : -1)
-//           << ", alpha=" << alpha_ << ").";
-//     }
-//   } 
-// }
-
-
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time) {
+void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
+  direction_flag_ = 1;
+  non_ce_packet_count_ = 0;
+  consecutive_md_cuts_ = 0;
+  ai_bits_accumulator_ = 0.0;
+  last_ai_update_time_ = current_time;
+  additive_hold_until_ = Timestamp::MinusInfinity();
+  last_update_time_ = current_time;
   last_feedback_time_ = current_time;
+}
 
-  if (ce_ratio > 0.0) {  // At least one CE mark in the batch
+
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
+    DataRate current_rate, double ce_ratio, int batch_packet_count, Timestamp current_time) {
+  
+  last_feedback_time_ = current_time;
+  
+  if (ce_ratio > 0.0) {  
     discovery_mode_active_ = false;
     first_ce_mark_detected_ = true;
     non_ce_packet_count_ = 0;
 
-    // --- RFC 3168 BASELINE 1: Strict 1-RTT Pipeline Delay ---
-    // We must still wait one RTT to avoid cutting the rate multiple times 
-    // for the exact same queue-draining event.
     TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(50);
     TimeDelta pipeline_delay = std::max(rtt, TimeDelta::Millis(50));
     
     bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
 
     if (gate_open) {
-      // --- RFC 3168 BASELINE 2: Unconditional 50% Cut ---
-      // No alpha smoothing. Any CE mark equals a classic packet drop response.
       direction_flag_ = -1;
-      
       double reduction_factor = 0.5; // Classic TCP MD
       
-      // Enforce the absolute 20kbps floor to prevent the pacer from crashing
       DataRate reduced = std::max(current_rate * reduction_factor, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
 
@@ -242,16 +110,15 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       RTC_LOG(LS_VERBOSE) << "RFC 3168 Baseline: Executed 50% Cut for CE mark"
                           << ", new rate=" << congestion_based_estimate_.kbps() << " kbps.";
     }
-    
     last_congestion_signal_ = current_time;
   } else {
-    // --- Additive Increase Re-entry ---
-    // Use the same anti-flapping queue drain logic from the pure baseline
+    // --- C6 ARCHITECTURE PORT: Track clean packets ---
+    non_ce_packet_count_ += batch_packet_count;
+
     TimeDelta clearance_window = current_rtt_.IsFinite() ? (current_rtt_ * 2.0) : TimeDelta::Millis(200);
     bool clearance_time_met = last_md_time_.IsInfinite() || (current_time - last_md_time_ > clearance_window);
     
     int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-    
     if (direction_flag_ == -1 && non_ce_packet_count_ >= adaptive_non_ce_threshold && clearance_time_met) {
       direction_flag_ = 1;
       non_ce_packet_count_ = 0;
@@ -1143,92 +1010,6 @@ void webrtc::L4SNetworkController::EnforceHistoricalSafetyFloor() {
 }
 
 
-// void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
-//   if (feedback.packet_feedbacks.empty()) {
-//     return;
-//   }
-
-//   TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
-
-//   int batch_ect_count = 0;
-//   int batch_ce_count = 0;
-//   bool probe_caused_congestion = false;
-
-//   // 1. Extract Batch Info
-//   for (const auto& packet : feedback.packet_feedbacks) {
-//     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
-//       batch_ect_count++;
-//     }
-//     if (packet.ecn == EcnMarking::kCe) {
-//       batch_ce_count++;
-//       last_congestion_signal_ = feedback.feedback_time;
-//       if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
-//         probe_caused_congestion = true;
-//       }
-//     }
-//   }
-
-//   // 2. Heartbeat/Activity Update
-//   if (batch_ect_count > 0 || batch_ce_count > 0) {
-//     ecn_supported_ = true;
-//     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
-//   }
-
-//   // 3. Accumulate Window
-//   window_ce_count_ += batch_ce_count;
-//   window_ect_count_ += batch_ect_count;
-
-//   // 4. THE WINDOW GATE (Dynamic BDP-Aware processing)
-//   double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
-//   double rate_bps = current_fused_rate.bps();
-//   double pkt_size_bits = 1400.0 * 8.0;
-
-//   // Clamp between 10 (prevent divide-by-zero on low rates) and 200 (prevent waiting forever)
-//   int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
-
-//   bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
-//   int window_total = window_ce_count_ + window_ect_count_;
-
-//   if (window_expired || window_total >= dynamic_threshold) {
-//     double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
-
-//     if (window_total >= 3) {
-//       if (window_ce_count_ > 0 && probe_caused_congestion) {
-//         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
-//       } else {
-       
-//         // --- PREPARE STATE ---
-//         TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
-//                               ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-                              
-//         double starvation_ratio = 1.0;
-//         if (historical_max_capacity_ > DataRate::Zero()) {
-//             starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
-//         }
-
-//         // --- APPLY DAMPENERS ---
-//         double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
-
-
-
-//         prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, feedback.feedback_time);
-//       }
-
-//       // ---  The Historical Safety Floor ---
-//       EnforceHistoricalSafetyFloor();
-//     }
-
-//     // RESET WINDOW
-//     window_ce_count_ = 0;
-//     window_ect_count_ = 0;
-//     window_start_time_ = feedback.feedback_time;
-//   }
-
-//   // 5. Recovery logic always sees the raw batch info
-//   HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
-// }
-
-
 void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
   if (feedback.packet_feedbacks.empty()) {
     return;
@@ -1237,7 +1018,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   int batch_ect_count = 0;
   int batch_ce_count = 0;
 
-  // 1. Extract Batch Info
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) {
       batch_ect_count++;
@@ -1248,36 +1028,31 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
-  // 2. Heartbeat/Activity Update
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
 
+  int total_packets = batch_ect_count + batch_ce_count;
+
   // --- RFC 3168 BASELINE (CE = LOSS) ---
-  // We completely bypass the BDP window gate, yield ratios, and historical floors.
-  
   if (batch_ce_count > 0) {
-      // If there is ANY CE mark in this batch, trigger the loss reaction.
-      // We pass 1.0 (or any value > 0) to ensure the UpdateFromCongestionSignal 
-      // triggers the unconditional 50% cut.
       prague_estimator_->UpdateFromCongestionSignal(
           prague_estimator_->GetCurrentEstimate(), 
           1.0, 
+          total_packets, // <-- PASS BATCH SIZE
           feedback.feedback_time);
-  } else {
-      // Clean batch: pass 0.0 to drive additive increase
+  } else if (total_packets > 0) {
       prague_estimator_->UpdateFromCongestionSignal(
           prague_estimator_->GetCurrentEstimate(), 
           0.0, 
+          total_packets, // <-- PASS BATCH SIZE
           feedback.feedback_time);
   }
 
-  // 3. Recovery logic is maintained to ensure the baseline can still probe 
-  // if the connection goes entirely silent.
-  HandleRecoveryDetection(batch_ect_count, batch_ce_count, feedback.feedback_time);
+  
+  HandleRecoveryDetection(batch_ce_count, feedback.feedback_time);
 }
-
 
 
 
@@ -1776,7 +1551,19 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
 
 
 bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
-  return recovery_cooldown_until_.IsInfinite() || now >= recovery_cooldown_until_;
+  if (!prague_estimator_ || prague_estimator_->IsDiscoveryModeActive() || recovery_mode_active_) {
+    return false;
+  }
+
+  if (last_congestion_signal_.IsInfinite()) {
+    return false;
+  }
+
+  TimeDelta effective_rtt =
+      last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                           : TimeDelta::Millis(100);
+  return (now - last_congestion_signal_) >=
+         (effective_rtt * kRecoveryCeQuietRttMultiplier);
 }
 
 // 
@@ -2029,96 +1816,24 @@ bool webrtc::L4SNetworkController::IsProbeDataValid(Timestamp now) const {
 
 
 
-void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now) {
-  // Handle recovery mode detection based on clean ECT1 packets
-  if (ce_count == 0 && ect_count > 0) {
-    if (clean_ect_run_start_.IsInfinite()) {
-      clean_ect_run_start_ = now;
-    }
-    consecutive_clean_packets_ += ect_count;
-    
-    // Trigger recovery mode if enough clean packets seen, not already in discovery,
-    // and the post-convergence cooldown has expired.
-    bool cooldown_expired = recovery_cooldown_until_.IsInfinite() ||
-                            now >= recovery_cooldown_until_;
-    // Dynamic recovery threshold: the fixed count of 20 represents very
-    // different durations at different bitrates (e.g. 45 ms at 5 Mbps vs
-    // 444 ms at 500 Kbps).  Instead, compute the threshold as the number of
-    // packets that fit in 1.5 RTTs at the current rate so that recovery always
-    // waits at least 1.5 round-trips before probing, regardless of bitrate.
-    //
-    //   effective_rtt   = clamp(last_rtt_, 50 ms, 300 ms)
-    //   target_duration = 1.5 × effective_rtt
-    //   threshold       = clamp(packets/s × target_duration, recovery_min_clean_packets, 500)
-    //
-    // kRecoveryPacketThreshold (20) acts as the floor so the condition is
-    // never trivially satisfied on very low-rate paths.
-    TimeDelta effective_rtt =
-        last_rtt_.IsFinite()
-            ? std::clamp(last_rtt_,
-                         TimeDelta::Millis(50),
-                         TimeDelta::Millis(300))
-            : TimeDelta::Millis(100);  // safe default until RTT is measured
-    double target_duration_s = effective_rtt.seconds<double>() * 1.5;
-    double rate_bps = target_rate_.has_value()
-                          ? static_cast<double>(target_rate_->bps())
-                          : 2'000'000.0;  // 2 Mbps safe default
-    double packets_per_sec = rate_bps / (1400.0 * 8.0);
-    int dynamic_threshold = static_cast<int>(packets_per_sec * target_duration_s);
-    int recovery_threshold = std::clamp(
-      dynamic_threshold,
-      std::max(config_.recovery_min_clean_packets, kRecoveryPacketThreshold),
-      500);
-    TimeDelta clean_duration = now - clean_ect_run_start_;
-    TimeDelta min_clean_duration =
-      std::max(config_.recovery_min_clean_duration, effective_rtt * 2.0);
-    bool clean_duration_ok = clean_duration >= min_clean_duration;
-    bool rate_ok = target_rate_.value_or(DataRate::Zero()) >=
-             config_.recovery_probe_min_rate;
-
-    // --- CRITICAL FIX: Calculate the physical queue bloat ---
-    TimeDelta rtt_bloat = TimeDelta::Zero();
-    if (last_rtt_.IsFinite() && base_rtt_.IsFinite()) {
-        rtt_bloat = last_rtt_ - base_rtt_;
-    }
-
-    // Do not attempt to probe for the network ceiling if the application 
-    // is currently the bottleneck OR if the queue is still clearing.
-    if (consecutive_clean_packets_ >= recovery_threshold &&
-        clean_duration_ok &&
-        rate_ok &&
-        !recovery_mode_active_ &&
-        !prague_estimator_->IsDiscoveryModeActive() &&
-        cooldown_expired &&
-        // !IsApplicationLimited() && 
-        rtt_bloat < TimeDelta::Millis(30)) { // <--- THE LATENCY GATE
-
-        recovery_mode_active_ = true;
-        recovery_probe_bootstrapped_ = false;
-        recovery_start_time_ = now;
-
-        RTC_LOG(LS_INFO) << "L4S: Entering recovery mode after " << consecutive_clean_packets_
-                        << " clean ECT packets (threshold=" << recovery_threshold
-                        << ", rtt=" << effective_rtt.ms() << "ms"
-                        << ", clean_ms=" << clean_duration.ms()
-                        << ", min_clean_ms=" << min_clean_duration.ms()
-                        << ", rate=" << static_cast<int>(rate_bps / 1000) << "kbps)";
-    }
-  } else if (ce_count > 0) {
-    // Reset clean packet count on congestion
-    consecutive_clean_packets_ = 0;
-    clean_ect_run_start_ = Timestamp::MinusInfinity();
+void webrtc::L4SNetworkController::HandleRecoveryDetection(int ce_count, Timestamp now) {
+  // Recovery is driven by CE silence: once CE stops and discovery is off,
+  // wait 5 RTTs from the last CE mark, then enter recovery.
+  // RTC_LOG(LS_INFO) << "L4S: counts in recovery:  "
+  //                      << ce_count << "ce count, ";
+  if (ce_count > 0) {
+    // RTC_LOG(LS_INFO) << "L4S: Resetting clean packet count due to CE marks";
     
     // Exit recovery mode on congestion
     if (recovery_mode_active_) {
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
       recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
-      RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode due to CE marks";
+      RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode due to CE marks";
     }
+    return;
   }
-  
-  // Check recovery mode exit conditions
+
   if (recovery_mode_active_) {
     TimeDelta recovery_duration = now - recovery_start_time_;
     
@@ -2131,24 +1846,68 @@ void webrtc::L4SNetworkController::HandleRecoveryDetection(int ect_count, int ce
       
       recovery_mode_active_ = false;
       recovery_probe_bootstrapped_ = false;
-      consecutive_clean_packets_ = 0;
-      clean_ect_run_start_ = Timestamp::MinusInfinity();
 
       if (has_converged) {
         // Impose a cooldown so the controller doesn't oscillate back into
         // recovery immediately on a stable, low-congestion network.
         recovery_cooldown_until_ = now + kRecoveryCooldown;
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - convergence achieved, "
+        RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode - convergence achieved, "
                          << "cooldown until +" << kRecoveryCooldown.seconds<int>() << "s";
       } else {
         recovery_cooldown_until_ = now + config_.recovery_reentry_cooldown;
-        RTC_LOG(LS_INFO) << "L4S: Exiting recovery mode - timeout";
+        RTC_LOG(LS_VERBOSE) << "L4S: Exiting recovery mode - timeout";
       }
+    }
+    return;
+  }
+
+  if (ce_count == 0) {
+    TimeDelta effective_rtt =
+        last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                             : TimeDelta::Millis(200);
+    TimeDelta quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+    TimeDelta ce_quiet_time = last_congestion_signal_.IsInfinite()
+                                  ? TimeDelta::PlusInfinity()
+                                  : (now - last_congestion_signal_);
+
+    RTC_LOG(LS_VERBOSE) << "L4S: CE-free recovery check"
+                        << " | quiet_for_ms=" << ce_quiet_time.ms()
+                        << " | required_ms=" << quiet_window.ms()
+                        << " | recovery=" << recovery_mode_active_
+                        << " | discovery="
+                        << (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive())
+                        << " | last_ce_ms="
+                        << (last_congestion_signal_.IsInfinite() ? -1
+                                                                : last_congestion_signal_.ms());
+
+    if (CanEnterRecoveryState(now)) {
+      if (prague_estimator_) {
+        prague_estimator_->EnterAdditiveMode(now);
+      }
+      recovery_mode_active_ = true;
+      recovery_probe_bootstrapped_ = false;
+      recovery_start_time_ = now;
+
+      RTC_LOG(LS_VERBOSE) << "L4S: Bridged Prague from reduction to additive and entered recovery after CE stayed quiet for "
+               << quiet_window.ms() << "ms ("
+               << kRecoveryCeQuietRttMultiplier << " RTTs, rtt="
+               << effective_rtt.ms() << "ms)";
+    } else if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode while discovery is active";
+    } else if (last_congestion_signal_.IsInfinite()) {
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - no CE signal observed";
+    } else {
+      effective_rtt =
+          last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20))
+                               : TimeDelta::Millis(200);
+      quiet_window = effective_rtt * kRecoveryCeQuietRttMultiplier;
+      ce_quiet_time = now - last_congestion_signal_;
+      RTC_LOG(LS_VERBOSE) << "L4S: Not entering recovery mode yet - CE quiet for "
+                       << ce_quiet_time.ms() << "ms, need "
+                       << quiet_window.ms() << "ms";
     }
   }
 }
-
-
 
 
 }  // namespace webrtc

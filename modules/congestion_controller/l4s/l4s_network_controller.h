@@ -92,7 +92,11 @@ public:
   ~PragueCapacityEstimator();
 
   // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, // <--- NEW PARAMETER
+                                Timestamp current_time);
+  // Explicit bridge used by the controller when CE has been quiet long enough
+  // to leave reduction and start recovery.
+  void EnterAdditiveMode(Timestamp current_time);
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
@@ -287,7 +291,7 @@ private:
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   
   // Recovery detection
-  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
+  void HandleRecoveryDetection(int ce_count, Timestamp now);
 
   // ALR detection
   bool IsApplicationLimited() const;
