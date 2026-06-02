@@ -1002,7 +1002,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
 
 GCCMetricsCollector::~GCCMetricsCollector() {
   RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c1.json");
 }
 
 void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
