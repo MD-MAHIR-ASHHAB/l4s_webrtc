@@ -563,10 +563,6 @@ rtc_source_set("rtp_sender_proxy") {
 rtc_library("rtp_transport") {
   visibility = [ ":*" ]
   sources = [
-    "l4s_ecn_feedback_adapter.cc",
-    "l4s_ecn_feedback_adapter.h",
-    "l4s_immediate_feedback_controller.cc",
-    "l4s_immediate_feedback_controller.h",
     "rtp_transport.cc",
     "rtp_transport.h",
   ]

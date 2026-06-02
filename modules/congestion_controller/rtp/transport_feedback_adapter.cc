@@ -702,8 +702,7 @@ std::optional<PacketFeedback> TransportFeedbackAdapter::RetrievePacketFeedback(
     // creation_time slightly predates the actual OS send callback so RTT will
     // be marginally over-estimated, but that is far less harmful than losing
     // the congestion signal.  This situation is transient and disappears once
-    // the CE rate-limiter bypass (SendImmediateFeedback fix) keeps the receiver
-    // backlog within one RTT.
+    // the CE rate-limiter bypass keeps the receiver backlog within one RTT.
     it->second.sent.send_time = it->second.creation_time;
   }
 
