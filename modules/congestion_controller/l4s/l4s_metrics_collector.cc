@@ -190,8 +190,15 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
         {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
 
-  ExportToJsonFile("l4s_test_1.json");
+  ExportToJsonFile("l4s_test_c6.json");
 }
+
+
+L4SMetricsCollector::~L4SMetricsCollector() {
+  RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
+  ExportToJsonFile("l4s_test_c6.json");
+}
+
 
 void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   if (!logger_) {
