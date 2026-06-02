@@ -594,7 +594,7 @@ int ignored_packets = 0;
   });
   
 // Add this right before the return statement
-  if (!packet_result_vector.empty()) {
+  if (!packet_result_vector.empty() && ce_count > 0) {
     int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
     int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
     RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
