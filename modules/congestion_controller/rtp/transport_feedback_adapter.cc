@@ -594,7 +594,7 @@ int ignored_packets = 0;
   });
   
 // Add this right before the return statement
-  if (!packet_result_vector.empty() && ce_count > 0) {
+  if (!packet_result_vector.empty() ) {
     int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
     int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
     RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
@@ -602,7 +602,7 @@ int ignored_packets = 0;
              << "  Seq Range: [" << min_seq << ", " << max_seq << "]\n"
              << "  ECT Marks: " << ect_count << "\n"
              << "  CE Marks: " << ce_count << "\n"
-             << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
+             << "  Congestion Detected: " << (ce_count > 0 ? "true" : "false") << "\n"
              << "======================================";
   }
   
