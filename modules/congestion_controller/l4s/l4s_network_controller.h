@@ -398,6 +398,7 @@ private:
   Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
   static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
+  static constexpr double kRecoveryCeQuietRttMultiplier = 5.0;
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
