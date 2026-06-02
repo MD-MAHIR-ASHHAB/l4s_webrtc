@@ -80,7 +80,7 @@ void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) 
   last_update_time_ = current_time;
   last_feedback_time_ = current_time;
   
-  RTC_LOG(LS_VERBOSE) << "Prague (C4): Forcibly bridged to additive mode by macro-controller.";
+  RTC_LOG(LS_VERBOSE) << "Prague (C5): Forcibly bridged to additive mode by macro-controller.";
 }
 
 
@@ -1187,8 +1187,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
       } else {
         // Use pure Prague math for congestion control
+        int total_packets = batch_ect_count + batch_ce_count;
 
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, total_packets, feedback.feedback_time);
 
       //   // --- PREPARE STATE ---
       //   TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
