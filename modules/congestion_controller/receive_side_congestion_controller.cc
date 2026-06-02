@@ -115,7 +115,6 @@ void ReceiveSideCongestionController::
   send_rfc8888_congestion_feedback_ = true;
 }
 
-
 void ReceiveSideCongestionController::OnReceivedPacket(
     const RtpPacketReceived& packet,
     MediaType media_type) {
