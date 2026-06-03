@@ -63,7 +63,8 @@ class GCCMetricsCollector {
                       Clock* clock);
   
 
-  ~GCCMetricsCollector() 
+  ~GCCMetricsCollector();
+   
   // Time-series metrics logging
   void LogBandwidthMetrics(Timestamp at_time,
                            DataRate target_bitrate,
