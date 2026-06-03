@@ -15,7 +15,7 @@ L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
                    << test_case_name_;
 }
 
-L4SMetricsCollector::~L4SMetricsCollector() = default;
+// L4SMetricsCollector::~L4SMetricsCollector() = default;
 
 void L4SMetricsCollector::LogBandwidthMetrics(
     Timestamp at_time,
