@@ -62,6 +62,8 @@ class GCCMetricsCollector {
                       const std::string& test_case_name,
                       Clock* clock);
   
+
+  ~GCCMetricsCollector() 
   // Time-series metrics logging
   void LogBandwidthMetrics(Timestamp at_time,
                            DataRate target_bitrate,
