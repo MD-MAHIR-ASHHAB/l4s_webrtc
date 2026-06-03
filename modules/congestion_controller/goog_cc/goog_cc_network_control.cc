@@ -650,11 +650,12 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   // produce an update, by producing an update that lowers the current target.
   std::optional<DataRate> ecn_cap;
   if (ecn_based_bwe_ && report.transport_supports_ecn) {
-    // --- EXACT SYNC FIX ---
+
+        // --- EXACT SYNC FIX ---
     // Force the ECN module's internal state to exactly match GCC's overarching target
     // before computing any Multiplicative Decreases.
     ecn_based_bwe_->SetTargetBitrate(bandwidth_estimation_->target_rate());
-
+    
     EcnBasedBwe::ECNResult ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
         report, acknowledged_bitrate, probe_bitrate, estimate_,
         alr_start_time.has_value());
@@ -897,6 +898,13 @@ void GoogCcNetworkController::MaybeTriggerOnNetworkChanged(
                         << last_pushback_target_rate_.bps()
                         << " estimate_bps=" << loss_based_target_rate.bps();
   }
+
+  if (metrics_collector_) {
+    last_target_rate_ = bandwidth_estimation_->target_rate();
+    last_actual_bitrate_ = acknowledged_bitrate_estimator_->bitrate().value_or(DataRate::Zero());
+    last_rtt_ = round_trip_time;
+    last_loss_fraction_ = fraction_loss / 255.0f;
+  }
 }
 
 PacerConfig GoogCcNetworkController::GetPacingRates(Timestamp at_time) const {
@@ -1079,13 +1087,13 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
   // Periodically export all metrics to JSON
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c2.json");
 }
 
 
 GCCMetricsCollector::~GCCMetricsCollector() {
   RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c2.json");
 }
 
 void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
