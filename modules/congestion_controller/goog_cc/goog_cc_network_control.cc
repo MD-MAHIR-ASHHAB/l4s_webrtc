@@ -1170,6 +1170,9 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   }
   fprintf(f, "]\n");
   fclose(f);
+
+    // ADD THIS LINE:
+  RTC_LOG(LS_INFO) << "Metrics successfully flushed and saved to " << filename;
 }
 
 
