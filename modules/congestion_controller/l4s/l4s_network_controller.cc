@@ -89,107 +89,23 @@ void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) 
 
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int batch_packet_count, Timestamp current_time) {
   last_feedback_time_ = current_time;
+// =========================================================
+  // --- C5: UNCONDITIONAL ALPHA UPDATE ---
+  // =========================================================
+  // We update alpha *outside* the CE check so that it naturally 
+  // and exponentially decays when the network is clean (ce_ratio == 0.0)
+  // We use g = 1/8 to be slightly more responsive than classic DCTCP
 
-    // if (ce_ratio > 0.0) {  // CE-marked packets detected
-  //   non_ce_packet_count_ = 0;
-  //   // --- FEATURE 1: The "Soft Exit" from Discovery ---
-  //   if (discovery_mode_active_ && !first_ce_mark_detected_) {
-  //     discovery_mode_active_ = false;
-  //     first_ce_mark_detected_ = true;
-      
-  //     if (ce_ratio < 0.10) {
-  //       // The queue is just barely starting to form. Perfect match!
-  //       // We switch to Stable/Avoidance state without slashing the rate.
-  //       RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
-  //       direction_flag_ = 1; // Stay in stable growth mode
-        
-  //       TimeDelta hold_duration = current_rtt_.IsFinite() ? current_rtt_ * 2.0 : TimeDelta::Millis(200);
-        
-  //       additive_hold_until_ = current_time + hold_duration;
-  //       last_congestion_signal_ = current_time;
-  //       return; // Skip the rate cut entirely!
-  //     } else {
-  //       RTC_LOG(LS_INFO) << "Prague: Hard Exit from discovery mode (ce_ratio=" << ce_ratio << " >= 0.10). Applying cut.";
-  //     }
-  //   }
-    
-  //   // --- PILLAR 2A: WebRTC-Tuned Gain ---
-  //   // Use 1/8 to make alpha grow fast enough to matter.
-  //   if(consecutive_md_cuts_ < 3) { // Only update alpha if we're not in bully resistance hold
-  //         constexpr double g = 1.0 / 8.0;
-  //         alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-  //   }
+    // --- PURE PRAGUE 1: Always Update Alpha ---
+    constexpr double g = 1.0 / 16.0; // Standard Prague draft uses 1/16 gain
+    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
 
-  //   // 1. Calculate the dynamic Pipeline Delay
-  //   // This is the time it takes for a rate cut to reach the router, plus the time
-  //   // it takes for the already-marked queue to flush to the receiver.
-  //   TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
-  //                           ? (current_rtt_ - baseline_rtt_) 
-  //                           : TimeDelta::Millis(0);
-  //   TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    
-  //   // Ensure minimum safe cooldown
-  //   pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
-
-  //   // 2. Check the Cooldown Gate
-  //   bool gate_open = last_md_time_.IsInfinite() || 
-  //                    (current_time - last_md_time_ >= pipeline_delay);
-
-  //   if (gate_open) {
-  //     // --- FEATURE 2: Bully Resistance (Hold-Down) ---
-  //     if (consecutive_md_cuts_ >= 3) {
-  //        RTC_LOG(LS_WARNING) << "Prague: Bully Resistance Engaged! Max consecutive cuts reached (" 
-  //                            << consecutive_md_cuts_ << "). Firmly holding rate at " 
-  //                            << congestion_based_estimate_.kbps() << " kbps.";
-         
-  //        // Keep the gate locked, do not reduce further. 
-  //        // Note: alpha_ continues to update above, so if the bully leaves, we still have accurate state.
-  //        last_md_time_ = current_time; 
-  //        last_congestion_signal_ = current_time;
-  //        return;
-  //     }
-
-
-  //     // 3. Make the Pure L4S Multiplicative Decrease
-  //     direction_flag_ = -1;
-  //     consecutive_md_cuts_++;
-
-  //     double reduction_factor = 1.0 - (alpha_ / 2.0);
-
-  //     // Safety bounds (always cut at least 5%, never cut below 20%)
-  //     reduction_factor = std::min(reduction_factor, 0.95);
-  //     reduction_factor = std::max(reduction_factor, 0.20);
-
-  //     DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-  //     reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
-  //     congestion_based_estimate_ = reduced;
-      
-  //     // 4. Reset the Cooldown Gate
-  //     last_md_time_ = current_time;
-  //     last_ai_update_time_ = current_time; // CRITICAL FIX: Reset AI clock on cut
-
-  //     RTC_LOG(LS_VERBOSE) << "Prague: Executed Pure L4S Cut (alpha=" << alpha_
-  //                      << ", reduction_factor=" << reduction_factor
-  //                      << "), new rate=" << congestion_based_estimate_.bps() 
-  //                      << " bps. Cooldown locked for " << pipeline_delay.ms() << "ms.";
-  //   } else {
-  //     // 5. During the cooldown, we do nothing to the target rate. 
-  //     // We are waiting for the network to digest the previous cut.
-  //     // (alpha_ is still being updated dynamically at the top of the function).
-  //   }
-    
-  //   last_congestion_signal_ = current_time;
-  
-  // }
   if (ce_ratio > 0.0) {  // CE-marked packets detected
     discovery_mode_active_ = false;
     first_ce_mark_detected_ = true;
     non_ce_packet_count_ = 0;
 
-    // --- PURE PRAGUE 1: Always Update Alpha ---
-    constexpr double g = 1.0 / 16.0; // Standard Prague draft uses 1/16 gain
-    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
     // --- PURE PRAGUE 2: Strict 1-RTT Pipeline Delay ---
     // No queue bloat compensation, just the physical RTT.
@@ -200,10 +116,24 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
     if (gate_open) {
       // --- PURE PRAGUE 3: Unconditional Multiplicative Decrease ---
+      // =========================================================
+      // --- C5: BULLY PROTECTION GATE ---
+      // =========================================================
+      if (consecutive_md_cuts_ >= 3) {
+         RTC_LOG(LS_WARNING) << "C5 Prague: Bully Resistance Engaged! Max consecutive cuts (3). Holding rate.";
+         last_congestion_signal_ = current_time;
+         return; 
+      }
+
       direction_flag_ = -1;
+      consecutive_md_cuts_++;
       
       double reduction_factor = 1.0 - (alpha_ / 2.0);
       
+      // Force a minimum cut of 5% so the WebRTC pacer actually reacts,
+      // and a maximum cut of 50% (the RFC 3168 floor)
+      reduction_factor = std::clamp(reduction_factor, 0.50, 0.95);
+
       // We only keep the absolute 20kbps floor to prevent the WebRTC C++ pacer from crashing.
       DataRate reduced = std::max(current_rate * reduction_factor, DataRate::KilobitsPerSec(20));
       congestion_based_estimate_ = reduced;
@@ -211,39 +141,13 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       last_md_time_ = current_time;
       last_ai_update_time_ = current_time;
 
-      RTC_LOG(LS_VERBOSE) << "Pure Prague: Executed Cut (alpha=" << alpha_
-                          << "), new rate=" << congestion_based_estimate_.kbps() << " kbps.";
+      RTC_LOG(LS_VERBOSE) << "C5 Prague: Executed Fractional Cut. "
+                          << "Alpha=" << alpha_ << " Factor=" << reduction_factor
+                          << ". New rate=" << congestion_based_estimate_.kbps() << " kbps.";
     }
-    
-    last_congestion_signal_ = current_time;
-  }
 
   else {  // No CE marks in this batch
     non_ce_packet_count_ += batch_packet_count;
-    
-    // --- PLAN 2 FIX: The Anti-Flapping Cooldown ---
-    // Calculate a physical clearance window based on the bloated RTT
-    TimeDelta clearance_window = current_rtt_.IsFinite() ? (current_rtt_ * 2.0) : TimeDelta::Millis(200);
-    bool clearance_time_met = last_md_time_.IsInfinite() || (current_time - last_md_time_ > clearance_window);
-    
-    int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-    if (direction_flag_ == -1 && non_ce_packet_count_ >= adaptive_non_ce_threshold && clearance_time_met) {
-      direction_flag_ = 1;
-      non_ce_packet_count_ = 0;
-
-
-
-      // // --- FEATURE 2 (CLEANUP): Reset the Bully Resistance Counter ---
-      // consecutive_md_cuts_ = 0;
-      
-      
-      RTC_LOG(LS_VERBOSE)
-          << "Prague: Queue drained. Switched to additive mode after "
-          << clearance_window.ms() << "ms cooldown (threshold="
-          << adaptive_non_ce_threshold << ", rtt_ms="
-          << (current_rtt_.IsFinite() ? current_rtt_.ms() : -1)
-          << ", alpha=" << alpha_ << ").";
-    }
   } 
 }
 

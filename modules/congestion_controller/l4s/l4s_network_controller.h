@@ -184,6 +184,8 @@ private:
   Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
 
+  int consecutive_md_cuts_ = 0; // Counter to track consecutive multiplicative decreases (for bully resistance)
+
 
 };
 
