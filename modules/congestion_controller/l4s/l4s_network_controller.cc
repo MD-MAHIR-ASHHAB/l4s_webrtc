@@ -99,7 +99,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
     bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
 
     if (gate_open) {
+      // =========================================================
+      // --- C4: BULLY PROTECTION GATE ---
+      // =========================================================
+      if (consecutive_md_cuts_ >= 3) {
+         RTC_LOG(LS_WARNING) << "C4 Baseline: Bully Resistance Engaged! Max consecutive cuts (3) reached. Holding rate.";
+         last_congestion_signal_ = current_time;
+         return; 
+      }
       direction_flag_ = -1;
+      consecutive_md_cuts_++; // Increment our bully counter
+
       double reduction_factor = 0.5; // Classic TCP MD
       
       DataRate reduced = std::max(current_rate * reduction_factor, DataRate::KilobitsPerSec(20));
@@ -116,15 +126,15 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
     // --- C6 ARCHITECTURE PORT: Track clean packets ---
     non_ce_packet_count_ += batch_packet_count;
 
-    TimeDelta clearance_window = current_rtt_.IsFinite() ? (current_rtt_ * 2.0) : TimeDelta::Millis(200);
-    bool clearance_time_met = last_md_time_.IsInfinite() || (current_time - last_md_time_ > clearance_window);
+    // TimeDelta clearance_window = current_rtt_.IsFinite() ? (current_rtt_ * 2.0) : TimeDelta::Millis(200);
+    // bool clearance_time_met = last_md_time_.IsInfinite() || (current_time - last_md_time_ > clearance_window);
     
-    int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
-    if (direction_flag_ == -1 && non_ce_packet_count_ >= adaptive_non_ce_threshold && clearance_time_met) {
-      direction_flag_ = 1;
-      non_ce_packet_count_ = 0;
-      RTC_LOG(LS_VERBOSE) << "RFC 3168 Baseline: Queue drained. Switched to additive mode.";
-    }
+    // int adaptive_non_ce_threshold = ComputeAdaptiveNonCeThreshold();
+    // if (direction_flag_ == -1 && non_ce_packet_count_ >= adaptive_non_ce_threshold && clearance_time_met) {
+    //   direction_flag_ = 1;
+    //   non_ce_packet_count_ = 0;
+    //   RTC_LOG(LS_VERBOSE) << "RFC 3168 Baseline: Queue drained. Switched to additive mode.";
+    // }
   } 
 }
 
@@ -1050,7 +1060,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
           total_packets, // <-- PASS BATCH SIZE
           feedback.feedback_time);
   }
-
   
   HandleRecoveryDetection(batch_ce_count, feedback.feedback_time);
 }

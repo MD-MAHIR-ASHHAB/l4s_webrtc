@@ -177,6 +177,7 @@ private:
   // Discovery mode for fast startup
   bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
   bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
+  int consecutive_md_cuts_ = 0; // Track consecutive multiplicative decreases for bully resistance
   
   // Probe constraint for discovery mode
   DataRate probe_constraint_ = DataRate::Zero();
