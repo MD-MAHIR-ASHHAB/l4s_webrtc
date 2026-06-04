@@ -249,6 +249,10 @@ class GoogCcNetworkController : public NetworkControllerInterface {
   // Helper methods for metrics
   void LogPeriodicMetrics(Timestamp at_time);
 
+
+  // //ce state tracking
+  // Timestamp last_ce_overuse_time_ = Timestamp::MinusInfinity();
+
 };
 
 }  // namespace webrtc

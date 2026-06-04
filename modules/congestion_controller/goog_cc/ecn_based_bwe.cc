@@ -88,6 +88,10 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
 
       double reduction_factor = 1.0 - (alpha_ / 2.0);
+      // --- ADD THIS SAFETY BOUND ---
+      // Force a minimum cut of 10% so the video encoder actually reacts,
+      // and a maximum cut of 50% (Classic DCTCP/RFC 3168 bound).
+      reduction_factor = std::clamp(reduction_factor, 0.50, 0.90);
       current_target_rate_ = current_target_rate_ * reduction_factor;
 
       last_md_time_ = now;
