@@ -220,6 +220,8 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   }
   fprintf(f, "]\n");
   fclose(f);
+    // ADD THIS LINE:
+  RTC_LOG(LS_INFO) << "Metrics successfully flushed and saved to " << filename;
 }
 
 void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
