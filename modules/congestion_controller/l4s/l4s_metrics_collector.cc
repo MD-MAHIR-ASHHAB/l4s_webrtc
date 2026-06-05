@@ -220,8 +220,19 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   }
   fprintf(f, "]\n");
   fclose(f);
-  // ADD THIS LINE:
-  RTC_LOG(LS_INFO) << "Metrics successfully flushed and saved to " << filename;
+
+
+  // --- ADD THIS THROTTLED LOGGING BLOCK ---
+  // static variable initializes to 0 once, then retains its value across calls
+  static int export_call_count = 0; 
+  export_call_count++;
+
+  // Only print the log every 1000th time this function is called
+  if (export_call_count % 1000 == 0) {
+    RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
+                     << export_call_count << " times. Safely written to " 
+                     << filename;
+  }
 }
 
 void L4SMetricsCollector::UpdateThroughputStats(DataRate actual_bitrate) {
