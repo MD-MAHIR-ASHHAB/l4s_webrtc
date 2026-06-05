@@ -229,8 +229,8 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   static int export_call_count = 0; 
   export_call_count++;
 
-  // Only print the log every 1000th time this function is called
-  if (export_call_count % 1000 == 0) {
+  // Only print the log every 100th time this function is called
+  if (export_call_count % 100 == 0) {
     RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
                      << export_call_count << " times. Safely written to " 
                      << filename;
