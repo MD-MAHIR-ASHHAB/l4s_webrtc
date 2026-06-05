@@ -1174,6 +1174,7 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
 
   // --- ADD THIS THROTTLED LOGGING BLOCK ---
   export_call_count_++;
+  RTC_LOG(LS_INFO) << "Exported metrics to " << filename << " (" << export_call_count_ << " times)";
 
   // Only print the log every 1000th time this function is called
   if (export_call_count_  == 500) {
