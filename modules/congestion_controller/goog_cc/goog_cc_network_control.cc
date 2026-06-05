@@ -1171,6 +1171,7 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fprintf(f, "]\n");
   fclose(f);
 
+
   // --- ADD THIS THROTTLED LOGGING BLOCK ---
   // static variable initializes to 0 once, then retains its value across calls
   static int export_call_count = 0; 
@@ -1181,6 +1182,7 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
     RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed " 
                      << export_call_count << " times. Safely written to " 
                      << filename;
+  }
 }
 
 
