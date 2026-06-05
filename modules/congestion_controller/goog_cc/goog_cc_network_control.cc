@@ -1086,13 +1086,13 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
   }
   // Periodically export all metrics to JSON
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c2.json");
 }
 
 
 GCCMetricsCollector::~GCCMetricsCollector() {
   RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c2.json");
 }
 
 void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
@@ -1172,17 +1172,9 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fclose(f);
 
 
-  // --- ADD THIS THROTTLED LOGGING BLOCK ---
-  // static variable initializes to 0 once, then retains its value across calls
-  static int export_call_count = 0; 
-  export_call_count++;
-
-  // Only print the log every 1000th time this function is called
-  if (export_call_count % 1000 == 0) {
     RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
-                     << export_call_count << " times. Safely written to " 
+                     << "Safely written to " 
                      << filename;
-  }
 }
 
 
