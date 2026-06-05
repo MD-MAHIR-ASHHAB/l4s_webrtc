@@ -40,6 +40,8 @@ void EcnBasedBwe::UpdateRtt(TimeDelta rtt) {
   }
 }
 
+
+
 EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     const TransportPacketsFeedback& report,
     std::optional<DataRate> acknowledged_bitrate,
@@ -59,43 +61,39 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     return result;
   }
 
-  // TimeDelta delta_time = now - last_update_time_;
   last_update_time_ = now;
 
-  // // --- 1. DCTCP Alpha Calculation ---
-  // int total_ecn_packets = report.ect_count + report.ce_count;
-  // double raw_ce_ratio = 0.0;
-  
-  // if (total_ecn_packets > 0) {
-  //   raw_ce_ratio = static_cast<double>(report.ce_count) / total_ecn_packets;
-  // }
-
-  // // Classic DCTCP gain factor (g = 1/16)
-  // constexpr double g = 1.0 / 16.0; 
-  // alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
+  // --- 1. Calculate CE Ratio ---
+  double ce_ratio = 0.0;
+  if (!report.packet_feedbacks.empty()) {
+    ce_ratio = static_cast<double>(report.ce_count) / report.packet_feedbacks.size();
+  }
 
   // --- 2. Rate Control State Machine ---
-  // Only execute Multiplicative Decrease (MD) on CE marks. Do not perform
-  // additive increases here — let the existing GCC AIMD/rate-control logic
-  // handle increases so AI remains adaptive and consistent with delay/loss.
   bool executed_md = false;
 
-  if (report.ce_count > 0) {
+  // Enforce the 5% Tolerance Threshold (0.05)
+  if (ce_ratio >= 0.05) {
     // Multiplicative Decrease (MD)
     TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
 
     if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
       
-      // Because of SetTargetBitrate() in the parent controller, current_target_rate_
-      // is guaranteed to perfectly match GCC's Current BWE right now.
-      double reduction_factor = 0.5;
+      // Calculate Proportional Reduction: Target = Target * (1 - 0.5 * ce_ratio)
+      double reduction_factor = 1.0 - (0.5 * ce_ratio);
+      
+      // Enforce a hard floor of 0.5 (maximum 50% cut per RTT) to prevent bottoming out
+      reduction_factor = std::max(0.5, reduction_factor);
+
+      // Apply the cut to the synchronized overarching target
       current_target_rate_ = current_target_rate_ * reduction_factor;
 
       last_md_time_ = now;
       executed_md = true;
 
-      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut according to RFC 3168, new target: " 
-                       << current_target_rate_.kbps() << " kbps";
+      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut. CE Ratio: " << ce_ratio 
+                       << " | Factor: " << reduction_factor 
+                       << " | New target: " << current_target_rate_.kbps() << " kbps";
     }
   }
 
@@ -103,7 +101,7 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
   current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
 
   // Only report an update when we executed a multiplicative decrease. When
-  // no CE marks are seen, do not override GCC's adaptive increase logic.
+  // no CE marks (or < 5%) are seen, do not override GCC's adaptive increase logic.
   result.updated = executed_md;
   if (result.updated) {
     result.target_bitrate = current_target_rate_;
@@ -112,5 +110,8 @@ EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
 
   return result;
 }
+
+
+
 
 }  // namespace webrtc
