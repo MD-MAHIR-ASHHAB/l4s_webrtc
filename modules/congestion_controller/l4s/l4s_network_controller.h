@@ -237,6 +237,9 @@ private:
   webrtc::SamplesStatsCounter rtt_stats_;
   webrtc::SamplesStatsCounter delay_stats_;
   webrtc::SamplesStatsCounter loss_stats_;
+
+
+  int export_call_count_ = 0; // Counter to track how many times ExportToJsonFile has been called
 };
 
 

@@ -222,16 +222,17 @@ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fclose(f);
 
 
+  
   // --- ADD THIS THROTTLED LOGGING BLOCK ---
-  // static variable initializes to 0 once, then retains its value across calls
-  static int export_call_count = 0; 
-  export_call_count++;
+  export_call_count_++;
+  // RTC_LOG(LS_INFO) << "Exported metrics successfully to " << filename << " (" << export_call_count_ << " times)";
 
-  // Only print the log every 1000th time this function is called
-  if (export_call_count % 1000 == 0) {
-    RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
-                     << export_call_count << " times. Safely written to " 
-                     << filename;
+  // Only print the log every 100th time this function is called
+  if (export_call_count_  == 100) {
+    RTC_LOG(LS_INFO) << " ------------------ [Metrics Heartbeat Checking] JSON export completed successfully " 
+                     << export_call_count_ << " times. Safely written to " 
+                     << filename<<"------------------ ";
+      export_call_count_ = 0; // Reset the counter after logging
   }
 }
 
