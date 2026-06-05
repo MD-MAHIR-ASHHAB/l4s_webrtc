@@ -1172,9 +1172,16 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   fclose(f);
 
 
+  // --- ADD THIS THROTTLED LOGGING BLOCK ---
+  export_call_count_++;
+
+  // Only print the log every 1000th time this function is called
+  if (export_call_count_  == 500) {
     RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
-                     << "Safely written to " 
+                     << export_call_count_ << " times. Safely written to " 
                      << filename;
+      export_call_count_ = 0; // Reset the counter after logging
+  }
 }
 
 
