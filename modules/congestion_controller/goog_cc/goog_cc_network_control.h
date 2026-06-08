@@ -110,8 +110,6 @@ class GCCMetricsCollector {
   static constexpr TimeDelta kLossLogInterval = TimeDelta::Millis(50);
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 
-
-  int export_call_count_ = 0; // For tracking how many times we've exported to JSON
 };
 
 
