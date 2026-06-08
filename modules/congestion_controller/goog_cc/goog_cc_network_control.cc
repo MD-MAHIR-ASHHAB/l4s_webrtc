@@ -1062,8 +1062,6 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
 
 
 
-#include <unistd.h>  // fsync()
-
 void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   if (!logger_) {
     return;
