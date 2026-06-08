@@ -111,9 +111,6 @@ class GCCMetricsCollector {
   static constexpr TimeDelta kSummaryLogInterval = TimeDelta::Millis(1000);
 
 
-  int export_call_count_ = 0;
-
-
 };
 
 
