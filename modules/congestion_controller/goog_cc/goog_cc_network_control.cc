@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <unistd.h>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -1150,40 +1151,103 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
 
 
 void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
-  if (!logger_) return;
+  if (!logger_) {
+    return;
+  }
+
   auto metrics = logger_->GetCollectedMetrics();
-  FILE* f = fopen(filename.c_str(), "w");
-  if (!f) return;
+
+  // Write to a temporary file first.
+  std::string temp_filename = filename + ".tmp";
+
+  FILE* f = fopen(temp_filename.c_str(), "w");
+  if (!f) {
+    RTC_LOG(LS_ERROR)
+        << "Failed to open temporary metrics file: "
+        << temp_filename;
+    return;
+  }
+
   fprintf(f, "[\n");
+
   for (size_t i = 0; i < metrics.size(); ++i) {
     const auto& m = metrics[i];
+
     fprintf(f, "  {\n");
     fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
     fprintf(f, "    \"samples\": [");
+
     for (size_t j = 0; j < m.time_series.samples.size(); ++j) {
       const auto& s = m.time_series.samples[j];
-      fprintf(f, "%s{\"timestamp_ms\": %lld, \"value\": %f}",
-        (j > 0 ? ", " : ""), static_cast<long long>(s.timestamp.ms()),
-        s.value);
+
+      fprintf(
+          f,
+          "%s{\"timestamp_ms\": %lld, \"value\": %f}",
+          (j > 0 ? ", " : ""),
+          static_cast<long long>(s.timestamp.ms()),
+          s.value);
     }
-    fprintf(f, "]\n  }%s\n", (i + 1 < metrics.size()) ? "," : "");
+
+    fprintf(
+        f,
+        "]\n"
+        "  }%s\n",
+        (i + 1 < metrics.size()) ? "," : "");
   }
+
   fprintf(f, "]\n");
-  fclose(f);
 
+  // Flush stdio buffers.
+  if (fflush(f) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "fflush failed for temporary metrics file: "
+        << temp_filename;
+    fclose(f);
+    return;
+  }
 
-  // --- ADD THIS THROTTLED LOGGING BLOCK ---
-  export_call_count_++;
-  // RTC_LOG(LS_INFO) << "Exported metrics successfully to " << filename << " (" << export_call_count_ << " times)";
+  // Flush kernel buffers to disk.
+  if (fsync(fileno(f)) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "fsync failed for temporary metrics file: "
+        << temp_filename;
+    fclose(f);
+    return;
+  }
 
-  // Only print the log every 100th time this function is called
-  if (export_call_count_  == 100) {
-    RTC_LOG(LS_INFO) << " ------------------ [Metrics Heartbeat Checking] JSON export completed successfully " 
-                     << export_call_count_ << " times. Safely written to " 
-                     << filename<<"------------------ ";
-      export_call_count_ = 0; // Reset the counter after logging
+  // Close the file.
+  if (fclose(f) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "Failed to close temporary metrics file: "
+        << temp_filename;
+    return;
+  }
+
+  // Atomically replace the old file with the new one.
+  if (rename(temp_filename.c_str(), filename.c_str()) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "Failed to rename "
+        << temp_filename
+        << " -> "
+        << filename;
+
+    remove(temp_filename.c_str());
+    return;
+  }
+
+  // Heartbeat logging.
+  static int export_call_count = 0;
+  ++export_call_count;
+
+  if (export_call_count % 100 == 0) {
+    RTC_LOG(LS_INFO)
+        << "[Metrics Heartbeat] JSON export completed successfully "
+        << export_call_count
+        << " times. Safely written to "
+        << filename;
   }
 }
+
 
 
 }  // namespace webrtc
