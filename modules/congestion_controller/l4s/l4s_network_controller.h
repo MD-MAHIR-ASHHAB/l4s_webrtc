@@ -92,7 +92,11 @@ public:
   ~PragueCapacityEstimator();
 
   // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, Timestamp current_time);
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, // <--- NEW PARAMETER
+                                Timestamp current_time);
+  // Explicit bridge used by the controller when CE has been quiet long enough
+  // to leave reduction and start recovery.
+  void EnterAdditiveMode(Timestamp current_time);
   void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
   void OnPacketLoss(DataRate current_rate, Timestamp current_time);
@@ -158,7 +162,7 @@ private:
 
 
   // --- NEW: Bully Resistance Counter ---
-  // int consecutive_md_cuts_ = 0;
+  int consecutive_md_cuts_ = 0;
 
   static constexpr int kNonCeThresholdBase = 10;
   static constexpr int kNonCeThresholdMin = 8;
@@ -231,6 +235,7 @@ private:
   webrtc::SamplesStatsCounter rtt_stats_;
   webrtc::SamplesStatsCounter delay_stats_;
   webrtc::SamplesStatsCounter loss_stats_;
+  
 };
 
 
@@ -284,10 +289,12 @@ private:
   void StartProbeHold(Timestamp now);
   
   // Convergence detection
+  // Recovery entry is intentionally simple: wait for 5 RTTs of CE silence,
+  // and never enter while discovery mode is active.
   bool ShouldExitDiscoveryMode(Timestamp now) const;
   
   // Recovery detection
-  void HandleRecoveryDetection(int ect_count, int ce_count, Timestamp now);
+  void HandleRecoveryDetection(int ce_count, Timestamp now);
 
   // ALR detection
   bool IsApplicationLimited() const;
@@ -386,14 +393,12 @@ private:
   // Recovery state tracking
   bool recovery_mode_active_ = false;
   bool recovery_probe_bootstrapped_ = false;
-  int consecutive_clean_packets_ = 0;  // ECT1 without CE
-  Timestamp clean_ect_run_start_ = Timestamp::MinusInfinity();
   Timestamp recovery_start_time_ = Timestamp::MinusInfinity();
   // After a successful convergence exit, block re-entry for this duration to
   // prevent the rapid enter/exit oscillation seen when the network is stable.
   Timestamp recovery_cooldown_until_ = Timestamp::MinusInfinity();
   static constexpr TimeDelta kRecoveryCooldown = TimeDelta::Seconds(10);
-  static constexpr int kRecoveryPacketThreshold = 20; // floor for dynamic threshold (see HandleRecoveryDetection)
+  static constexpr double kRecoveryCeQuietRttMultiplier = 5.0;
 
   // Throughput calculation
   std::deque<std::pair<Timestamp, int64_t>> throughput_window_;
