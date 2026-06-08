@@ -1089,7 +1089,7 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
   export_call_count++;
 
   // Only print the log every 1000th time this function is called
-  if (export_call_count % 1000 == 0) {
+  if (export_call_count % 100 == 0) {
     RTC_LOG(LS_INFO) << "[Metrics Heartbeat] JSON export completed successfully" 
                      << export_call_count << " times. Safely written to " 
                      << filename;
