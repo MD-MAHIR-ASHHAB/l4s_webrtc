@@ -75,7 +75,7 @@ void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) 
   non_ce_packet_count_ = 0;
   ai_bits_accumulator_ = 0.0;
   last_ai_update_time_ = current_time;
-  // consecutive_md_cuts_ = 0;
+  consecutive_md_cuts_ = 0;
   additive_hold_until_ = Timestamp::MinusInfinity();
   last_update_time_ = current_time;
   last_feedback_time_ = current_time;
