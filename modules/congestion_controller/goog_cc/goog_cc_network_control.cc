@@ -687,6 +687,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
 //           delay_based_bwe_->SetStartBitrate(*ecn_cap); 
 //       }
 
+
       // Apply cap to the delay-based target.
       result.target_bitrate = std::min(result.target_bitrate, *ecn_cap);
       RTC_LOG(LS_VERBOSE) << "[ECN BWE] Capped GCC target rate to: "
