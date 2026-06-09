@@ -73,6 +73,12 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
   direction_flag_ = 1;
   non_ce_packet_count_ = 0;
+
+
+  // --- CRITICAL FIX ---
+  consecutive_md_cuts_ = 0;
+
+  
   ai_bits_accumulator_ = 0.0;
   last_ai_update_time_ = current_time;
   additive_hold_until_ = Timestamp::MinusInfinity();
