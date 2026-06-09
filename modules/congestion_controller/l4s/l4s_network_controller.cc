@@ -145,6 +145,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
                           << "Alpha=" << alpha_ << " Factor=" << reduction_factor
                           << ". New rate=" << congestion_based_estimate_.kbps() << " kbps.";
     }
+    last_congestion_signal_ = current_time;
+  }
 
   else {  // No CE marks in this batch
     non_ce_packet_count_ += batch_packet_count;
