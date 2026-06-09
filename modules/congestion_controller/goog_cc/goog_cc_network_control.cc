@@ -679,6 +679,14 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   // If ECN provided a cap, apply it conservatively.
   if (ecn_cap.has_value()) {
     if (result.updated) {
+// // Apply cap to the delay-based target.
+//       if (*ecn_cap < result.target_bitrate) {
+//           result.target_bitrate = *ecn_cap;
+          
+//           // NEW: Force DelayBasedBwe's internal state down to the ECN cap
+//           delay_based_bwe_->SetStartBitrate(*ecn_cap); 
+//       }
+
       // Apply cap to the delay-based target.
       result.target_bitrate = std::min(result.target_bitrate, *ecn_cap);
       RTC_LOG(LS_VERBOSE) << "[ECN BWE] Capped GCC target rate to: "
@@ -693,6 +701,10 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
         result.updated = true;
         result.target_bitrate = new_target;
         result.recovered_from_overuse = false;
+
+        // // NEW: Force DelayBasedBwe's internal state down to the ECN cap
+        // delay_based_bwe_->SetStartBitrate(new_target);
+
         RTC_LOG(LS_VERBOSE) << "[ECN BWE] Forcing reduction to ECN cap: "
                             << result.target_bitrate.kbps() << " kbps";
       }
