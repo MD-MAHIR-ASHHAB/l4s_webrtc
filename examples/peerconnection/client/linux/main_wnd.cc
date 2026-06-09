@@ -425,23 +425,23 @@ void GtkMainWnd::OnRowActivated(GtkTreeView* tree_view,
 
 void GtkMainWnd::OnRedraw() {
   return; //segfault happens in cairo when trying to redraw the video frame, so skipping redraw for now. may need to revert later
-  gdk_threads_enter();
+  // gdk_threads_enter();
 
-  VideoRenderer* remote_renderer = remote_renderer_.get();
-  if (remote_renderer && !remote_renderer->image().empty() &&
-      draw_area_ != nullptr) {
-    if (width_ != remote_renderer->width() ||
-        height_ != remote_renderer->height()) {
-      width_ = remote_renderer->width();
-      height_ = remote_renderer->height();
-      gtk_widget_set_size_request(draw_area_, remote_renderer->width(),
-                                  remote_renderer->height());
-    }
-    draw_buffer_.SetData(remote_renderer->image());
-    gtk_widget_queue_draw(draw_area_);
-  }
-  // Here we can draw the local preview as well if we want....
-  gdk_threads_leave();
+  // VideoRenderer* remote_renderer = remote_renderer_.get();
+  // if (remote_renderer && !remote_renderer->image().empty() &&
+  //     draw_area_ != nullptr) {
+  //   if (width_ != remote_renderer->width() ||
+  //       height_ != remote_renderer->height()) {
+  //     width_ = remote_renderer->width();
+  //     height_ = remote_renderer->height();
+  //     gtk_widget_set_size_request(draw_area_, remote_renderer->width(),
+  //                                 remote_renderer->height());
+  //   }
+  //   draw_buffer_.SetData(remote_renderer->image());
+  //   gtk_widget_queue_draw(draw_area_);
+  // }
+  // // Here we can draw the local preview as well if we want....
+  // gdk_threads_leave();
 }
 
 void GtkMainWnd::Draw(GtkWidget* widget, cairo_t* cr) {
