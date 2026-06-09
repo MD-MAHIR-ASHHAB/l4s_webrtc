@@ -470,10 +470,12 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     last_loss_fraction_ = 0.0;
   }
   last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
-  RTC_LOG(LS_INFO) << "GCC: Transport loss report - "
-               << "Lost: " << msg.packets_lost_delta
-               << ", Received: " << msg.packets_received_delta
-               << ", Loss Fraction: " << last_loss_fraction_;
+  if (last_packets_lost_ > 0) {
+    RTC_LOG(LS_INFO) << "GCC: Transport loss report - "
+                 << "Lost: " << msg.packets_lost_delta
+                 << ", Received: " << msg.packets_received_delta
+                 << ", Loss Fraction: " << last_loss_fraction_;
+  }
   // 2. NOW check if we should short-circuit the bandwidth estimator update
   if (packet_feedback_only_) {
     return NetworkControlUpdate();
