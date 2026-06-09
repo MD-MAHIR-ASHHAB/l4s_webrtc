@@ -424,7 +424,7 @@ void GtkMainWnd::OnRowActivated(GtkTreeView* tree_view,
 }
 
 void GtkMainWnd::OnRedraw() {
-  return; //segfault happens in cairo when trying to redraw the video frame, so skipping redraw for now. 
+  return; //segfault happens in cairo when trying to redraw the video frame, so skipping redraw for now. may need to revert later
   gdk_threads_enter();
 
   VideoRenderer* remote_renderer = remote_renderer_.get();
