@@ -263,7 +263,6 @@ NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
   } else {
     update.congestion_window = current_data_window_;
   }
-  MaybeTriggerOnNetworkChanged(&update, msg.at_time);
 
   // Log metrics periodically on each process interval
   LogPeriodicMetrics(msg.at_time);
@@ -461,24 +460,28 @@ std::vector<ProbeClusterConfig> GoogCcNetworkController::ResetConstraints(
 
 NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     TransportLossReport msg) {
-  if (packet_feedback_only_)
-    return NetworkControlUpdate();
-
   int64_t total_packets_delta =
       msg.packets_received_delta + msg.packets_lost_delta;
 
-  // NEW: Update loss metrics for logging
+  // 1. Update logging metrics FIRST (Matches Candidate 1 baseline)
   if (total_packets_delta > 0) {
     last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets_delta;
   } else {
     last_loss_fraction_ = 0.0;
   }
   last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
+
+  // 2. NOW check if we should short-circuit the bandwidth estimator update
+  if (packet_feedback_only_) {
+    return NetworkControlUpdate();
+  }
+
+  // 3. Otherwise, pass the physical loss to the legacy bandwidth estimator
   bandwidth_estimation_->UpdatePacketsLost(
       msg.packets_lost_delta, total_packets_delta, msg.receive_time);
+      
   return NetworkControlUpdate();
 }
-
 void GoogCcNetworkController::UpdateCongestionWindowSize() {
   TimeDelta min_feedback_max_rtt = TimeDelta::Millis(
       *std::min_element(feedback_max_rtts_.begin(), feedback_max_rtts_.end()));
