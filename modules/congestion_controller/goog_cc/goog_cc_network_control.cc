@@ -446,8 +446,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     TransportLossReport msg) {
   int64_t total_packets_delta =
       msg.packets_received_delta + msg.packets_lost_delta;
-
-  // 1. Update logging metrics FIRST (Matches Candidate 1 baseline)
+  // Update loss metrics for logging
   if (total_packets_delta > 0) {
     last_loss_fraction_ = static_cast<double>(msg.packets_lost_delta) / total_packets_delta;
   } else {
@@ -455,15 +454,9 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
   }
   last_packets_lost_ = static_cast<int>(msg.packets_lost_delta);
 
-  // 2. NOW check if we should short-circuit the bandwidth estimator update
-  if (packet_feedback_only_) {
-    return NetworkControlUpdate();
-  }
 
-  // 3. Otherwise, pass the physical loss to the legacy bandwidth estimator
   bandwidth_estimation_->UpdatePacketsLost(
       msg.packets_lost_delta, total_packets_delta, msg.receive_time);
-      
   return NetworkControlUpdate();
 }
 
