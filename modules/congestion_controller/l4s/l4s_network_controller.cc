@@ -141,7 +141,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       last_md_time_ = current_time;
       last_ai_update_time_ = current_time;
 
-      RTC_LOG(LS_VERBOSE) << "C5 Prague: Executed Fractional Cut. "
+      RTC_LOG(LS_WARNING) << "C5 Prague: Executed Fractional Cut. "
                           << "Alpha=" << alpha_ << " Factor=" << reduction_factor
                           << ". New rate=" << congestion_based_estimate_.kbps() << " kbps.";
     }
