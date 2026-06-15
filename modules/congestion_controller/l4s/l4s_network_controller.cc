@@ -1147,25 +1147,46 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   window_ce_count_ += batch_ce_count;
   window_ect_count_ += batch_ect_count;
 
-  // 4. THE WINDOW GATE (Dynamic BDP-Aware processing)
+
+
+  // 4. THE WINDOW GATE (Modified for Candidate 6 Immediate Response)
   double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
   double rate_bps = current_fused_rate.bps();
   double pkt_size_bits = 1400.0 * 8.0;
 
-  // Clamp between 10 (prevent divide-by-zero on low rates) and 200 (prevent waiting forever)
+  // This is your BDP-aware expected window size
   int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
 
   bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
   int window_total = window_ce_count_ + window_ect_count_;
 
-  if (window_expired || window_total >= dynamic_threshold) {
-    double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
+  // CANDIDATE 6: Immediate trigger on ANY CE marks
+  bool immediate_ce_trigger = (batch_ce_count > 0);
 
-    if (window_total >= 3) {
+  if (window_expired || window_total >= dynamic_threshold || immediate_ce_trigger) {
+    
+    // --- THE BALANCE FIX: Virtual Window Smoothing ---
+    // If we are triggering early on a micro-batch, pad the denominator to the dynamic_threshold.
+    // This prevents 1 CE in a 2-packet batch from registering as 50% congestion.
+    int safe_denominator = std::max(window_total, dynamic_threshold);
+    double ce_ratio = (safe_denominator > 0) ? static_cast<double>(window_ce_count_) / safe_denominator : 0.0;
+    // -------------------------------------------------
+
+    // Execute if we have enough packets, OR if we are forcing an immediate CE cut
+    if (window_total >= 3 || immediate_ce_trigger) {
       if (window_ce_count_ > 0 && probe_caused_congestion) {
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
       } else {
-       
+        
+        // --- THE PHYSICAL TRAFFIC HOOK ---
+        DataRate current_target = prague_estimator_->GetCurrentEstimate();
+        DataRate physical_traffic = std::max(last_actual_bitrate_, last_send_rate_);
+        DataRate base_for_cut = current_target;
+        
+        if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
+            base_for_cut = physical_traffic;
+        }
+
         // --- PREPARE STATE ---
         TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
                               ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
@@ -1178,12 +1199,9 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         // --- APPLY DAMPENERS ---
         double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
 
-
-
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, window_total, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(base_for_cut, effective_ce_ratio, window_total, feedback.feedback_time);
       }
 
-      // ---  The Historical Safety Floor ---
       EnforceHistoricalSafetyFloor();
     }
 
@@ -1192,6 +1210,52 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     window_ect_count_ = 0;
     window_start_time_ = feedback.feedback_time;
   }
+
+  // // 4. THE WINDOW GATE (Dynamic BDP-Aware processing)
+  // double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
+  // double rate_bps = current_fused_rate.bps();
+  // double pkt_size_bits = 1400.0 * 8.0;
+
+  // // Clamp between 10 (prevent divide-by-zero on low rates) and 200 (prevent waiting forever)
+  // int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
+
+  // bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
+  // int window_total = window_ce_count_ + window_ect_count_;
+
+  // if (window_expired || window_total >= dynamic_threshold) {
+  //   double ce_ratio = (window_total > 0) ? static_cast<double>(window_ce_count_) / window_total : 0.0;
+
+  //   if (window_total >= 3) {
+  //     if (window_ce_count_ > 0 && probe_caused_congestion) {
+  //       prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
+  //     } else {
+       
+  //       // --- PREPARE STATE ---
+  //       TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
+  //                             ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
+                              
+  //       double starvation_ratio = 1.0;
+  //       if (historical_max_capacity_ > DataRate::Zero()) {
+  //           starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
+  //       }
+
+  //       // --- APPLY DAMPENERS ---
+  //       double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
+
+
+
+  //       prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), effective_ce_ratio, window_total, feedback.feedback_time);
+  //     }
+
+  //     // ---  The Historical Safety Floor ---
+  //     EnforceHistoricalSafetyFloor();
+  //   }
+
+  //   // RESET WINDOW
+  //   window_ce_count_ = 0;
+  //   window_ect_count_ = 0;
+  //   window_start_time_ = feedback.feedback_time;
+  // }
 
   // 5. Recovery logic always sees the raw batch info
   HandleRecoveryDetection(batch_ce_count, feedback.feedback_time);
