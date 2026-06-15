@@ -1102,9 +1102,13 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         DataRate base_for_cut = current_target;
         if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
             base_for_cut = physical_traffic;
-            RTC_LOG(LS_INFO) << "L4S: Using physical traffic (" << physical_traffic.bps() 
-                                << " bps) as base for CE cut instead of target (" 
-                                << current_target.bps() << " bps)";
+            if(ce_ratio > 0.0) {
+              RTC_LOG(LS_WARNING) << "L4S: Congestion detected at " << ce_ratio * 100 
+                                  << "% CE ratio, but physical traffic is only " 
+                                  << physical_traffic.bps() << " bps. Using physical traffic as base for cut instead of target (" 
+                                  << current_target.bps() << " bps)";
+            }
+            
         }
 
         int total_packets = batch_ect_count + batch_ce_count;
