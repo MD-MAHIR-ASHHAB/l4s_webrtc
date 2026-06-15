@@ -1160,6 +1160,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
+  
   // 2. Heartbeat/Activity Update
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
