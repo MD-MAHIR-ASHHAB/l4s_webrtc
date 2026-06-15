@@ -260,8 +260,18 @@ void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 }
 
 void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time) {
+
+  // --- L4S-Aware Loss Penalty ---
+  double drop_factor = 0.50; // Default legacy 50% cut
+  
+  // If we have received CE marks recently, this is a shallow-queue micro-burst drop,
+  // NOT a deep-queue capacity collapse. Soften the penalty to 20%.
+  if (!last_ecn_feedback_.IsInfinite() && (current_time - last_ecn_feedback_) < TimeDelta::Seconds(3)) {
+      drop_factor = 0.80; 
+      RTC_LOG(LS_INFO) << "Prague: L4S-Aware Loss detected. Applying soft 20% penalty.";
+  }
   // Multiplicative decrease for packet loss (fallback mechanism)
-  DataRate reduced = std::max(current_rate * 0.5, min_target_rate_);
+  DataRate reduced = std::max(current_rate * drop_factor, min_target_rate_);
   // Enforce absolute minimum of 20 kbps to prevent pacer crashes
   reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
   congestion_based_estimate_ = reduced;
@@ -1129,18 +1139,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     return;
   }
 
-  // const int64_t first_seq = feedback.packet_feedbacks.front().sent_packet.sequence_number;
-  // const int64_t last_seq = feedback.packet_feedbacks.back().sent_packet.sequence_number;
-
-  // RTC_LOG(LS_INFO) << "L4S: report at batch at controller intake"
-  //                  << " | packets=" << feedback.packet_feedbacks.size()
-  //                  << " | seq_range=[" << first_seq << ", " << last_seq << "]"
-  //                  << " | feedback_time_ms=" << feedback.feedback_time.ms()
-  //                  << " | transport_supports_ecn="
-  //                  << (feedback.transport_supports_ecn ? "true" : "false")
-  //                  << " | batch_ect_count=" << feedback.ect_count
-  //                  << " | batch_ce_count=" << feedback.ce_count;
-
   TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
 
   int batch_ect_count = 0;
@@ -1158,6 +1156,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
         probe_caused_congestion = true;
       }
+      prague_estimator_->ClearProbeConstraint(); // Clear any existing probe constraints on CE feedback
     }
   }
 
@@ -1204,7 +1203,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         
         // --- THE PHYSICAL TRAFFIC HOOK ---
         DataRate current_target = prague_estimator_->GetCurrentEstimate();
-        DataRate physical_traffic = std::max(last_actual_bitrate_, last_send_rate_);
+        DataRate physical_traffic = std::min(current_target, last_send_rate_);
         DataRate base_for_cut = current_target;
         
         if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
