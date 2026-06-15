@@ -143,7 +143,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
 
     if (gate_open) {
       // --- FEATURE 2: Bully Resistance (Hold-Down) ---
-      if (consecutive_md_cuts_ >= 3) {
+      if (consecutive_md_cuts_ >= 10) {
          RTC_LOG(LS_WARNING) << "Prague: Bully Resistance Engaged! Max consecutive cuts reached (" 
                              << consecutive_md_cuts_ << "). Firmly holding rate at " 
                              << congestion_based_estimate_.kbps() << " kbps.";
