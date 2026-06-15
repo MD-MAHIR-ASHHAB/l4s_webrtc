@@ -268,7 +268,6 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   // NOT a deep-queue capacity collapse. Soften the penalty to 20%.
   if (!last_ecn_feedback_.IsInfinite() && (current_time - last_ecn_feedback_) < TimeDelta::Seconds(3)) {
       drop_factor = 0.80; 
-      RTC_LOG(LS_INFO) << "Prague: L4S-Aware Loss detected. Applying soft 20% penalty.";
   }
   // Multiplicative decrease for packet loss (fallback mechanism)
   DataRate reduced = std::max(current_rate * drop_factor, min_target_rate_);
@@ -282,8 +281,8 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   // Switch to reduction mode and reset non-CE counter
   direction_flag_ = -1;
   non_ce_packet_count_ = 0;
-  
-  RTC_LOG(LS_INFO) << "Prague: Packet loss detected, halving estimate to "
+  RTC_LOG(LS_INFO) << "Prague: L4S-Aware Loss detected. Applying soft 20% penalty.";
+  RTC_LOG(LS_INFO) << "Prague: L4S-Aware Loss detected. Applying soft 20% penalty. New estimate: "
                       << congestion_based_estimate_.bps() << " bps, switched to reduction mode";
   
   last_update_time_ = current_time;
@@ -1160,7 +1159,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
-  
+
   // 2. Heartbeat/Activity Update
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
@@ -1829,6 +1828,7 @@ void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
       << " | alr=" << IsApplicationLimited()
       << " | cooldown_left_ms=" << cooldown_left.ms()
       << " | target_bps=" << target_rate_.value_or(DataRate::Zero()).bps()
+      << " | send_rate_bps=" << last_send_rate_.bps()
       << " | actual_bps=" << last_actual_bitrate_.bps()
       << " | acked_bps=" << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
       << " | loss=" << last_loss_fraction_
