@@ -119,8 +119,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       // =========================================================
       // --- C5: BULLY PROTECTION GATE ---
       // =========================================================
-      if (consecutive_md_cuts_ >= 3) {
-         RTC_LOG(LS_WARNING) << "C5 Prague: Bully Resistance Engaged! Max consecutive cuts (3). Holding rate.";
+      if (consecutive_md_cuts_ >= 10) {
+         RTC_LOG(LS_WARNING) << "C5 Prague: Bully Resistance Engaged! Max consecutive cuts (10). Holding rate.";
          last_congestion_signal_ = current_time;
          return; 
       }
