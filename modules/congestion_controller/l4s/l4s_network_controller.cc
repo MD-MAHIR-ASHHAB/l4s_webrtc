@@ -789,6 +789,18 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
 
   // 4. Direct State Logging (Replaces AdvanceStateMachine)
   LogStateSnapshot(msg.at_time);
+
+
+  // --- NEW: THE ROBUST CWND CLAMP ---
+  if (target_rate_.has_value() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      // 1. Calculate the strict Bandwidth-Delay Product (BDP)
+      DataSize bdp = target_rate_.value() * last_rtt_;
+      
+      // 2. Set CWND to 1 BDP + a tiny 5-packet margin for pacing fluidity
+      update.congestion_window = bdp + DataSize::Bytes(1500 * 5);
+  } else {
+      update.congestion_window = std::nullopt;
+  }
   
   return update;
 }
@@ -976,6 +988,17 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 
   // 4. Direct State Logging (Replaces AdvanceStateMachine)
   LogStateSnapshot(msg.feedback_time);
+
+  // --- NEW: THE ROBUST CWND CLAMP ---
+  if (target_rate_.has_value() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      // 1. Calculate the strict Bandwidth-Delay Product (BDP)
+      DataSize bdp = target_rate_.value() * last_rtt_;
+      
+      // 2. Set CWND to 1 BDP + a tiny 5-packet margin for pacing fluidity
+      update.congestion_window = bdp + DataSize::Bytes(1500 * 5);
+  } else {
+      update.congestion_window = std::nullopt;
+  }
 
 
 
