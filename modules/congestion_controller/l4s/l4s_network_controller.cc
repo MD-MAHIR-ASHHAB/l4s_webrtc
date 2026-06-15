@@ -109,7 +109,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
       // --- C4: BULLY PROTECTION GATE ---
       // =========================================================
       if (consecutive_md_cuts_ >= 10) {
-         RTC_LOG(LS_WARNING) << "C4 Baseline: Bully Resistance Engaged! Max consecutive cuts (3) reached. Holding rate.";
+         RTC_LOG(LS_WARNING) << "C4 Baseline: Bully Resistance Engaged! Max consecutive cuts (10) reached. Holding rate.";
          last_congestion_signal_ = current_time;
          return; 
       }
