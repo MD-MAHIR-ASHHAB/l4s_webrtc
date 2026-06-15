@@ -1092,10 +1092,26 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       if (window_ce_count_ > 0 && probe_caused_congestion) {
         prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
       } else {
-        // Use pure Prague math for congestion control
-        int total_packets = batch_ect_count + batch_ce_count;
+        // --- NEW: The Physical Traffic Hook ---
+        DataRate current_target = prague_estimator_->GetCurrentEstimate();
+        
+        // Use the higher of actual acked or send rate to represent true physical traffic, 
+        // fallback to target if they are zero (e.g., startup).
+        DataRate physical_traffic = std::max(last_actual_bitrate_, last_send_rate_);
+        
+        DataRate base_for_cut = current_target;
+        if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
+            base_for_cut = physical_traffic;
+        }
 
-        prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, total_packets, feedback.feedback_time);
+        int total_packets = batch_ect_count + batch_ce_count;
+        
+        // Pass base_for_cut instead of GetCurrentEstimate()
+        prague_estimator_->UpdateFromCongestionSignal(base_for_cut, ce_ratio, total_packets, feedback.feedback_time);
+        // // Use pure Prague math for congestion control
+        // int total_packets = batch_ect_count + batch_ce_count;
+
+        // prague_estimator_->UpdateFromCongestionSignal(prague_estimator_->GetCurrentEstimate(), ce_ratio, total_packets, feedback.feedback_time);
 
       //   // --- PREPARE STATE ---
       //   TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) 
