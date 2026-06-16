@@ -728,6 +728,23 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
 
   // 4. Direct State Logging (Replaces AdvanceStateMachine)
   LogStateSnapshot(msg.at_time);
+
+   // --- THE ROBUST CWND CLAMP ---
+  if (fused_rate.IsFinite() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      
+      // CRITICAL FIX: Use base_rtt_ to calculate the physical pipe volume.
+      // If base_rtt_ is not yet initialized, safely fallback to last_rtt_.
+      TimeDelta unloaded_rtt = base_rtt_.IsFinite() ? base_rtt_ : last_rtt_;
+      
+      TimeDelta effective_rtt = std::max(unloaded_rtt, TimeDelta::Millis(25));
+      DataSize bdp = fused_rate * effective_rtt;
+      
+      // Set CWND to 1 BDP + 5 packets margin, enforcing a hard 10-packet floor
+      update.congestion_window = std::max(bdp + DataSize::Bytes(1500 * 5), 
+                                          DataSize::Bytes(1500 * 10));
+  } else {
+      update.congestion_window = std::nullopt;
+  }
   
   return update;
 }
@@ -915,6 +932,24 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
 
   // 4. Direct State Logging (Replaces AdvanceStateMachine)
   LogStateSnapshot(msg.feedback_time);
+
+  
+    // --- THE ROBUST CWND CLAMP ---
+  if (fused_rate.IsFinite() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+      
+      // CRITICAL FIX: Use base_rtt_ to calculate the physical pipe volume.
+      // If base_rtt_ is not yet initialized, safely fallback to last_rtt_.
+      TimeDelta unloaded_rtt = base_rtt_.IsFinite() ? base_rtt_ : last_rtt_;
+      
+      TimeDelta effective_rtt = std::max(unloaded_rtt, TimeDelta::Millis(25));
+      DataSize bdp = fused_rate * effective_rtt;
+      
+      // Set CWND to 1 BDP + 5 packets margin, enforcing a hard 10-packet floor
+      update.congestion_window = std::max(bdp + DataSize::Bytes(1500 * 5), 
+                                          DataSize::Bytes(1500 * 10));
+  } else {
+      update.congestion_window = std::nullopt;
+  }
 
 
 
