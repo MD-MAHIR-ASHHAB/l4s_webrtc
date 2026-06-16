@@ -307,6 +307,7 @@ private:
   DataRate FuseBandwidthEstimates(Timestamp now);
   NetworkControlUpdate CreateRateUpdate(Timestamp at_time) const;
   void MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time);
+  
 
   // State management
   bool CanEnterRecoveryState(Timestamp now) const;

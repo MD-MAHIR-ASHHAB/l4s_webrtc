@@ -1083,18 +1083,28 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
   }
 
+
   int total_packets = batch_ect_count + batch_ce_count;
+
+  // --- THE SEND-RATE ANCHOR ---
+  // Determine the true physical baseline before passing it to the estimator
+  DataRate current_target = prague_estimator_->GetCurrentEstimate();
+  DataRate physical_traffic = std::min(last_send_rate_, current_target);
+  DataRate base_for_cut = (physical_traffic > DataRate::Zero()) ? physical_traffic : current_target;
 
   // --- RFC 3168 BASELINE (CE = LOSS) ---
   if (batch_ce_count > 0) {
       prague_estimator_->UpdateFromCongestionSignal(
-          prague_estimator_->GetCurrentEstimate(), 
+          base_for_cut, 
           1.0, 
           total_packets, // <-- PASS BATCH SIZE
           feedback.feedback_time);
+
+          // Clear legacy constraints so recovery doesn't aggressively sawtooth
+      prague_estimator_->ClearProbeConstraint();
   } else if (total_packets > 0) {
       prague_estimator_->UpdateFromCongestionSignal(
-          prague_estimator_->GetCurrentEstimate(), 
+          current_target, 
           0.0, 
           total_packets, // <-- PASS BATCH SIZE
           feedback.feedback_time);
