@@ -1132,7 +1132,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         
         // Use the higher of actual acked or send rate to represent true physical traffic, 
         // fallback to target if they are zero (e.g., startup).
-        DataRate physical_traffic = std::max(last_actual_bitrate_, last_send_rate_);
+        DataRate physical_traffic = std::min(current_target, last_send_rate_);
         
         DataRate base_for_cut = current_target;
         if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
