@@ -34,24 +34,33 @@ namespace webrtc {
 // PragueCapacityEstimator Implementation
 // =============================================================================
 
-PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate)
+PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate, 
+                                                 DataRate min_rate, 
+                                                 DataRate max_rate)
     : congestion_based_estimate_(starting_rate),
       min_target_rate_(min_rate),
       max_target_rate_(max_rate),
+      pre_loss_target_(DataRate::Zero()),
       current_rtt_(TimeDelta::Millis(50)),
+      baseline_rtt_(TimeDelta::PlusInfinity()),
       last_update_time_(Timestamp::MinusInfinity()),
+      last_feedback_time_(Timestamp::MinusInfinity()),
       last_congestion_signal_(Timestamp::MinusInfinity()),
+      last_md_time_(Timestamp::MinusInfinity()),
+      last_ai_update_time_(Timestamp::MinusInfinity()),
+      additive_hold_until_(Timestamp::MinusInfinity()),
       last_ecn_feedback_(Timestamp::MinusInfinity()),
+      last_hard_loss_time_(Timestamp::MinusInfinity()),
+      alpha_(0.0),
+      ai_bits_accumulator_(0.0),
       non_ce_packet_count_(0),
       discovery_mode_active_(true),
-      first_ce_mark_detected_(false),
-      pre_loss_target_(DataRate::Zero()),
-      last_hard_loss_time_(Timestamp::MinusInfinity()) {
+      first_ce_mark_detected_(false) {
   
+  // Rate clamping logic
   if (congestion_based_estimate_ < min_target_rate_) {
     congestion_based_estimate_ = min_target_rate_;
-  }
-  if (congestion_based_estimate_ > max_target_rate_) {
+  } else if (congestion_based_estimate_ > max_target_rate_) {
     congestion_based_estimate_ = max_target_rate_;
   }
 }
