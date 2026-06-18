@@ -82,111 +82,70 @@ struct L4SControllerConfig {
   double acked_confidence_threshold = 0.5;
 };
 
-// Prague DCTCP-style capacity estimator with ECN feedback
 class PragueCapacityEstimator {
-public:
-  static constexpr TimeDelta kDecayInterval = TimeDelta::Seconds(30);
-  static constexpr size_t kHistoryWindowSize = 100;
-
+ public:
   PragueCapacityEstimator(DataRate starting_rate, DataRate min_rate, DataRate max_rate);
   ~PragueCapacityEstimator();
 
-  // Prague DCTCP algorithm implementation
-  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, // <--- NEW PARAMETER
-                                Timestamp current_time);
-  // Explicit bridge used by the controller when CE has been quiet long enough
-  // to leave reduction and start recovery.
+  void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, Timestamp current_time);
+  void OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets);
+  void OnAckedUpdate(Timestamp current_time, bool is_app_limited, DataRate actual_throughput, TimeDelta rtt_bloat);
   void EnterAdditiveMode(Timestamp current_time);
-  void UpdateEcnActivity(Timestamp current_time);  // Track any ECN activity (ECT or CE)
   void UpdateFromRtt(TimeDelta rtt);
-  void OnPacketLoss(DataRate current_rate, Timestamp current_time);
-  void OnAckedUpdate(Timestamp current_time,
-                     bool is_app_limited,
-                     DataRate actual_throughput,
-                     TimeDelta rtt_bloat);
+  void UpdateEcnActivity(Timestamp current_time);
   void OnTimeUpdate(Timestamp current_time, bool is_app_limited);
 
   DataRate GetCurrentEstimate() const;
-  // Directly seed the internal estimate (used by the actual-rate floor guard).
   void SetCurrentEstimate(DataRate rate);
-  double GetAlpha() const { return alpha_; }
-  int GetDirectionFlag() const { return direction_flag_; }
-  int GetNonCePacketCount() const { return non_ce_packet_count_; }
-  bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
-  double GetConfidence(Timestamp now) const;
   
-  // Probe-aware rate limiting
-  void SetProbeConstraint(DataRate probe_estimate,
-                          Timestamp now);
+  bool IsDiscoveryModeActive() const { return discovery_mode_active_; }
+  void ExitDiscoveryMode(const std::string& reason);
+  
+  void SetProbeConstraint(DataRate probe_estimate, Timestamp now);
+  bool HasFreshProbeCeiling(Timestamp now) const;
   void ClearProbeConstraint();
   void SetAdditiveHoldUntil(Timestamp hold_until);
-  bool HasFreshProbeCeiling(Timestamp now) const;
-  
-  // Discovery mode control
-  void ExitDiscoveryMode(const std::string& reason);
   bool HasConvergedWithProbe() const;
+  double GetConfidence(Timestamp now) const;
 
-private:
-
-  // --- Growth Phase Calculators ---
-  // Returns the step increase in bits-per-second (bps) based on the current phase
+ private:
+  int ComputeAdaptiveNonCeThreshold() const;
+  void DecayAlpha(Timestamp current_time);
   double CalculateDiscoveryStep(double current_bps, double elapsed_s) const;
   double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
   double CalculateStableStep(double current_bps, double elapsed_s) const;
-
   DataRate ApplyThroughputTether(DataRate proposed_rate, DataRate actual_throughput) const;
-  void DecayAlpha(Timestamp current_time);
-
-  int ComputeAdaptiveNonCeThreshold() const;
 
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
   DataRate max_target_rate_;
+  DataRate pre_loss_target_; // For Fast Convergence memory
+  
   TimeDelta current_rtt_;
-  double alpha_ = 0.0;  // DCTCP alpha parameter
-  Timestamp last_update_time_;
-  Timestamp last_congestion_signal_;
-  Timestamp last_ecn_feedback_;  // Track any ECN activity (ECT or CE)
-  
-
-  //time-driven AI
-  double ai_bits_accumulator_ = 0.0;
-  Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
-  Timestamp last_feedback_time_ = Timestamp::MinusInfinity();
   TimeDelta baseline_rtt_ = TimeDelta::PlusInfinity();
-
-
-  // State machine for direction control
-  int direction_flag_ = 1;  // 1 = increasing, -1 = reducing
-  int non_ce_packet_count_ = 0;  // Count of consecutive non-CE packets
-
-
-  // --- NEW: Bully Resistance Counter ---
-  int consecutive_md_cuts_ = 0;
-
-  static constexpr int kNonCeThresholdBase = 10;
-  static constexpr int kNonCeThresholdMin = 8;
-  static constexpr int kNonCeThresholdMax = 28;
-
-  // RFC 9330 §4.3: MD must be applied at most once per RTT.
-  // last_md_time_ tracks when the most recent multiplicative decrease was
-  // applied so that subsequent CE-containing batches within the same RTT
-  // only update alpha without re-applying the rate reduction.
-  Timestamp last_md_time_ = Timestamp::MinusInfinity();
-
-  // Discovery mode for fast startup
-  bool discovery_mode_active_ = true;  // Enable aggressive discovery at startup
-  bool first_ce_mark_detected_ = false;  // Track if any CE mark has been seen
   
-  // Probe constraint for discovery mode
-  DataRate probe_constraint_ = DataRate::Zero();
-  double probe_constraint_confidence_ = 0.0;
-  Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
+  Timestamp last_update_time_;
+  Timestamp last_feedback_time_;
+  Timestamp last_congestion_signal_;
+  Timestamp last_md_time_ = Timestamp::MinusInfinity();
+  Timestamp last_ai_update_time_ = Timestamp::MinusInfinity();
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
+  Timestamp last_ecn_feedback_;
+  Timestamp last_hard_loss_time_;
 
+  double alpha_ = 0.0;
+  double ai_bits_accumulator_ = 0.0;
+  int non_ce_packet_count_;
+  bool discovery_mode_active_;
+  bool first_ce_mark_detected_;
 
+  DataRate probe_constraint_ = DataRate::Zero();
+  Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
+
+  static constexpr int kNonCeThresholdBase = 50;
+  static constexpr int kNonCeThresholdMin = 20;
+  static constexpr int kNonCeThresholdMax = 200;
 };
-
 
 // L4S Metrics Collector
 class L4SMetricsCollector {
