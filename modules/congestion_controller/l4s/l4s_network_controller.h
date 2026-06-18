@@ -74,7 +74,7 @@ struct L4SControllerConfig {
   // Recovery-entry stability guards.
   int recovery_min_clean_packets = 80;
   TimeDelta recovery_min_clean_duration = TimeDelta::Seconds(2);
-  TimeDelta recovery_reentry_cooldown = TimeDelta::Seconds(8);
+  TimeDelta recovery_reentry_cooldown = TimeDelta::Seconds(2);
   
   // Confidence Thresholds
   double ecn_confidence_threshold = 0.8;
