@@ -875,6 +875,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         }
 
         double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
+
         prague_estimator_->UpdateFromCongestionSignal(base_for_cut, effective_ce_ratio, window_total, feedback.feedback_time, historical_max_capacity_);
       }
 
@@ -1219,7 +1220,7 @@ bool webrtc::L4SNetworkController::IsEcnFeedbackFresh(Timestamp now) const {
 
 void webrtc::L4SNetworkController::UpdateThroughputWindow(const TransportPacketsFeedback& feedback) {
   constexpr TimeDelta kThroughputWindow = TimeDelta::Millis(500);
-  constexpr TimeDelta kHistoricalWindow = TimeDelta::Seconds(15); 
+  constexpr TimeDelta kHistoricalWindow = TimeDelta::Seconds(120); 
 
   for (const auto& packet : feedback.packet_feedbacks) {
     if (packet.receive_time.IsFinite() && packet.sent_packet.send_time.IsFinite()) {
