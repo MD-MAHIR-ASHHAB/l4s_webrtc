@@ -79,7 +79,7 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 }
 
 // Continuous Equilibrium Engine - Multiplicative Decrease Step
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio,int window_packet_count, Timestamp current_time) {
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio,int window_packet_count, Timestamp current_time, DataRate historical_max) {
   last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  
@@ -121,11 +121,28 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       double reduction_factor = 1.0 - (alpha_ / 2.0);
 
       // Clamp between 2% minimum cut and 50% max cut
-      reduction_factor = std::min(reduction_factor, 0.98); 
-      reduction_factor = std::max(reduction_factor, 0.50);
+      reduction_factor = std::clamp(reduction_factor, 0.50, 0.98);
 
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
-      reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
+
+
+      DataRate bully_floor = DataRate::KilobitsPerSec(600); // Absolute minimum
+      
+      if (historical_max > DataRate::Zero()) {
+          // If we are pushed below 45% of our known capacity, engage the shield
+          bully_floor = std::max(bully_floor, historical_max * 0.45);
+      }
+
+      if (reduced < bully_floor && ce_ratio > 0.05) {
+          // We have yielded our fair share, but CE marks are still flooding in.
+          // This is a TCP Cubic flow overflowing the coupled AQM. Hold the line!
+          reduced = bully_floor;
+          
+          // Halve alpha so we don't accumulate massive penalty debt while shielding
+          alpha_ *= 0.5; 
+          
+          RTC_LOG(LS_WARNING) << "L4S: Bully Resistance Engaged! CE ignored. Holding rate at " << reduced.kbps() << " kbps.";
+      }
       congestion_based_estimate_ = reduced;
       
       last_md_time_ = current_time;
@@ -858,7 +875,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
         }
 
         double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
-        prague_estimator_->UpdateFromCongestionSignal(base_for_cut, effective_ce_ratio, window_total, feedback.feedback_time);
+        prague_estimator_->UpdateFromCongestionSignal(base_for_cut, effective_ce_ratio, window_total, feedback.feedback_time, historical_max_capacity_);
       }
 
       EnforceHistoricalSafetyFloor();
