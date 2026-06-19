@@ -369,7 +369,7 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
 
   last_ai_update_time_ = current_time;
 
-// --- GRACEFUL MEMORY CLEARING ---
+  // --- GRACEFUL MEMORY CLEARING ---
   if (pre_loss_target_ > DataRate::Zero()) {
       if (congestion_based_estimate_ >= pre_loss_target_) {
           RTC_LOG(LS_VERBOSE) << "L4S: Pre-loss target reclaimed. Disengaging GCC styled Fast Recovery.";
