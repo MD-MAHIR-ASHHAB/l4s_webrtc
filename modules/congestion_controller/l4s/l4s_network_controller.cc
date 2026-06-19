@@ -85,11 +85,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
   if (ce_ratio > 0.0) {  
     non_ce_packet_count_ = 0;
     
-    // Lock in our fair share: erase memory if the queue hits the bottleneck again
-    if (pre_loss_target_ > DataRate::Zero()) {
-        RTC_LOG(LS_VERBOSE) << "L4S: Bottleneck hit (ce_ratio=" << ce_ratio << "). Erasing fast-convergence memory.";
-        pre_loss_target_ = DataRate::Zero();
-    }
+    // // Lock in our fair share: erase memory if the queue hits the bottleneck again
+    // if (pre_loss_target_ > DataRate::Zero()) {
+    //     RTC_LOG(LS_VERBOSE) << "L4S: Bottleneck hit (ce_ratio=" << ce_ratio << "). Erasing fast-convergence memory.";
+    //     pre_loss_target_ = DataRate::Zero();
+    // }
 
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
@@ -368,6 +368,19 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   }
 
   last_ai_update_time_ = current_time;
+
+// --- GRACEFUL MEMORY CLEARING ---
+  if (pre_loss_target_ > DataRate::Zero()) {
+      if (congestion_based_estimate_ >= pre_loss_target_) {
+          RTC_LOG(LS_VERBOSE) << "L4S: Pre-loss target reclaimed. Disengaging GCC styled Fast Recovery.";
+          pre_loss_target_ = DataRate::Zero();
+      } else if (!last_hard_loss_time_.IsInfinite() && (current_time - last_hard_loss_time_) > TimeDelta::Seconds(15)) {
+          RTC_LOG(LS_VERBOSE) << "L4S: Fast Recovery timed out (15s). Releasing memory.";
+          pre_loss_target_ = DataRate::Zero();
+      }
+  }
+
+
   DecayAlpha(current_time);
 }
 
