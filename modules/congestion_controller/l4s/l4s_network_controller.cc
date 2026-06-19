@@ -243,7 +243,15 @@ webrtc::DataRate webrtc::PragueCapacityEstimator::ApplyThroughputTether(
   if (actual_throughput <= DataRate::Zero()) {
     return proposed_rate;
   }
-  DataRate max_allowed = discovery_mode_active_ ? (actual_throughput * 2.0) : (actual_throughput * 1.15);
+
+  // --- THE HYBRID HEADROOM FIX ---
+  // If the video encoder drops resolution, 15% headroom is mathematically 
+  // too small to ever trigger an upgrade. We provide an absolute flat runway.
+  DataRate relative_cap = discovery_mode_active_ ? (actual_throughput * 2.0) : (actual_throughput * 1.35); // Boosted to 35%
+  DataRate absolute_cap = actual_throughput + DataRate::KilobitsPerSec(1500); // +1.5 Mbps flat headroom!
+  
+  DataRate max_allowed = std::max(relative_cap, absolute_cap);
+  
   if (proposed_rate > max_allowed) {
     return std::max(congestion_based_estimate_, max_allowed);
   }
