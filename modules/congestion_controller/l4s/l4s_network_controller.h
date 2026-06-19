@@ -72,7 +72,7 @@ struct L4SControllerConfig {
   double probe_confidence_recent = 0.55;
 
   // Recovery-entry stability guards.
-  int recovery_min_clean_packets = 80;
+  int recovery_min_clean_packets = 40;
   TimeDelta recovery_min_clean_duration = TimeDelta::Seconds(2);
   TimeDelta recovery_reentry_cooldown = TimeDelta::Seconds(2);
   

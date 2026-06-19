@@ -174,7 +174,14 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
   // Only react to hard loss once per RTT to prevent cascading collapse
   if (last_hard_loss_time_.IsInfinite() || (current_time - last_hard_loss_time_ >= rtt)) {
       
+    
       double loss_ratio = (total_packets > 0) ? (static_cast<double>(lost_packets) / total_packets) : 0.0;
+      
+      // --- THE GCC LOSS THRESHOLD ---
+      // If loss is less than 2%, ignore it entirely. Let the CE marks handle it.
+      if (loss_ratio <= 0.02) {
+          return;
+      }
       
       // Save Pre-Loss Memory for Fast Convergence (if we aren't already saving a larger one)
       if (pre_loss_target_ == DataRate::Zero() || congestion_based_estimate_ > pre_loss_target_) {
@@ -182,10 +189,11 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       }
 
       // Proportional Penalty: Cut exactly as much as was lost, but cap at 50% to mimic TCP Reno safety limit
-      double loss_penalty = std::min(0.50, loss_ratio);
-      
+      // double loss_penalty = std::min(0.50, loss_ratio);
+      double loss_penalty = 0.5*loss_ratio; // Directly proportional, capping half. This is a more aggressive stance that can be tuned with the 2% threshold above.
       // Ensure we always cut at least 5% if a drop occurs
-      loss_penalty = std::max(0.05, loss_penalty);
+      // loss_penalty = std::max(0.05, loss_penalty);
+      loss_penalty = std::min(0.05, loss_penalty);
       
       double retention_factor = 1.0 - loss_penalty;
       DataRate reduced = std::max(current_rate * retention_factor, min_target_rate_);
@@ -197,10 +205,17 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       last_hard_loss_time_ = current_time;
       last_update_time_ = current_time;
       
-      RTC_LOG(LS_WARNING) << "L4S: PROPORTIONAL HARD LOSS! Ratio: " << loss_ratio 
-                          << ". Slashed target by " << (loss_penalty * 100) << "% to " 
+  //     RTC_LOG(LS_WARNING) << "L4S: PROPORTIONAL HARD LOSS! Ratio: " << loss_ratio 
+  //                         << ". Slashed target by " << (loss_penalty * 100) << "% to " 
+  //                         << congestion_based_estimate_.kbps() 
+  //                         << " kbps. Memorized pre-loss target: " << pre_loss_target_.kbps() << " kbps.";
+  // 
+  
+        RTC_LOG(LS_WARNING) << "L4S: GCC-STYLE HARD LOSS! Ratio: " << loss_ratio 
+                          << ". Slashed target gently by " << (loss_penalty * 100) << "% to " 
                           << congestion_based_estimate_.kbps() 
                           << " kbps. Memorized pre-loss target: " << pre_loss_target_.kbps() << " kbps.";
+
   }
 }
 
