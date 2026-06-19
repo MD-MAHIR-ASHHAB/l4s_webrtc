@@ -148,7 +148,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
       last_md_time_ = current_time;
       // We no longer reset AI clock here. AI and MD run continuously!
 
-      RTC_LOG(LS_VERBOSE) << "L4S: Continuous MD (alpha=" << alpha_
+      RTC_LOG(LS_INFO) << "L4S: Continuous MD (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
                        << "), target=" << congestion_based_estimate_.bps() 
                        << " bps.";
