@@ -79,17 +79,20 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 }
 
 // Continuous Equilibrium Engine - Multiplicative Decrease Step
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio,int window_packet_count, Timestamp current_time, DataRate historical_max) {
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
+    DataRate current_rate, double ce_ratio, int window_packet_count, Timestamp current_time, DataRate historical_max) {
   last_feedback_time_ = current_time;
 
   if (ce_ratio > 0.0) {  
     non_ce_packet_count_ = 0;
-    
-    // // Lock in our fair share: erase memory if the queue hits the bottleneck again
-    // if (pre_loss_target_ > DataRate::Zero()) {
-    //     RTC_LOG(LS_VERBOSE) << "L4S: Bottleneck hit (ce_ratio=" << ce_ratio << "). Erasing fast-convergence memory.";
-    //     pre_loss_target_ = DataRate::Zero();
-    // }
+
+    TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
+                            ? (current_rtt_ - baseline_rtt_) 
+                            : TimeDelta::Millis(0);
+    TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
+    pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
+
+    bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
 
     if (discovery_mode_active_ && !first_ce_mark_detected_) {
       discovery_mode_active_ = false;
@@ -103,50 +106,32 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
         return; 
       }
     }
-    
-    // Update Alpha Filter
-    constexpr double g = 1.0 / 8.0;
-    alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-
-    TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
-                            ? (current_rtt_ - baseline_rtt_) 
-                            : TimeDelta::Millis(0);
-    TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
-
-    bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
 
     if (gate_open) {
+      // --- FIX 1: THE ALPHA VELOCITY BUG ---
+      constexpr double g = 1.0 / 8.0;
+      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
       // Execute Continuous Multiplicative Decrease
       double reduction_factor = 1.0 - (alpha_ / 2.0);
-
-      // Clamp between 2% minimum cut and 50% max cut
-      reduction_factor = std::clamp(reduction_factor, 0.50, 0.98);
+      reduction_factor = std::clamp(reduction_factor, 0.50, 1.0); 
 
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
 
-
-      DataRate bully_floor = DataRate::KilobitsPerSec(600); // Absolute minimum
-      
+      // SMART BULLY RESISTANCE PROTOCOL
+      DataRate bully_floor = DataRate::KilobitsPerSec(600); 
       if (historical_max > DataRate::Zero()) {
-          // If we are pushed below 45% of our known capacity, engage the shield
           bully_floor = std::max(bully_floor, historical_max * 0.45);
       }
 
       if (reduced < bully_floor && ce_ratio > 0.05) {
-          // We have yielded our fair share, but CE marks are still flooding in.
-          // This is a TCP Cubic flow overflowing the coupled AQM. Hold the line!
           reduced = bully_floor;
-          
-          // Halve alpha so we don't accumulate massive penalty debt while shielding
-          alpha_ *= 0.5; 
-          
+          alpha_ *= 0.5; // Halve alpha debt while shielding
           RTC_LOG(LS_WARNING) << "L4S: Bully Resistance Engaged! CE ignored. Holding rate at " << reduced.kbps() << " kbps.";
       }
-      congestion_based_estimate_ = reduced;
-      
+
+      congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
       last_md_time_ = current_time;
-      // We no longer reset AI clock here. AI and MD run continuously!
 
       RTC_LOG(LS_INFO) << "L4S: Continuous MD (alpha=" << alpha_
                        << ", reduction_factor=" << reduction_factor
@@ -157,10 +142,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(DataRate curren
   }
   else {  
     non_ce_packet_count_ += window_packet_count;
-    // With Continuous AI, we don't need direction_flag_ anymore, 
-    // but we leave this here to trigger metrics/logs if desired.
   } 
 }
+
+
+
 
 void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
   non_ce_packet_count_ = 0;
@@ -184,57 +170,58 @@ void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   }
 }
 
-// PROPORTIONAL LOSS OVERRIDE (Defeats GCC & TCP Cubic)
 void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets) {
+  // Accumulate loss incrementally as WebRTC reports tiny asynchronous batches
+  accumulated_lost_packets_ += lost_packets;
+  accumulated_expected_packets_ += total_packets;
+
   TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(175);
   
   // Only react to hard loss once per RTT to prevent cascading collapse
   if (last_hard_loss_time_.IsInfinite() || (current_time - last_hard_loss_time_ >= rtt)) {
       
-    
-      double loss_ratio = (total_packets > 0) ? (static_cast<double>(lost_packets) / total_packets) : 0.0;
+      // --- FIX 2: THE MICRO-BATCH LOSS TRAP ---
+      double loss_ratio = (accumulated_expected_packets_ > 0) ? 
+          (static_cast<double>(accumulated_lost_packets_) / accumulated_expected_packets_) : 0.0;
+          
+      accumulated_lost_packets_ = 0;
+      accumulated_expected_packets_ = 0;
       
       // --- THE GCC LOSS THRESHOLD ---
-      // If loss is less than 2%, ignore it entirely. Let the CE marks handle it.
       if (loss_ratio <= 0.02) {
           return;
       }
-      
-      // Save Pre-Loss Memory for Fast Convergence (if we aren't already saving a larger one)
+
+      // Save Pre-Loss Memory for Fast Convergence
       if (pre_loss_target_ == DataRate::Zero() || congestion_based_estimate_ > pre_loss_target_) {
           pre_loss_target_ = congestion_based_estimate_;
       }
 
-      // Proportional Penalty: Cut exactly as much as was lost, but cap at 50% to mimic TCP Reno safety limit
-      // double loss_penalty = std::min(0.50, loss_ratio);
-      double loss_penalty = 0.5*loss_ratio; // Directly proportional, capping half. This is a more aggressive stance that can be tuned with the 2% threshold above.
-      // Ensure we always cut at least 5% if a drop occurs
-      // loss_penalty = std::max(0.05, loss_penalty);
-      loss_penalty = std::min(0.05, loss_penalty);
+      // --- PURE WEBRTC/GCC LOSS MATH (No TCP Mimicry) ---
+      // You are right: We are building for RTP, not TCP. 
+      // GCC explicitly scales the penalty by exactly half of the loss ratio.
+      // e.g., 10% loss = 5% cut. 40% loss = 20% cut.
+      // It naturally bounds itself (100% loss = 50% cut maximum). No artificial caps needed!
+      double loss_penalty = 0.5 * loss_ratio;
       
       double retention_factor = 1.0 - loss_penalty;
       DataRate reduced = std::max(current_rate * retention_factor, min_target_rate_);
-      reduced = std::max(reduced, DataRate::KilobitsPerSec(20));
-      congestion_based_estimate_ = reduced;
+      congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
       
       // Reset Alpha so the continuous CE engine doesn't double-penalize the drop
       alpha_ = 0.0;
       last_hard_loss_time_ = current_time;
       last_update_time_ = current_time;
       
-  //     RTC_LOG(LS_WARNING) << "L4S: PROPORTIONAL HARD LOSS! Ratio: " << loss_ratio 
-  //                         << ". Slashed target by " << (loss_penalty * 100) << "% to " 
-  //                         << congestion_based_estimate_.kbps() 
-  //                         << " kbps. Memorized pre-loss target: " << pre_loss_target_.kbps() << " kbps.";
-  // 
-  
-        RTC_LOG(LS_WARNING) << "L4S: GCC-STYLE HARD LOSS! Ratio: " << loss_ratio 
+      RTC_LOG(LS_WARNING) << "L4S: PURE RTP HARD LOSS! Ratio: " << loss_ratio 
                           << ". Slashed target gently by " << (loss_penalty * 100) << "% to " 
                           << congestion_based_estimate_.kbps() 
                           << " kbps. Memorized pre-loss target: " << pre_loss_target_.kbps() << " kbps.";
-
   }
 }
+
+
+
 
 double webrtc::PragueCapacityEstimator::CalculateDiscoveryStep(double current_bps, double elapsed_s) const {
   double growth_factor = 1.1; 
