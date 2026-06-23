@@ -202,7 +202,8 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       // GCC explicitly scales the penalty by exactly half of the loss ratio.
       // e.g., 10% loss = 5% cut. 40% loss = 20% cut.
       // It naturally bounds itself (100% loss = 50% cut maximum). No artificial caps needed!
-      double loss_penalty = 0.5 * loss_ratio;
+      // double loss_penalty = 0.5 * loss_ratio;
+      double loss_penalty = 1 * loss_ratio;
       
       double retention_factor = 1.0 - loss_penalty;
       DataRate reduced = std::max(current_rate * retention_factor, min_target_rate_);
