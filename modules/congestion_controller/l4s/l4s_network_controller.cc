@@ -617,12 +617,12 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
   NetworkControlUpdate update;
   if (msg.smoothed) return update;
 
-  if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
-    if (last_smoothed_rtt_.IsFinite() && !last_smoothed_rtt_.IsZero()) {
-      last_smoothed_rtt_ = (last_smoothed_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
-    } else {
-      last_smoothed_rtt_ = msg.round_trip_time;
-    }
+  // if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
+  //   if (last_smoothed_rtt_.IsFinite() && !last_smoothed_rtt_.IsZero()) {
+  //     last_smoothed_rtt_ = (last_smoothed_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
+  //   } else {
+  //     last_smoothed_rtt_ = msg.round_trip_time;
+  //   }
     
     last_rtt_ = msg.round_trip_time;
 
@@ -648,7 +648,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     }
     
     prague_estimator_->UpdateFromRtt(last_rtt_); 
-    last_estimated_round_trip_time_ = std::max(last_smoothed_rtt_, TimeDelta::Millis(20));
+    last_estimated_round_trip_time_ = std::max(last_rtt_, TimeDelta::Millis(20));
 
 
   }
