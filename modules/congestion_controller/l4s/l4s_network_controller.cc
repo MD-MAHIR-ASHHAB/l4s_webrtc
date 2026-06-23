@@ -474,7 +474,7 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
 
 webrtc::L4SNetworkController::~L4SNetworkController() {
   if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->ExportToJsonFile("l4s_network_metrics.json");
+    metrics_collector_->ExportToJsonFile("l4s_test_c6.json");
   }
 }
 
@@ -1123,15 +1123,35 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
   update.target_rate->target_rate = current_rate;
   
-  update.pacer_config = PacerConfig();
-  update.pacer_config->at_time = at_time;
-  update.pacer_config->time_window = TimeDelta::Millis(5);
-  
-  DataRate pacing_rate = current_rate * 1.15;
-  update.pacer_config->data_window = pacing_rate * update.pacer_config->time_window;
-  
+  // =========================================================
+  // 1. THE PACING FACTOR (The Burst Absorber)
+  // =========================================================
+  // GCC uses 1.5x to 2.5x to quickly drain video frames from the software queue.
+  // For L4S, massive bursts hit the shallow 1ms queue hard, so we use a safe 1.5x 
+  // to clear frames quickly without triggering excessive CE marks.
+  double pacing_factor = 1.5;
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      pacing_factor = 2.5; // Allow higher bursting during startup probing
+  }
+  DataRate pacing_rate = current_rate * pacing_factor;
+
+  // =========================================================
+  // 2. THE PADDING RATE (The CBR Smoother)
+  // =========================================================
+  // Keep the link warm to maintain a smooth RTT and Send Rate. 
+  // max_padding_rate_ is provided by WebRTC's BitrateAllocator.
+  // We pad up to the max requested, but NEVER pad higher than the L4S safe target.
   DataRate padding_rate = max_padding_rate_.value_or(DataRate::Zero());
   padding_rate = std::min(padding_rate, current_rate);
+
+  // =========================================================
+  // 3. CONFIGURE THE PACER
+  // =========================================================
+  update.pacer_config = PacerConfig();
+  update.pacer_config->at_time = at_time;
+  update.pacer_config->time_window = TimeDelta::Seconds(1);
+  
+  update.pacer_config->data_window = pacing_rate * update.pacer_config->time_window;
   update.pacer_config->pad_window = padding_rate * update.pacer_config->time_window;
   
   return update;
