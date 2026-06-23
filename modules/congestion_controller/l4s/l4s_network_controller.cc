@@ -968,41 +968,41 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
 
   // GCC-style RTT update from transport feedback: derive RTT per received
   // packet and use the minimum sample in this feedback batch.
-  std::vector<PacketResult> received_feedback = feedback.SortedByReceiveTime();
-  if (!received_feedback.empty()) {
-    const Timestamp max_recv_time = received_feedback.back().receive_time;
-    TimeDelta feedback_min_rtt = TimeDelta::PlusInfinity();
-    for (const auto& packet_feedback : received_feedback) {
-      TimeDelta pending_time = max_recv_time - packet_feedback.receive_time;
-      TimeDelta rtt = feedback.feedback_time - packet_feedback.sent_packet.send_time - pending_time;
-      feedback_min_rtt = std::min(feedback_min_rtt, rtt);
-    }
+  // std::vector<PacketResult> received_feedback = feedback.SortedByReceiveTime();
+  // if (!received_feedback.empty()) {
+  //   const Timestamp max_recv_time = received_feedback.back().receive_time;
+  //   TimeDelta feedback_min_rtt = TimeDelta::PlusInfinity();
+  //   for (const auto& packet_feedback : received_feedback) {
+  //     TimeDelta pending_time = max_recv_time - packet_feedback.receive_time;
+  //     TimeDelta rtt = feedback.feedback_time - packet_feedback.sent_packet.send_time - pending_time;
+  //     feedback_min_rtt = std::min(feedback_min_rtt, rtt);
+  //   }
     
-    if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
-      // --- CRITICAL FIX 1A: Smooth the RTT ---
-      // Never feed raw, instantaneous RTT into Prague. 
-      // if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
-      //     // Exponential moving average: 80% old, 20% new
-      //     last_rtt_ = (last_rtt_ * 0.8) + (feedback_min_rtt * 0.2);
-      // } else {
-      //     last_rtt_ = feedback_min_rtt;
-      // }
+  //   if (feedback_min_rtt.IsFinite() && !feedback_min_rtt.IsZero()) {
+  //     // --- CRITICAL FIX 1A: Smooth the RTT ---
+  //     // Never feed raw, instantaneous RTT into Prague. 
+  //     // if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
+  //     //     // Exponential moving average: 80% old, 20% new
+  //     //     last_rtt_ = (last_rtt_ * 0.8) + (feedback_min_rtt * 0.2);
+  //     // } else {
+  //     //     last_rtt_ = feedback_min_rtt;
+  //     // }
       
-      // --- CRITICAL FIX 1B: Remove RTT Smoothing for Now ---
-      last_rtt_ = feedback_min_rtt;
+  //     // --- CRITICAL FIX 1B: Remove RTT Smoothing for Now ---
+  //     last_rtt_ = feedback_min_rtt;
 
 
-      // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
-      TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
-      // --- NEW: Track the physical baseline ---
-      if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) {
-          base_rtt_ = safe_rtt;
-      }
+  //     // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
+  //     TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
+  //     // --- NEW: Track the physical baseline ---
+  //     if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) {
+  //         base_rtt_ = safe_rtt;
+  //     }
       
-      prague_estimator_->UpdateFromRtt(safe_rtt);
-      last_estimated_round_trip_time_ = safe_rtt;
-    }
-  }
+  //     prague_estimator_->UpdateFromRtt(safe_rtt);
+  //     last_estimated_round_trip_time_ = safe_rtt;
+  //   }
+  // }
   
   // 1. Update non-ECN estimators first (acked, probe)
   if (acked_estimator_) {
