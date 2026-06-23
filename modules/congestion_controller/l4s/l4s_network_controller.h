@@ -325,7 +325,7 @@ private:
 
   // RTT tracking
   TimeDelta last_rtt_ = TimeDelta::PlusInfinity();
-  // TimeDelta last_smoothed_rtt_ = TimeDelta::PlusInfinity();
+  TimeDelta last_smoothed_rtt_ = TimeDelta::PlusInfinity();
   TimeDelta last_estimated_round_trip_time_ = TimeDelta::Millis(50);
   // Add this to the private members of L4SNetworkController
   TimeDelta base_rtt_ = TimeDelta::PlusInfinity();
