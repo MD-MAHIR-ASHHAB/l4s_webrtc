@@ -978,12 +978,12 @@ void webrtc::L4SNetworkController::UpdateAllBandwidthEstimators(const TransportP
   //     last_rtt_ = feedback_min_rtt;
 
 
-      // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
-      TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
-      // --- NEW: Track the physical baseline ---
-      if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) {
-          base_rtt_ = safe_rtt;
-      }
+      // // Enforce a hard physical minimum of 20ms to prevent division-by-zero explosions
+      // TimeDelta safe_rtt = std::max(last_rtt_, TimeDelta::Millis(20));
+      // // --- NEW: Track the physical baseline ---
+      // if (base_rtt_.IsInfinite() || safe_rtt < base_rtt_) {
+      //     base_rtt_ = safe_rtt;
+      // }
       
   //     prague_estimator_->UpdateFromRtt(safe_rtt);
   //     last_estimated_round_trip_time_ = safe_rtt;
