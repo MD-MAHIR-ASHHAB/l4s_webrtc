@@ -287,11 +287,11 @@ NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
   // RTC_LOG(LS_INFO) << "GCC RTT update: " << msg.round_trip_time.ms()
   //                     << " ms";
 
-  RTC_LOG(LS_INFO)
-    << "RTT sample="
-    << msg.round_trip_time.ms()
-    << " receive_time="
-    << msg.receive_time.ms();
+  // RTC_LOG(LS_INFO)
+  //   << "RTT sample="
+  //   << msg.round_trip_time.ms()
+  //   << " receive_time="
+  //   << msg.receive_time.ms();
   
   // Log RTT metrics.
   if (metrics_enabled_ && metrics_collector_) {
