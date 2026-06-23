@@ -1122,21 +1122,27 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_;
   update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
   update.target_rate->target_rate = current_rate;
-    // =========================================================
+  
+  // =========================================================
   // 1. THE PACING FACTOR (The Burst Absorber)
   // =========================================================
-  // Match GCC's default 2.5x pacing factor exactly to ensure identical software queue flushing.
-  double pacing_factor = 2.5;
+  // GCC uses 1.5x to 2.5x to quickly drain video frames from the software queue.
+  // For L4S, massive bursts hit the shallow 1ms queue hard, so we use a safe 1.5x 
+  // to clear frames quickly without triggering excessive CE marks.
+  double pacing_factor = 1.5;
+  if (prague_estimator_ && prague_estimator_->IsDiscoveryModeActive()) {
+      pacing_factor = 2.5; // Allow higher bursting during startup probing
+  }
   DataRate pacing_rate = current_rate * pacing_factor;
 
   // =========================================================
   // 2. THE PADDING RATE (The CBR Smoother)
   // =========================================================
-  // THE MISSING LINK: When GCC is in ALR, it enters 'kIncreaseUsingPadding'. 
-  // It intentionally ignores max_padding_rate_ and forces dummy packets onto the 
-  // wire to keep the RTT perfectly flat. We must mirror this override to eliminate 
-  // the 16ms VBR frame sawtooth!
-  DataRate padding_rate = current_rate; 
+  // Keep the link warm to maintain a smooth RTT and Send Rate. 
+  // max_padding_rate_ is provided by WebRTC's BitrateAllocator.
+  // We pad up to the max requested, but NEVER pad higher than the L4S safe target.
+  DataRate padding_rate = max_padding_rate_.value_or(DataRate::Zero());
+  padding_rate = std::min(padding_rate, current_rate);
 
   // =========================================================
   // 3. CONFIGURE THE PACER
