@@ -625,6 +625,15 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     }
     
     last_rtt_ = msg.round_trip_time;
+
+
+      // Log RTT metrics.
+    if (metrics_enabled_ && metrics_collector_) {
+    metrics_collector_->LogDelayMetrics(
+        Timestamp::Millis(env_.clock().TimeInMilliseconds()),
+        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+    }
+
     TimeDelta raw_safe_floor = std::max(last_rtt_, TimeDelta::Millis(20));
     if (base_rtt_.IsInfinite() || raw_safe_floor < base_rtt_) {
         base_rtt_ = raw_safe_floor;
@@ -632,6 +641,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     
     prague_estimator_->UpdateFromRtt(last_rtt_); 
     last_estimated_round_trip_time_ = std::max(last_smoothed_rtt_, TimeDelta::Millis(20));
+
+
   }
   return update;
 }
