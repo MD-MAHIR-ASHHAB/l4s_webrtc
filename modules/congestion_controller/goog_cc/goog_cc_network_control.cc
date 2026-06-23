@@ -210,6 +210,10 @@ NetworkControlUpdate GoogCcNetworkController::OnNetworkRouteChange(
 
 NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
     ProcessInterval msg) {
+
+  // Log metrics periodically on each process interval
+  LogPeriodicMetrics(msg.at_time);
+
   NetworkControlUpdate update;
   if (initial_config_) {
     update.probe_cluster_configs =
@@ -259,8 +263,6 @@ NetworkControlUpdate GoogCcNetworkController::OnProcessInterval(
     update.congestion_window = current_data_window_;
   }
 
-  // Log metrics periodically on each process interval
-  LogPeriodicMetrics(msg.at_time);
 
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
   return update;
@@ -275,14 +277,15 @@ NetworkControlUpdate GoogCcNetworkController::OnRemoteBitrateReport(
 
 NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
     RoundTripTimeUpdate msg) {
-  RTC_LOG(LS_VERBOSE) << "GCC RTT update: " << msg.round_trip_time.ms()
-                      << " ms";
   if (msg.smoothed) {
     return NetworkControlUpdate();
   }
   RTC_DCHECK(!msg.round_trip_time.IsZero());
 
   last_rtt_ = msg.round_trip_time;
+  
+  RTC_LOG(LS_INFO) << "GCC RTT update: " << msg.round_trip_time.ms()
+                      << " ms";
   
   // Log RTT metrics.
   if (metrics_enabled_ && metrics_collector_) {
