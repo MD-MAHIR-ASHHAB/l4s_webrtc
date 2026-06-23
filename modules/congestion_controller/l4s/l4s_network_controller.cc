@@ -640,7 +640,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
     if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, msg.round_trip_time / 2, TimeDelta::Millis(0));
+        last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
     }
 
     TimeDelta raw_safe_floor = std::max(last_rtt_, TimeDelta::Millis(20));
