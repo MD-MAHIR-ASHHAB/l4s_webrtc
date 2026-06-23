@@ -629,11 +629,11 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
 
 
-    RTC_LOG(LS_INFO)
-    << "raw=" << msg.round_trip_time.ms()
-    << " last_rtt=" << last_rtt_.ms()
-    << " smooth=" << last_smoothed_rtt_.ms()
-    << " estimated=" << last_estimated_round_trip_time_.ms();
+    // RTC_LOG(LS_INFO)
+    // << "raw=" << msg.round_trip_time.ms()
+    // << " last_rtt=" << last_rtt_.ms()
+    // << " smooth=" << last_smoothed_rtt_.ms()
+    // << " estimated=" << last_estimated_round_trip_time_.ms();
 
       // Log RTT metrics.
     if (metrics_enabled_ && metrics_collector_) {
