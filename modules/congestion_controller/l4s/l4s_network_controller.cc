@@ -630,12 +630,11 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
 
     RTC_LOG(LS_INFO)
-    << "RTT sample="
-    << msg.round_trip_time.ms()
-    << " receive_time="
-    << msg.receive_time.ms();
+    << "raw=" << msg.round_trip_time.ms()
+    << " last_rtt=" << last_rtt_.ms()
+    << " smooth=" << last_smoothed_rtt_.ms()
+    << " estimated=" << last_estimated_round_trip_time_.ms();
 
-    
       // Log RTT metrics.
     if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
