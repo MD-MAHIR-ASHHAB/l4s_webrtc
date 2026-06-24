@@ -18,6 +18,7 @@
 #include "absl/strings/string_view.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "api/test/metrics/metric.h"
+#include <chrono>
 #include "api/units/timestamp.h"
 #include "rtc_base/synchronization/mutex.h"
 
@@ -50,34 +51,16 @@ void DefaultMetricsLogger::LogSingleValueMetric(
 
   // -----------------------------
   // 1. Parse UTC timestamp
-  // -----------------------------
+    // -----------------------------
   int64_t timestamp_ms = 0;
 
   auto it = metadata.find("timestamp_ms");
-  if (it != metadata.end()) {
-    try {
-      timestamp_ms = std::stoll(it->second);
-    } catch (const std::exception& e) {
-      RTC_LOG(LS_ERROR)
-          << "Failed to parse timestamp_ms metadata: " << it->second
-          << " error: " << e.what();
-
-      // fallback to system clock
-      timestamp_ms =
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              std::chrono::system_clock::now().time_since_epoch())
-              .count();
-    }
-  } else {
-    RTC_LOG(LS_WARNING)
-        << "timestamp_ms missing in metadata, using system clock fallback";
-
-    timestamp_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
+  if (it == metadata.end()) {
+    RTC_LOG(LS_ERROR) << "missing timestamp_ms";
+    return;
   }
 
+  timestamp_ms = std::stoll(it->second);
   // -----------------------------
   // 2. Store metric
   // -----------------------------
@@ -88,17 +71,13 @@ void DefaultMetricsLogger::LogSingleValueMetric(
       .test_case = std::string(test_case_name),
       .metric_metadata = std::move(metadata),
 
-      .time_series =
-          Metric::TimeSeries{
-              .samples = std::vector{
-                  Metric::TimeSeries::Sample{
-                      .timestamp =
-                          webrtc::test::Metric::TimeSeries::Sample::Timestamp{
-                              std::chrono::time_point<
-                                  std::chrono::system_clock>(
-                                  std::chrono::milliseconds(timestamp_ms))
-                          },
-                      .value = value
+      .time_series = Metric::TimeSeries{
+        .samples = std::vector{
+            Metric::TimeSeries::Sample{
+                .timestamp =
+                    webrtc::test::Timestamp(
+                        std::chrono::milliseconds(timestamp_ms)),
+                .value = value
                   }
               }
           },
