@@ -53,7 +53,9 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate,
       last_hard_loss_time_(Timestamp::MinusInfinity()),
       alpha_(0.0),
       ai_bits_accumulator_(0.0),
-      non_ce_packet_count_(0),
+      non_ce_packet_count_(0),    
+      accumulated_lost_packets_(0),
+      accumulated_expected_packets_(0),
       discovery_mode_active_(true),
       first_ce_mark_detected_(false) {
   
