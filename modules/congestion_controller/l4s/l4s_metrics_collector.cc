@@ -168,7 +168,7 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
         "acked_rate_avg_mbps", test_case_name_, throughput_stats_.GetAverage() / 1e6,
         webrtc::test::Unit::kUnitless,
         webrtc::test::ImprovementDirection::kBiggerIsBetter,
-        {{"stat_type", "average"}, {"metric", "acked_rate"}});
+        {{"stat_type", "average"}, {"metric", "acked_rate"},{"timestamp_ms", std::to_string(global_utc_ms)}});
     logger_->LogSingleValueMetric(
         "acked_rate_std_mbps", test_case_name_,
         throughput_stats_.GetStandardDeviation() / 1e6,
