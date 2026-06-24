@@ -1092,7 +1092,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   if (acked_rate_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("acked_rate_avg_mbps", test_case_name_, acked_rate_stats_.GetAverage() / 1e6,
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "acked_rate"}});
+                                  {{"stat_type", "average"}, {"metric", "acked_rate"},{"timestamp_ms", std::to_string(global_utc_ms)}});
     logger_->LogSingleValueMetric("acked_rate_std_mbps", test_case_name_, acked_rate_stats_.GetStandardDeviation() / 1e6,
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "std_dev"}, {"metric", "acked_rate"},{"timestamp_ms", std::to_string(global_utc_ms)}});
@@ -1101,7 +1101,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   if (rtt_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("rtt_avg_ms", test_case_name_, rtt_stats_.GetAverage(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "rtt"}});
+                                  {{"stat_type", "average"}, {"metric", "rtt"},{"timestamp_ms", std::to_string(global_utc_ms)}});
     logger_->LogSingleValueMetric("rtt_std_ms", test_case_name_, rtt_stats_.GetStandardDeviation(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
                                   {{"stat_type", "std_dev"}, {"metric", "rtt"},{"timestamp_ms", std::to_string(global_utc_ms)}});
@@ -1187,7 +1187,7 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); 
 
   // Log periodic summary
-  // metrics_collector_->LogPeriodicSummary(at_time);
+  metrics_collector_->LogPeriodicSummary(at_time);
 }
 
 
