@@ -5,7 +5,7 @@
 
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
+#include "chrono"
 
 namespace webrtc {
 
@@ -31,7 +31,9 @@ void L4SMetricsCollector::LogBandwidthMetrics(
   last_bandwidth_log_ = at_time;
 
   // Grab the globally synced UTC Epoch time specifically for the plot data
-  int64_t global_utc_ms = rtc::TimeUTCMillis();
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()
+).count();
 
   if (target_bitrate.IsFinite()) {
     logger_->LogSingleValueMetric(
@@ -76,7 +78,9 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time,
   UpdateDelayStats(rtt, one_way_delay);
 
   // Grab the globally synced UTC Epoch time specifically for the plot data
-  int64_t global_utc_ms = rtc::TimeUTCMillis();
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()
+).count();
 
 
   logger_->LogSingleValueMetric(
