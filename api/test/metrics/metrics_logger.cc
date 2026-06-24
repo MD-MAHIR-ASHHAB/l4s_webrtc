@@ -74,8 +74,7 @@ void DefaultMetricsLogger::LogSingleValueMetric(
       .time_series = Metric::TimeSeries{
         .samples = std::vector{
             Metric::TimeSeries::Sample{
-                .timestamp =
-                    webrtc::test::Timestamp(
+                .timestamp =Timestamp(
                         std::chrono::milliseconds(timestamp_ms)),
                 .value = value
                   }
