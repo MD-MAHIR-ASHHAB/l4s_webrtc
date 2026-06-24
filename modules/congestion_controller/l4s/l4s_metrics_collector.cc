@@ -107,6 +107,12 @@ void L4SMetricsCollector::LogLossMetrics(Timestamp at_time,
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
 
+
+
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()).count();
+
   logger_->LogSingleValueMetric(
       "packet_loss_fraction", test_case_name_, loss_fraction,
       webrtc::test::Unit::kUnitless,
@@ -124,6 +130,13 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time,
                                                int ce_count,
                                                int ect_count,
                                                double congestion_ratio) {
+
+
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()).count();
+
+    
   (void)ect_count;
   logger_->LogSingleValueMetric(
       "congestion_ce_count", test_case_name_, ce_count,
