@@ -983,7 +983,11 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   }
   
   last_summary_log_ = at_time;
-  
+    // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()).count();
+
+
   // Log summary statistics
   if (acked_rate_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("acked_rate_avg_mbps", test_case_name_, acked_rate_stats_.GetAverage() / 1e6,
@@ -991,7 +995,7 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "average"}, {"metric", "acked_rate"}});
     logger_->LogSingleValueMetric("acked_rate_std_mbps", test_case_name_, acked_rate_stats_.GetStandardDeviation() / 1e6,
                                   webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "acked_rate"}});
+                                  {{"stat_type", "std_dev"}, {"metric", "acked_rate"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 
   if (rtt_stats_.NumSamples() > 0) {
@@ -1000,16 +1004,16 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "average"}, {"metric", "rtt"}});
     logger_->LogSingleValueMetric("rtt_std_ms", test_case_name_, rtt_stats_.GetStandardDeviation(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "rtt"}});
+                                  {{"stat_type", "std_dev"}, {"metric", "rtt"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 
   if (delay_stats_.NumSamples() > 0) {
     logger_->LogSingleValueMetric("delay_avg_ms", test_case_name_, delay_stats_.GetAverage(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "delay"}});
+                                  {{"stat_type", "average"}, {"metric", "delay"},{"timestamp_ms", std::to_string(global_utc_ms)}});
     logger_->LogSingleValueMetric("delay_std_ms", test_case_name_, delay_stats_.GetStandardDeviation(),
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "delay"}});
+                                  {{"stat_type", "std_dev"}, {"metric", "delay"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 
   if (loss_stats_.NumSamples() > 0) {
@@ -1017,12 +1021,12 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   loss_stats_.GetAverage(),
                                   webrtc::test::Unit::kUnitless,
                                   webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "average"}, {"metric", "packet_loss"}});
+                                  {{"stat_type", "average"}, {"metric", "packet_loss"},{"timestamp_ms", std::to_string(global_utc_ms)}});
     logger_->LogSingleValueMetric("packet_loss_std_fraction", test_case_name_,
                                   loss_stats_.GetStandardDeviation(),
                                   webrtc::test::Unit::kUnitless,
                                   webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"stat_type", "std_dev"}, {"metric", "packet_loss"}});
+                                  {{"stat_type", "std_dev"}, {"metric", "packet_loss"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
   // Periodically export all metrics to JSON
   ExportToJsonFile("gcc_test_c1.json");
