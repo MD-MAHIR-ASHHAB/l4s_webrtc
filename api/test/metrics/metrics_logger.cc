@@ -37,6 +37,7 @@ Metric::Stats ToStats(const SamplesStatsCounter& values) {
 
 }  // namespace
 
+
 void DefaultMetricsLogger::LogSingleValueMetric(
     absl::string_view name,
     absl::string_view test_case_name,
@@ -45,6 +46,22 @@ void DefaultMetricsLogger::LogSingleValueMetric(
     ImprovementDirection improvement_direction,
     std::map<std::string, std::string> metadata) {
   MutexLock lock(&mutex_);
+
+  Timestamp sample_time = Now();
+  auto it = metadata.find("timestamp_ms");
+  if (it != metadata.end()) {
+    const std::string& ts_str = it->second;
+    char* endptr = nullptr;
+    
+    // std::strtoll performs the conversion without throwing any C++ exceptions.
+    long long parsed_val = std::strtoll(ts_str.c_str(), &endptr, 10);
+    
+    // Check if we parsed at least one digit AND successfully reached the end of the string.
+    if (endptr != ts_str.c_str() && *endptr == '\0') {
+      sample_time = Timestamp::Millis(parsed_val);
+    }
+  }
+
   metrics_.push_back(Metric{
       .name = std::string(name),
       .unit = unit,
@@ -53,10 +70,32 @@ void DefaultMetricsLogger::LogSingleValueMetric(
       .metric_metadata = std::move(metadata),
       .time_series =
           Metric::TimeSeries{.samples = std::vector{Metric::TimeSeries::Sample{
-                                 .timestamp = Now(), .value = value}}},
+                                .timestamp = sample_time, .value = value}}},
       .stats = Metric::Stats{
           .mean = value, .stddev = std::nullopt, .min = value, .max = value}});
 }
+
+
+// void DefaultMetricsLogger::LogSingleValueMetric(
+//     absl::string_view name,
+//     absl::string_view test_case_name,
+//     double value,
+//     Unit unit,
+//     ImprovementDirection improvement_direction,
+//     std::map<std::string, std::string> metadata) {
+//   MutexLock lock(&mutex_);
+//   metrics_.push_back(Metric{
+//       .name = std::string(name),
+//       .unit = unit,
+//       .improvement_direction = improvement_direction,
+//       .test_case = std::string(test_case_name),
+//       .metric_metadata = std::move(metadata),
+//       .time_series =
+//           Metric::TimeSeries{.samples = std::vector{Metric::TimeSeries::Sample{
+//                                  .timestamp = Now(), .value = value}}},
+//       .stats = Metric::Stats{
+//           .mean = value, .stddev = std::nullopt, .min = value, .max = value}});
+// }
 
 void DefaultMetricsLogger::LogMetric(
     absl::string_view name,
