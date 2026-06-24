@@ -297,7 +297,7 @@ NetworkControlUpdate GoogCcNetworkController::OnRoundTripTimeUpdate(
   if (metrics_enabled_ && metrics_collector_) {
     metrics_collector_->LogDelayMetrics(
         Timestamp::Millis(env_.clock().TimeInMilliseconds()),
-        msg.round_trip_time, msg.round_trip_time / 2, jitter_);
+        last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
   }
 
   if (delay_based_bwe_)
@@ -1058,7 +1058,7 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
                                           last_send_rate_);      // 4. Send
   
   // Log delay metrics
-  if (last_rtt_.IsFinite()) {
+  if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); 
   }
   
