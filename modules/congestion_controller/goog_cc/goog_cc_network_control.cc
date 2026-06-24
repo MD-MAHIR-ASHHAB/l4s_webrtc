@@ -885,7 +885,9 @@ void GCCMetricsCollector::LogBandwidthMetrics(
   last_acked_rate_log_ = at_time;
 
   // Grab the globally synced UTC Epoch time specifically for the plot data
-  int64_t global_utc_ms = rtc::TimeUTCMillis();
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()
+).count();
 
   // 1. Target Rate (The Software Budget)
   if (target_bitrate.IsFinite()) {
@@ -933,7 +935,9 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   UpdateDelayStats(rtt, one_way_delay);
 
   // Grab the globally synced UTC Epoch time specifically for the plot data
-  int64_t global_utc_ms = rtc::TimeUTCMillis();
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()
+).count();
 
   logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
                                 webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
@@ -960,7 +964,9 @@ void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   UpdateLossStats(loss_fraction);
   
   // Grab the globally synced UTC Epoch time specifically for the plot data
-  int64_t global_utc_ms = rtc::TimeUTCMillis();
+  int64_t global_utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch()
+).count();
 
   logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
