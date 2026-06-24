@@ -45,7 +45,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
+#include <chrono>
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
 
