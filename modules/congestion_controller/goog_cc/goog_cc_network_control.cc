@@ -1083,7 +1083,7 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   metrics_collector_->LogLossMetrics(at_time, last_loss_fraction_, last_packets_lost_); 
 
   // Log periodic summary
-  metrics_collector_->LogPeriodicSummary(at_time);
+  // metrics_collector_->LogPeriodicSummary(at_time);
 }
 
 
