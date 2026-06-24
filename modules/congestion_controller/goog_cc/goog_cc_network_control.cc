@@ -45,6 +45,7 @@
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
 
@@ -883,13 +884,16 @@ void GCCMetricsCollector::LogBandwidthMetrics(
   }
   last_acked_rate_log_ = at_time;
 
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = rtc::TimeUTCMillis();
+
   // 1. Target Rate (The Software Budget)
   if (target_bitrate.IsFinite()) {
       logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
                                     target_bitrate.bps() / 1e6,
                                     webrtc::test::Unit::kUnitless,
                                     webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                    {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                    {{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 
   // 2. Send Rate (The Pacer's Physical Exhaust)
@@ -898,14 +902,14 @@ void GCCMetricsCollector::LogBandwidthMetrics(
                                 tx_rate.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
 
   // 3. Actual Rate (Raw Physical Throughput Window)
   logger_->LogSingleValueMetric("actual_rate_mbps", test_case_name_,
                                 actual_bitrate.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
 
   // 4. Acked Rate (GCC-Parity Kalman Filtered Throughput)
   DataRate filtered_acked_rate = acked_bitrate.value_or(DataRate::Zero());
@@ -914,7 +918,7 @@ void GCCMetricsCollector::LogBandwidthMetrics(
                                 filtered_acked_rate.bps() / 1e6,
                                 webrtc::test::Unit::kUnitless,
                                 webrtc::test::ImprovementDirection::kBiggerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
 }
 
 
@@ -927,18 +931,22 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
   
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt, one_way_delay);
+
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = rtc::TimeUTCMillis();
+
   logger_->LogSingleValueMetric("rtt_ms", test_case_name_, rtt.ms(), 
                                 webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
   if (one_way_delay.IsFinite()) {
     logger_->LogSingleValueMetric("one_way_delay_ms", test_case_name_, one_way_delay.ms(), 
                                   webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                  {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                  {{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
   if (jitter.IsFinite()) {
     // logger_->LogSingleValueMetric("jitter_ms", test_case_name_, jitter.ms(), 
     //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-    //                               {{"timestamp_ms", std::to_string(at_time.ms())}});
+    //                               {{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 }
 
@@ -951,12 +959,15 @@ void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction
   last_loss_log_ = at_time;
   UpdateLossStats(loss_fraction);
   
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = rtc::TimeUTCMillis();
+
   logger_->LogSingleValueMetric("packet_loss_fraction", test_case_name_, loss_fraction, 
                                 webrtc::test::Unit::kUnitless, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
   logger_->LogSingleValueMetric("packets_lost_count", test_case_name_, packets_lost_count,
                                 webrtc::test::Unit::kCount, webrtc::test::ImprovementDirection::kSmallerIsBetter,
-                                {{"timestamp_ms", std::to_string(at_time.ms())}});
+                                {{"timestamp_ms", std::to_string(global_utc_ms)}});
 }
 
 
