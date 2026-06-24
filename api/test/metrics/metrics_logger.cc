@@ -37,6 +37,7 @@ Metric::Stats ToStats(const SamplesStatsCounter& values) {
 
 }  // namespace
 
+
 void DefaultMetricsLogger::LogSingleValueMetric(
     absl::string_view name,
     absl::string_view test_case_name,
@@ -44,19 +45,93 @@ void DefaultMetricsLogger::LogSingleValueMetric(
     Unit unit,
     ImprovementDirection improvement_direction,
     std::map<std::string, std::string> metadata) {
+
   MutexLock lock(&mutex_);
+
+  // -----------------------------
+  // 1. Parse UTC timestamp
+  // -----------------------------
+  int64_t timestamp_ms = 0;
+
+  auto it = metadata.find("timestamp_ms");
+  if (it != metadata.end()) {
+    try {
+      timestamp_ms = std::stoll(it->second);
+    } catch (const std::exception& e) {
+      RTC_LOG(LS_ERROR)
+          << "Failed to parse timestamp_ms metadata: " << it->second
+          << " error: " << e.what();
+
+      // fallback to system clock
+      timestamp_ms =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count();
+    }
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "timestamp_ms missing in metadata, using system clock fallback";
+
+    timestamp_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+  }
+
+  // -----------------------------
+  // 2. Store metric
+  // -----------------------------
   metrics_.push_back(Metric{
       .name = std::string(name),
       .unit = unit,
       .improvement_direction = improvement_direction,
       .test_case = std::string(test_case_name),
       .metric_metadata = std::move(metadata),
+
       .time_series =
-          Metric::TimeSeries{.samples = std::vector{Metric::TimeSeries::Sample{
-                                 .timestamp = Now(), .value = value}}},
+          Metric::TimeSeries{
+              .samples = std::vector{
+                  Metric::TimeSeries::Sample{
+                      .timestamp =
+                          webrtc::test::Metric::TimeSeries::Sample::Timestamp{
+                              std::chrono::time_point<
+                                  std::chrono::system_clock>(
+                                  std::chrono::milliseconds(timestamp_ms))
+                          },
+                      .value = value
+                  }
+              }
+          },
+
       .stats = Metric::Stats{
-          .mean = value, .stddev = std::nullopt, .min = value, .max = value}});
+          .mean = value,
+          .stddev = std::nullopt,
+          .min = value,
+          .max = value
+      }
+  });
 }
+
+// void DefaultMetricsLogger::LogSingleValueMetric(
+//     absl::string_view name,
+//     absl::string_view test_case_name,
+//     double value,
+//     Unit unit,
+//     ImprovementDirection improvement_direction,
+//     std::map<std::string, std::string> metadata) {
+//   MutexLock lock(&mutex_);
+//   metrics_.push_back(Metric{
+//       .name = std::string(name),
+//       .unit = unit,
+//       .improvement_direction = improvement_direction,
+//       .test_case = std::string(test_case_name),
+//       .metric_metadata = std::move(metadata),
+//       .time_series =
+//           Metric::TimeSeries{.samples = std::vector{Metric::TimeSeries::Sample{
+//                                  .timestamp = Now(), .value = value}}},
+//       .stats = Metric::Stats{
+//           .mean = value, .stddev = std::nullopt, .min = value, .max = value}});
+// }
 
 void DefaultMetricsLogger::LogMetric(
     absl::string_view name,
