@@ -290,6 +290,11 @@ private:
   // Pacer transmission tracking
   std::deque<std::pair<Timestamp, int64_t>> send_rate_window_;
   webrtc::DataRate last_send_rate_ = webrtc::DataRate::Zero();
+  // Tracks the last rate we sent to the video encoder to prevent spamming
+  std::optional<webrtc::DataRate> last_emitted_target_rate_;
+  
+  // Tracks the mathematically throttled rate when the physical wire is full
+  webrtc::DataRate pushback_target_rate_ = webrtc::DataRate::Zero();
 
   // Environment and configuration
   const Environment env_;

@@ -107,10 +107,13 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
       }
     }
 
-    if (gate_open) {
+    
       // --- FIX 1: THE ALPHA VELOCITY BUG ---
       constexpr double g = 1.0 / 8.0;
       alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
+
+    if (gate_open) {
 
       // Execute Continuous Multiplicative Decrease
       double reduction_factor = 1.0 - (alpha_ / 2.0);
@@ -758,6 +761,22 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   } else {
       update.congestion_window = std::nullopt;
   }
+
+  // --- NEW: THE LIGHTWEIGHT PUSHBACK CONTROLLER ---
+  pushback_target_rate_ = fused_rate; 
+  if (update.congestion_window && msg.data_in_flight.bytes() > 0) {
+      if (msg.data_in_flight > *update.congestion_window) {
+          // The physical wire is over the limit! Calculate the overflow ratio.
+          double pushback_ratio = static_cast<double>(update.congestion_window->bytes()) / 
+                                  static_cast<double>(msg.data_in_flight.bytes());
+          
+          // Cap the drop at 50% to prevent total video collapse
+          pushback_ratio = std::max(0.50, pushback_ratio);
+          pushback_target_rate_ = fused_rate * pushback_ratio;
+      }
+  }
+
+
   return update;
 }
 
@@ -804,7 +823,7 @@ double webrtc::L4SNetworkController::CalculateEcnYieldRatio(double raw_ce_ratio,
     return dampened_ratio;
   } 
   
-  if (rtt_bloat < TimeDelta::Millis(15)) {
+  if (rtt_bloat >= TimeDelta::Millis(15)) {
     double dampened_ratio = raw_ce_ratio * 0.25;
     return dampened_ratio;
   }
@@ -1130,7 +1149,11 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   update.target_rate->network_estimate.loss_rate_ratio = static_cast<float>(last_loss_fraction_);
   update.target_rate->network_estimate.round_trip_time = last_estimated_round_trip_time_;
   update.target_rate->network_estimate.bwe_period = TimeDelta::Millis(500);
-  update.target_rate->target_rate = current_rate;
+
+  // Give the VIDEO ENCODER the pushed-back rate so it stops generating heavy frames
+  DataRate encoder_target = pushback_target_rate_.IsZero() ? current_rate : pushback_target_rate_;
+  update.target_rate->target_rate = encoder_target;
+  // update.target_rate->target_rate = current_rate;
   
   // =========================================================
   // 1. THE PACING FACTOR (The Burst Absorber)
@@ -1172,31 +1195,42 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
   NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
   
   if (rate_update.pacer_config) update->pacer_config = rate_update.pacer_config;
+  
   if (rate_update.target_rate) {
-    update->target_rate = rate_update.target_rate;
     DataRate target_bitrate = rate_update.target_rate->target_rate;
 
-    if (alr_detector_) alr_detector_->SetEstimatedBitrate(target_bitrate.bps());
+    // THE HYSTERESIS GATE: Only wake up the heavy Video Encoder if the rate changed > 2%
+    bool rate_changed_significantly = 
+        !last_emitted_target_rate_.has_value() ||
+        (std::abs(target_bitrate.bps() - last_emitted_target_rate_->bps()) > 
+         (last_emitted_target_rate_->bps() * 0.02)); 
 
-    if (probe_controller_) {
-      bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
-      bool changed_significantly =
-          is_first_report ||
-          (std::abs(static_cast<int64_t>(target_bitrate.bps()) - static_cast<int64_t>(last_reported_bitrate_to_probe_controller_.bps())) >
-           static_cast<int64_t>(0.05 * last_reported_bitrate_to_probe_controller_.bps()));
-           
-      if (changed_significantly) {
-        BandwidthLimitedCause cause = recovery_mode_active_ ? BandwidthLimitedCause::kLossLimitedBweIncreasing : BandwidthLimitedCause::kDelayBasedLimited;
-        auto probes = probe_controller_->SetEstimatedBitrate(target_bitrate, cause, at_time);
-        last_reported_bitrate_to_probe_controller_ = target_bitrate;
-        if (!probes.empty()) {
-          for (const auto& probe : probes) {
-            if (!update->probe_cluster_configs.empty()) break;
-            TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (at_time - last_probe_time_);
-            if (since_last_probe >= config_.probe_interval) {
-              update->probe_cluster_configs.push_back(probe);
-              last_probe_time_ = at_time;
-              StartProbeHold(at_time);
+    if (rate_changed_significantly) {
+      update->target_rate = rate_update.target_rate;
+      last_emitted_target_rate_ = target_bitrate;
+
+      if (alr_detector_) alr_detector_->SetEstimatedBitrate(target_bitrate.bps());
+
+      if (probe_controller_) {
+        bool is_first_report = last_reported_bitrate_to_probe_controller_.IsZero();
+        bool changed_for_probe =
+            is_first_report ||
+            (std::abs(static_cast<int64_t>(target_bitrate.bps()) - static_cast<int64_t>(last_reported_bitrate_to_probe_controller_.bps())) >
+             static_cast<int64_t>(0.05 * last_reported_bitrate_to_probe_controller_.bps()));
+             
+        if (changed_for_probe) {
+          BandwidthLimitedCause cause = recovery_mode_active_ ? BandwidthLimitedCause::kLossLimitedBweIncreasing : BandwidthLimitedCause::kDelayBasedLimited;
+          auto probes = probe_controller_->SetEstimatedBitrate(target_bitrate, cause, at_time);
+          last_reported_bitrate_to_probe_controller_ = target_bitrate;
+          if (!probes.empty()) {
+            for (const auto& probe : probes) {
+              if (!update->probe_cluster_configs.empty()) break;
+              TimeDelta since_last_probe = last_probe_time_.IsInfinite() ? TimeDelta::PlusInfinity() : (at_time - last_probe_time_);
+              if (since_last_probe >= config_.probe_interval) {
+                update->probe_cluster_configs.push_back(probe);
+                last_probe_time_ = at_time;
+                StartProbeHold(at_time);
+              }
             }
           }
         }
@@ -1204,6 +1238,8 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
     }
   }
 }
+
+
 
 bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
   if (!prague_estimator_ || prague_estimator_->IsDiscoveryModeActive() || recovery_mode_active_) return false;
