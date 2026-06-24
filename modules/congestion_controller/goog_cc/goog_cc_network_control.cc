@@ -889,9 +889,6 @@ void GCCMetricsCollector::LogBandwidthMetrics(
     std::chrono::system_clock::now().time_since_epoch()
 ).count();
 
-
-  RTC_LOG(LS_ERROR)
-    << "UTC MS = " << global_utc_ms;
   // 1. Target Rate (The Software Budget)
   if (target_bitrate.IsFinite()) {
       logger_->LogSingleValueMetric("target_rate_mbps", test_case_name_,
