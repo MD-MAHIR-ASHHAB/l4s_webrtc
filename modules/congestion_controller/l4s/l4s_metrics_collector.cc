@@ -5,6 +5,7 @@
 
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
 
 namespace webrtc {
 
@@ -29,12 +30,15 @@ void L4SMetricsCollector::LogBandwidthMetrics(
   }
   last_bandwidth_log_ = at_time;
 
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = rtc::TimeUTCMillis();
+
   if (target_bitrate.IsFinite()) {
     logger_->LogSingleValueMetric(
         "target_rate_mbps", test_case_name_, target_bitrate.bps() / 1e6,
         webrtc::test::Unit::kUnitless,
         webrtc::test::ImprovementDirection::kBiggerIsBetter,
-        {{"timestamp_ms", std::to_string(at_time.ms())}});
+        {{"timestamp_ms", std::to_string(global_utc_ms)}}); // Swapped here
   }
 
   DataRate tx_rate = send_rate.value_or(DataRate::Zero());
@@ -42,13 +46,13 @@ void L4SMetricsCollector::LogBandwidthMetrics(
       "send_rate_mbps", test_case_name_, tx_rate.bps() / 1e6,
       webrtc::test::Unit::kUnitless,
       webrtc::test::ImprovementDirection::kBiggerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}}); // Swapped here
 
   logger_->LogSingleValueMetric(
       "actual_rate_mbps", test_case_name_, actual_bitrate.bps() / 1e6,
       webrtc::test::Unit::kUnitless,
       webrtc::test::ImprovementDirection::kBiggerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}}); // Swapped here
 
   DataRate filtered_acked_rate = acked_bitrate.value_or(DataRate::Zero());
   UpdateThroughputStats(filtered_acked_rate);
@@ -56,7 +60,7 @@ void L4SMetricsCollector::LogBandwidthMetrics(
       "acked_rate_mbps", test_case_name_, filtered_acked_rate.bps() / 1e6,
       webrtc::test::Unit::kUnitless,
       webrtc::test::ImprovementDirection::kBiggerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}}); // Swapped here
 }
 
 void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time,
@@ -71,17 +75,21 @@ void L4SMetricsCollector::LogDelayMetrics(Timestamp at_time,
   last_delay_log_ = at_time;
   UpdateDelayStats(rtt, one_way_delay);
 
+  // Grab the globally synced UTC Epoch time specifically for the plot data
+  int64_t global_utc_ms = rtc::TimeUTCMillis();
+
+
   logger_->LogSingleValueMetric(
       "rtt_ms", test_case_name_, rtt.ms(), webrtc::test::Unit::kMilliseconds,
       webrtc::test::ImprovementDirection::kSmallerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}});
 
   if (one_way_delay.IsFinite()) {
     logger_->LogSingleValueMetric(
         "one_way_delay_ms", test_case_name_, one_way_delay.ms(),
         webrtc::test::Unit::kMilliseconds,
         webrtc::test::ImprovementDirection::kSmallerIsBetter,
-        {{"timestamp_ms", std::to_string(at_time.ms())}});
+        {{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
 }
 
@@ -99,13 +107,13 @@ void L4SMetricsCollector::LogLossMetrics(Timestamp at_time,
       "packet_loss_fraction", test_case_name_, loss_fraction,
       webrtc::test::Unit::kUnitless,
       webrtc::test::ImprovementDirection::kSmallerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}});
 
   logger_->LogSingleValueMetric(
       "packets_lost_count", test_case_name_, packets_lost,
       webrtc::test::Unit::kCount,
       webrtc::test::ImprovementDirection::kSmallerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}});
 }
 
 void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time,
@@ -117,13 +125,13 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time,
       "congestion_ce_count", test_case_name_, ce_count,
       webrtc::test::Unit::kCount,
       webrtc::test::ImprovementDirection::kSmallerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}});
 
   logger_->LogSingleValueMetric(
       "congestion_ratio", test_case_name_, congestion_ratio,
       webrtc::test::Unit::kUnitless,
       webrtc::test::ImprovementDirection::kSmallerIsBetter,
-      {{"timestamp_ms", std::to_string(at_time.ms())}});
+      {{"timestamp_ms", std::to_string(global_utc_ms)}});
 }
 
 void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
