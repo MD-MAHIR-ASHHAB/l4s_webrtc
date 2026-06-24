@@ -1333,7 +1333,7 @@ void webrtc::L4SNetworkController::LogPeriodicMetrics(Timestamp at_time) {
   metrics_collector_->LogBandwidthMetrics(at_time, target_rate, last_actual_bitrate_, last_acked_bitrate_, last_send_rate_);      
   
   static Timestamp last_delay_log_time = Timestamp::MinusInfinity();
-  if (last_rtt_.IsFinite() && (last_delay_log_time.IsInfinite() || (at_time - last_delay_log_time) >= TimeDelta::Millis(500))) {
+  if (last_rtt_.IsFinite() && !last_rtt_.IsZero() && (last_delay_log_time.IsInfinite() || (at_time - last_delay_log_time) >= TimeDelta::Millis(500))) {
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, TimeDelta::Zero());
     last_delay_log_time = at_time;
   }
