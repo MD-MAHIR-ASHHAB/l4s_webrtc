@@ -1094,6 +1094,11 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
 
   // --- RFC 3168 BASELINE (CE = LOSS) ---
   if (batch_ce_count > 0) {
+
+    RTC_LOG(LS_INFO) << "L4S: CE detected in batch. CE count=" << batch_ce_count
+                     << ", ECT count=" << batch_ect_count
+                     << ", Total packets=" << total_packets
+                     << ", Base for cut=" << base_for_cut.kbps() << " kbps";
       prague_estimator_->UpdateFromCongestionSignal(
           base_for_cut, 
           1.0, 
