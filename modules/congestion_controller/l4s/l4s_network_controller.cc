@@ -863,7 +863,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
   NetworkControlUpdate update;
   
   if (msg.packets_lost_delta > 0) {
-    RTC_LOG(LS_INFO) << "L4S: Transport loss report - "
+    RTC_LOG(LS_INFO) << "L4S: Failed Transport loss report - "
                      << "Lost: " << msg.packets_lost_delta
                      << ", Received: " << msg.packets_received_delta;
     
