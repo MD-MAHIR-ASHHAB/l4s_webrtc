@@ -1730,7 +1730,7 @@ void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
       << " | alr=" << IsApplicationLimited()
       << " | cooldown_left_ms=" << cooldown_left.ms()
       << " | target_bps=" << target_rate_.value_or(DataRate::Zero()).bps()
-      << " | send_rate_bps=" << last_send_rate_.value_or(DataRate::Zero()).bps()
+      << " | send_rate_bps=" << last_send_rate_.bps()
       << " | actual_bps=" << last_actual_bitrate_.bps()
       << " | acked_bps=" << last_acked_bitrate_.value_or(DataRate::Zero()).bps()
       << " | loss=" << last_loss_fraction_
