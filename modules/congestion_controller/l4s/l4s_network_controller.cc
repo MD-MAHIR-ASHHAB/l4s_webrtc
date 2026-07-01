@@ -67,7 +67,18 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate,
   }
 }
 
+
 PragueCapacityEstimator::~PragueCapacityEstimator() = default;
+
+
+enum class PragueMode {
+  kBaseline = 0,
+  kQueueAssist = 1,
+  kCeDensity = 2
+};
+
+// Change this to run experiments
+constexpr PragueMode kPragueMode = PragueMode::kBaseline;
 
 int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
   double rtt_ms =
@@ -80,81 +91,208 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
   return std::clamp(threshold, kNonCeThresholdMin, kNonCeThresholdMax);
 }
 
-// Continuous Equilibrium Engine - Multiplicative Decrease Step
-void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
-    DataRate current_rate, double ce_ratio, int window_packet_count, Timestamp current_time, DataRate historical_max) {
-  last_feedback_time_ = current_time;
+// // Continuous Equilibrium Engine - Multiplicative Decrease Step
+// void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
+//     DataRate current_rate, double ce_ratio, int window_packet_count, Timestamp current_time, DataRate historical_max) {
+//   last_feedback_time_ = current_time;
 
-  if (ce_ratio > 0.0) {  
-    non_ce_packet_count_ = 0;
+//   if (ce_ratio > 0.0) {  
+//     non_ce_packet_count_ = 0;
 
-    TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
-                            ? (current_rtt_ - baseline_rtt_) 
-                            : TimeDelta::Millis(0);
-    TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
-    pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
+//     TimeDelta queue_bloat = current_rtt_.IsFinite() && baseline_rtt_.IsFinite() 
+//                             ? (current_rtt_ - baseline_rtt_) 
+//                             : TimeDelta::Millis(0);
+//     TimeDelta pipeline_delay = (current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(100)) + queue_bloat;
+//     pipeline_delay = std::max(pipeline_delay, TimeDelta::Millis(50));
 
-    bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
+//     bool gate_open = last_md_time_.IsInfinite() || (current_time - last_md_time_ >= pipeline_delay);
 
-    if (discovery_mode_active_ && !first_ce_mark_detected_) {
-      discovery_mode_active_ = false;
-      first_ce_mark_detected_ = true;
+//     if (discovery_mode_active_ && !first_ce_mark_detected_) {
+//       discovery_mode_active_ = false;
+//       first_ce_mark_detected_ = true;
       
-      if (ce_ratio < 0.10) {
-        RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
-        TimeDelta hold_duration = current_rtt_.IsFinite() ? current_rtt_ * 2.0 : TimeDelta::Millis(200);
-        additive_hold_until_ = current_time + hold_duration;
-        last_congestion_signal_ = current_time;
-        return; 
-      }
-    }
+//       if (ce_ratio < 0.10) {
+//         RTC_LOG(LS_INFO) << "Prague: Soft Exit from discovery mode (ce_ratio=" << ce_ratio << " < 0.10). Holding rate.";
+//         TimeDelta hold_duration = current_rtt_.IsFinite() ? current_rtt_ * 2.0 : TimeDelta::Millis(200);
+//         additive_hold_until_ = current_time + hold_duration;
+//         last_congestion_signal_ = current_time;
+//         return; 
+//       }
+//     }
 
     
-      // --- FIX 1: THE ALPHA VELOCITY BUG ---
-      constexpr double g = 1.0 / 8.0;
-      alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+//       // --- FIX 1: THE ALPHA VELOCITY BUG ---
+//       constexpr double g = 1.0 / 8.0;
+//       alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
 
 
-    if (gate_open) {
+//     if (gate_open) {
 
-      // Execute Continuous Multiplicative Decrease
-      double reduction_factor = 1.0 - (alpha_ / 2.0);
-      reduction_factor = std::clamp(reduction_factor, 0.50, 1.0); 
+//       // Execute Continuous Multiplicative Decrease
+//       double reduction_factor = 1.0 - (alpha_ / 2.0);
+//       reduction_factor = std::clamp(reduction_factor, 0.50, 1.0); 
 
-      DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
+//       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
 
-      // =========================================================
-      // --- C6: ELASTIC BULLY SHIELD ---
-      // =========================================================
-      DataRate bully_floor = DataRate::KilobitsPerSec(600);
-      if (historical_max > DataRate::Zero()) {
-          bully_floor = std::max(bully_floor, historical_max * 0.45);
-      }
+//       // =========================================================
+//       // --- C6: ELASTIC BULLY SHIELD ---
+//       // =========================================================
+//       DataRate bully_floor = DataRate::KilobitsPerSec(600);
+//       if (historical_max > DataRate::Zero()) {
+//           bully_floor = std::max(bully_floor, historical_max * 0.45);
+//       }
 
-      if (reduced < bully_floor && ce_ratio > 0.05) {
-          // ELASTIC YIELD: 5% micro-cut instead of a concrete wall
-          reduced = std::max(current_rate * 0.95, min_target_rate_);
-          alpha_ *= 0.5; // Halve alpha debt while shielding
-          RTC_LOG(LS_WARNING) << "L4S: Elastic Bully Shield engaged! 5% micro-cut. Rate=" << reduced.kbps() << " kbps.";
-      }
+//       if (reduced < bully_floor && ce_ratio > 0.05) {
+//           // ELASTIC YIELD: 5% micro-cut instead of a concrete wall
+//           reduced = std::max(current_rate * 0.95, min_target_rate_);
+//           alpha_ *= 0.5; // Halve alpha debt while shielding
+//           RTC_LOG(LS_WARNING) << "L4S: Elastic Bully Shield engaged! 5% micro-cut. Rate=" << reduced.kbps() << " kbps.";
+//       }
 
-      
-      congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
-      last_md_time_ = current_time;
 
-      RTC_LOG(LS_INFO) << "L4S: Continuous MD (alpha=" << alpha_
-                       << ", reduction_factor=" << reduction_factor
-                       << "), target=" << congestion_based_estimate_.bps() 
-                       << " bps.";
-    }
-    last_congestion_signal_ = current_time;
-  }
-  else {  
+//       congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
+//       last_md_time_ = current_time;
+
+//       RTC_LOG(LS_INFO) << "L4S: Continuous MD (alpha=" << alpha_
+//                        << ", reduction_factor=" << reduction_factor
+//                        << "), target=" << congestion_based_estimate_.bps() 
+//                        << " bps.";
+//     }
+//     last_congestion_signal_ = current_time;
+//   }
+//   else {  
+//     non_ce_packet_count_ += window_packet_count;
+//   } 
+// }
+
+
+
+void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
+    DataRate current_rate,
+    double ce_ratio,
+    int window_packet_count,
+    Timestamp current_time,
+    DataRate historical_max) {
+
+  last_feedback_time_ = current_time;
+
+  if (ce_ratio <= 0.0) {
     non_ce_packet_count_ += window_packet_count;
-  } 
+    return;
+  }
+
+  non_ce_packet_count_ = 0;
+
+  // =========================================================
+  // 1. BASELINE RTT + QUEUE ESTIMATION
+  // =========================================================
+  TimeDelta queue_delay = TimeDelta::Millis(0);
+
+  if (current_rtt_.IsFinite() && baseline_rtt_.IsFinite()) {
+    queue_delay = current_rtt_ - baseline_rtt_;
+    queue_delay = std::max(queue_delay, TimeDelta::Millis(0));
+  }
+
+  double queue_pressure = 0.0;
+  if (baseline_rtt_.IsFinite()) {
+    queue_pressure =
+        queue_delay.ms() / std::max(1.0, baseline_rtt_.ms());
+    queue_pressure = std::clamp(queue_pressure, 0.0, 1.0);
+  }
+
+  // =========================================================
+  // 2. PRAGUE ALPHA UPDATE (UNCHANGED CORE)
+  // =========================================================
+  constexpr double g = 1.0 / 16.0;
+
+  alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
+
+  double effective_alpha = alpha_;
+
+  // =========================================================
+  // 3. MODE SWITCHING (A/B/C EXPERIMENTS)
+  // =========================================================
+
+  if (kPragueMode == PragueMode::kQueueAssist) {
+
+    // --- Queue delay assist (safe overlay) ---
+    if (alpha_ < 0.03 && queue_pressure > 0.02) {
+      effective_alpha =
+          std::max(alpha_, queue_pressure * 0.5);
+    }
+  }
+
+  else if (kPragueMode == PragueMode::kCeDensity) {
+
+    // --- CE density normalization ---
+    double expected_ce_ratio = 0.01; // weak prior (adaptive baseline)
+
+    if (window_packet_count > 0) {
+      expected_ce_ratio =
+          std::max(0.001,
+                   1.0 / (double)window_packet_count);
+    }
+
+    double density = ce_ratio / expected_ce_ratio;
+    density = std::clamp(density, 0.5, 3.0);
+
+    effective_alpha = alpha_ * density;
+  }
+
+  // =========================================================
+  // 4. GATE (your original idea preserved)
+  // =========================================================
+  TimeDelta pipeline_delay =
+      current_rtt_.IsFinite()
+          ? current_rtt_
+          : TimeDelta::Millis(180);
+
+  bool gate_open =
+      last_md_time_.IsInfinite() ||
+      (current_time - last_md_time_) >= pipeline_delay;
+
+  if (!gate_open) {
+    last_congestion_signal_ = current_time;
+    return;
+  }
+
+  // =========================================================
+  // 5. MULTIPLICATIVE DECREASE
+  // =========================================================
+  double reduction_factor =
+      1.0 - (effective_alpha / 2.0);
+
+  reduction_factor =
+      std::clamp(reduction_factor, 0.70, 1.0);
+
+  DataRate reduced = current_rate * reduction_factor;
+
+  // =========================================================
+  // 6. BULLY SHIELD (your logic preserved)
+  // =========================================================
+  DataRate bully_floor = DataRate::KilobitsPerSec(600);
+
+  if (historical_max > DataRate::Zero()) {
+    bully_floor =
+        std::max(bully_floor,
+                 historical_max * 0.40);
+  }
+
+  if (reduced < bully_floor && ce_ratio > 0.02) {
+    reduced = current_rate * 0.93;
+    alpha_ *= 0.7;
+  }
+
+  // =========================================================
+  // 7. COMMIT
+  // =========================================================
+  congestion_based_estimate_ =
+      std::max(reduced,
+               DataRate::KilobitsPerSec(20));
+
+  last_md_time_ = current_time;
+  last_congestion_signal_ = current_time;
 }
-
-
 
 
 void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
