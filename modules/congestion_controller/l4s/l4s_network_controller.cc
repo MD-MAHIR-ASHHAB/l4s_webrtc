@@ -123,18 +123,22 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
 
       DataRate reduced = std::max(current_rate * reduction_factor, min_target_rate_);
 
-      // SMART BULLY RESISTANCE PROTOCOL
-      DataRate bully_floor = DataRate::KilobitsPerSec(600); 
+      // =========================================================
+      // --- C6: ELASTIC BULLY SHIELD ---
+      // =========================================================
+      DataRate bully_floor = DataRate::KilobitsPerSec(600);
       if (historical_max > DataRate::Zero()) {
           bully_floor = std::max(bully_floor, historical_max * 0.45);
       }
 
       if (reduced < bully_floor && ce_ratio > 0.05) {
-          reduced = bully_floor;
+          // ELASTIC YIELD: 5% micro-cut instead of a concrete wall
+          reduced = std::max(current_rate * 0.95, min_target_rate_);
           alpha_ *= 0.5; // Halve alpha debt while shielding
-          RTC_LOG(LS_WARNING) << "L4S: Bully Resistance Engaged! CE ignored. Holding rate at " << reduced.kbps() << " kbps.";
+          RTC_LOG(LS_WARNING) << "L4S: Elastic Bully Shield engaged! 5% micro-cut. Rate=" << reduced.kbps() << " kbps.";
       }
 
+      
       congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
       last_md_time_ = current_time;
 
