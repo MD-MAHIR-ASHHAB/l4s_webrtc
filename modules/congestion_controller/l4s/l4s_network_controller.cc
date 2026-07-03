@@ -174,7 +174,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
     DataRate historical_max) {
 
   last_feedback_time_ = current_time;
-
+  
   if (ce_ratio <= 0.0) {
     non_ce_packet_count_ += window_packet_count;
     return;
@@ -193,6 +193,10 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   }
 
   double queue_pressure = 0.0;
+  
+  double retention_high = 1.0;
+  double retention_low = 0.5;
+
   if (queue_delay.ms() > 0) {
     // 100.0ms represents a typical physical AQM drop timer limit
     queue_pressure = static_cast<double>(queue_delay.ms()) / 100.0;
@@ -216,11 +220,10 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   if (kPragueMode == PragueMode::kQueueAssist) {
 
     // Smooth assist (no hard threshold)
-    double assist =
-        queue_pressure * (1.0 - alpha_);
+    double assist =queue_pressure * (1.0 - alpha_);
 
-    effective_alpha =
-        std::max(alpha_, assist);
+    effective_alpha = std::max(alpha_, assist);
+  
   }
 
   else if (kPragueMode == PragueMode::kCeDensity) {
@@ -268,12 +271,20 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   // =========================================================
   // 5. MULTIPLICATIVE DECREASE
   // =========================================================
-  double reduction_factor =
-      1.0 - (effective_alpha / 2.0);
+  double reduction_factor = 1.0 - (effective_alpha / 2.0);
 
-  reduction_factor =
-      std::clamp(reduction_factor, 0.70, 1.0);
+  if (queue_pressure > 0.15) {
+    retention_high = 0.95;
+    retention_low = 0.50; 
+  }
 
+  else {
+    retention_high = 1.0;
+    retention_low = 0.7; 
+  }
+  
+  reduction_factor = std::clamp(reduction_factor, retention_low, retention_high);
+  
   DataRate reduced = current_rate * reduction_factor;
 
   // =========================================================
