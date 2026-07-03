@@ -254,7 +254,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
 
   // Shrink the pipeline delay up to 25% under severe queue pressure
   // to force faster reaction before tail-drops occur.
-  pipeline_delay *= (1.0 - (queue_pressure * 0.25));
+  pipeline_delay = pipeline_delay * (1.0 - (queue_pressure * 0.25));
 
   bool gate_open =
       last_md_time_.IsInfinite() ||
