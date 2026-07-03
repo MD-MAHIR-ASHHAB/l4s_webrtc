@@ -56,7 +56,7 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate,
       non_ce_packet_count_(0),    
       accumulated_lost_packets_(0),
       accumulated_expected_packets_(0),
-      discovery_mode_active_(true),
+      discovery_mode_active_(true)
       // first_ce_mark_detected_(false) 
       {
   
