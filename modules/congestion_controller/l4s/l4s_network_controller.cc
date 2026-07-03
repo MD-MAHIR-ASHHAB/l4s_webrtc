@@ -801,7 +801,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
 
   if (msg.round_trip_time.IsFinite() && !msg.round_trip_time.IsZero()) {
     if (last_smoothed_rtt_.IsFinite() && !last_smoothed_rtt_.IsZero()) {
-      last_smoothed_rtt_ = (last_smoothed_rtt_ * 0.8) + (msg.round_trip_time * 0.2);
+      last_smoothed_rtt_ = (last_smoothed_rtt_ * 0.85) + (msg.round_trip_time * 0.15);
     } else {
       last_smoothed_rtt_ = msg.round_trip_time;
     }
@@ -829,7 +829,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnRoundTripTimeUpdate
         base_rtt_ = raw_safe_floor;
     }
     
-    prague_estimator_->UpdateFromRtt(last_rtt_); 
+    // prague_estimator_->UpdateFromRtt(last_rtt_); 
+
+    // =========================================================
+    // --- THE FIX: USE SMOOTHED RTT TO IGNORE TWCC BATCHING ---
+    // =========================================================
+    prague_estimator_->UpdateFromRtt(last_smoothed_rtt_);
+    
     last_estimated_round_trip_time_ = std::max(last_smoothed_rtt_, TimeDelta::Millis(20));
 
 
