@@ -57,7 +57,8 @@ PragueCapacityEstimator::PragueCapacityEstimator(DataRate starting_rate,
       accumulated_lost_packets_(0),
       accumulated_expected_packets_(0),
       discovery_mode_active_(true),
-      first_ce_mark_detected_(false) {
+      // first_ce_mark_detected_(false) 
+      {
   
   // Rate clamping logic
   if (congestion_based_estimate_ < min_target_rate_) {
