@@ -182,6 +182,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
 
   non_ce_packet_count_ = 0;
 
+  if (discovery_mode_active_) {
+    discovery_mode_active_ = false;
+    RTC_LOG(LS_INFO) << "L4S: Hard exit from discovery mode due to CE marks.";
+  }
+
   // =========================================================
   // 1. RTT + queue estimation (NORMALIZED TO AQM CLIFF)
   // =========================================================
