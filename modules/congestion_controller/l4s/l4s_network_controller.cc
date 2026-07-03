@@ -343,6 +343,11 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       // --- FIX 2: THE MICRO-BATCH LOSS TRAP ---
       double loss_ratio = (accumulated_expected_packets_ > 0) ? 
           (static_cast<double>(accumulated_lost_packets_) / accumulated_expected_packets_) : 0.0;
+
+      RTC_LOG(LS_WARNING) << "L4S: HARD LOSS DETECTED! Ratio: " << loss_ratio 
+                          << ". Packets lost: " << accumulated_lost_packets_ 
+                          << " / " << accumulated_expected_packets_ 
+                          << ". Current target: " << current_rate.kbps() << " kbps.";
           
       accumulated_lost_packets_ = 0;
       accumulated_expected_packets_ = 0;
