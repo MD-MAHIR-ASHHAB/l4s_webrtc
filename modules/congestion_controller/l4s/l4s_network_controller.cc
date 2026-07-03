@@ -301,6 +301,11 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
 
   last_md_time_ = current_time;
   last_congestion_signal_ = current_time;
+
+  RTC_LOG(LS_INFO) << "L4S: Continuous MD (alpha=" << alpha_
+                  << ", reduction_factor=" << reduction_factor
+                  << "), target=" << congestion_based_estimate_.bps() 
+                  << " bps.";
 }
 
 void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
