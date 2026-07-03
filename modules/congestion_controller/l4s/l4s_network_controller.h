@@ -139,7 +139,7 @@ class PragueCapacityEstimator {
   int accumulated_lost_packets_;
   int accumulated_expected_packets_;
   bool discovery_mode_active_;
-  bool first_ce_mark_detected_;
+  // bool first_ce_mark_detected_;
   DataRate probe_constraint_ = DataRate::Zero();
   Timestamp probe_constraint_time_ = Timestamp::MinusInfinity();
 
