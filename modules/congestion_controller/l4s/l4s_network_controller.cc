@@ -78,7 +78,7 @@ enum class PragueMode {
 };
 
 // Change this to run experiments
-constexpr PragueMode kPragueMode = PragueMode::kBaseline;
+constexpr PragueMode kPragueMode = PragueMode::kQueueAssist;
 
 int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
   double rtt_ms =
@@ -165,7 +165,6 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 //   } 
 // }
 
-
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
     DataRate current_rate,
     double ce_ratio,
@@ -183,7 +182,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   non_ce_packet_count_ = 0;
 
   // =========================================================
-  // 1. RTT + queue estimation (UNCHANGED)
+  // 1. RTT + queue estimation (NORMALIZED TO AQM CLIFF)
   // =========================================================
   TimeDelta queue_delay = TimeDelta::Millis(0);
 
@@ -193,10 +192,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   }
 
   double queue_pressure = 0.0;
-
-  if (baseline_rtt_.IsFinite() && baseline_rtt_.ms() > 0) {
-    queue_pressure =
-        queue_delay.ms() / baseline_rtt_.ms();
+  if (queue_delay.ms() > 0) {
+    // 100.0ms represents a typical physical AQM drop timer limit
+    queue_pressure = static_cast<double>(queue_delay.ms()) / 100.0;
   }
 
   queue_pressure = std::clamp(queue_pressure, 0.0, 1.0);
@@ -246,15 +244,16 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   }
 
   // =========================================================
-  // 4. GATE (slightly improved stability)
+  // 4. GATE (ACCELERATED UNDER PRESSURE)
   // =========================================================
   TimeDelta pipeline_delay =
       current_rtt_.IsFinite()
           ? current_rtt_
           : TimeDelta::Millis(180);
 
-  // queue-aware acceleration (IMPORTANT FIX)
-  pipeline_delay *= (1.0 + queue_pressure);
+  // Shrink the pipeline delay up to 25% under severe queue pressure
+  // to force faster reaction before tail-drops occur.
+  pipeline_delay *= (1.0 - (queue_pressure * 0.25));
 
   bool gate_open =
       last_md_time_.IsInfinite() ||
@@ -302,7 +301,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   last_md_time_ = current_time;
   last_congestion_signal_ = current_time;
 }
-
 
 void webrtc::PragueCapacityEstimator::EnterAdditiveMode(Timestamp current_time) {
   non_ce_packet_count_ = 0;
