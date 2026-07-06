@@ -1179,7 +1179,7 @@ void GoogCcNetworkController::LogPeriodicMetrics(Timestamp at_time) {
                                           last_send_rate_);      // 4. Send
   
   // Log delay metrics
-  if (last_rtt_.IsFinite()) {
+  if (last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
     metrics_collector_->LogDelayMetrics(at_time, last_rtt_, last_rtt_ / 2, jitter_); 
   }
   
