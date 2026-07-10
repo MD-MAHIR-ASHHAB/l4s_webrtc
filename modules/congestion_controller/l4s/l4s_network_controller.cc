@@ -1045,6 +1045,10 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
+  RTC_LOG(LS_VERBOSE) << "L4S: ECN feedback received. Batch ECT count: " << batch_ect_count
+                    << ", Batch CE count: " << batch_ce_count
+                    << ", probe caused congestion: " << probe_caused_congestion;
+
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
