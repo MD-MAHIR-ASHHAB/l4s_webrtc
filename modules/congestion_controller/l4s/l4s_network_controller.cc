@@ -298,9 +298,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   DataRate bully_floor = DataRate::KilobitsPerSec(600);
 
   if (historical_max > DataRate::Zero()) {
-    bully_floor =
-        std::max(bully_floor,
-                 historical_max * 0.40);
+    bully_floor =std::max(bully_floor,historical_max * 0.40);
+    RTC_LOG(LS_INFO) << "L4S: Bully Shield floor set to " << bully_floor.kbps() << " kbps."
+                    << " Historical max: " << historical_max.kbps() << " kbps.";
   }
 
   if (reduced < bully_floor && ce_ratio > 0.02) {
