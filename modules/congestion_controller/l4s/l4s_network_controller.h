@@ -340,6 +340,8 @@ private:
   int last_packets_lost_ = 0;
 
   // Probing state
+  int probe_trust_counter_ = 0;
+
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
   Timestamp probe_hold_until_ = Timestamp::MinusInfinity();
   Timestamp next_probe_allowed_at_ = Timestamp::MinusInfinity();

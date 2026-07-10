@@ -1147,12 +1147,37 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
         DataRate current_prague = prague_estimator_->GetCurrentEstimate();
         if (effective_probe_rate > (current_prague * 1.05)) {
           DataRate max_uplift = current_prague * 1.5;
+
+          if (prague_estimator_->IsDiscoveryModeActive() && probe_trust_counter_ < 5) {
+            // --- YOUR THEORY: Blind Trust for the first 5 probes ---
+            probe_trust_counter_++;
+            probe_ceiling = effective_probe_rate; 
+            
+            RTC_LOG(LS_INFO) << "L4S: [Blind Trust Phase] Probe " << probe_trust_counter_ 
+                             << " valid at " << probe_ceiling.kbps() 
+                             << " kbps. Instant jump executed.";
+
+            // Instantly jump the actual target rate to the probe result
+            prague_estimator_->SetCurrentEstimate(probe_ceiling);
+            prague_estimator_->SetProbeConstraint(probe_ceiling, now);
+            
+            // Note: We deliberately do NOT exit discovery mode here. We wait 
+            // for the actual DualPI2 CE marks to force us out.
+            
+          } else {
+            // --- Normal Steady-State Bounded Behavior ---
+            DataRate max_uplift = current_prague * 1.5;
+            probe_ceiling = std::min(effective_probe_rate * 0.95, max_uplift);
+            prague_estimator_->SetProbeConstraint(probe_ceiling, now);
+          }
+
+
           DataRate probe_ceiling = std::min(effective_probe_rate * 0.95, max_uplift);
           
           probe_reject_streak_ = 0;
           next_probe_allowed_at_ = Timestamp::MinusInfinity();
           probe_rate_ceiling_ = probe_ceiling;
-          prague_estimator_->SetProbeConstraint(probe_ceiling, now);
+          // prague_estimator_->SetProbeConstraint(probe_ceiling, now);
         }
       }
     } else {
