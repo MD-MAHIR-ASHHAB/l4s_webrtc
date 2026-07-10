@@ -1053,6 +1053,37 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   window_ce_count_ += batch_ce_count;
   window_ect_count_ += batch_ect_count;
 
+  // --- THE SWEEP TRIPWIRE ---
+  if (batch_ce_count > 0 && sweep_mode_active_) {
+      sweep_mode_active_ = false;
+      DataRate current_target = prague_estimator_->GetCurrentEstimate();
+      
+      // We found the exact limit of the physical queue. 
+      // Anchor the video target to the physical rate that triggered the mark.
+      // DataRate ground_truth = std::max(last_actual_bitrate_, last_send_rate_);
+      DataRate ground_truth = last_send_rate_;
+      
+      // Back off exactly 10% from the tripwire to instantly drain the 36-packet queue.
+      ground_truth = ground_truth * 0.90;
+      
+      if (prague_estimator_) {
+          prague_estimator_->SetCurrentEstimate(ground_truth);
+          prague_estimator_->ExitDiscoveryMode("Paced Sweep tripped by CE mark");
+      }
+      
+      RTC_LOG(LS_WARNING) << "L4S: [Paced Sweep] TRIPWIRE HIT! CE mark received. "
+                          << "Anchoring target safely to " << ground_truth.kbps() << " kbps.";
+      
+      // Absorb the CE mark so the standard continuous Prague engine 
+      // doesn't double-punish the connection on the next line.
+      window_ce_count_ = 0;
+      window_ect_count_ = 0;
+      window_start_time_ = feedback.feedback_time;
+      last_congestion_signal_ = feedback.feedback_time;
+      return; 
+  }
+
+
   double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
   double rate_bps = current_fused_rate.bps();
   double pkt_size_bits = 1400.0 * 8.0;
@@ -1151,15 +1182,30 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           if (prague_estimator_->IsDiscoveryModeActive() && probe_trust_counter_ < 5) {
             // --- YOUR THEORY: Blind Trust for the first 5 probes ---
             probe_trust_counter_++;
-            probe_ceiling = effective_probe_rate; 
-            
-            RTC_LOG(LS_INFO) << "L4S: [Blind Trust Phase] Probe " << probe_trust_counter_ 
-                             << " valid at " << probe_ceiling.kbps() 
-                             << " kbps. Instant jump executed.";
 
-            // Instantly jump the actual target rate to the probe result
-            prague_estimator_->SetCurrentEstimate(probe_ceiling);
-            prague_estimator_->SetProbeConstraint(probe_ceiling, now);
+            // --- INITIATE THE PACED SWEEP ---
+            sweep_mode_active_ = true;
+            sweep_target_rate_ = effective_probe_rate * 0.95; // Chase 95% of the probe
+            sweep_current_padding_rate_ = std::max(current_prague, last_send_rate_);
+            sweep_last_update_time_ = now;
+            sweep_reached_target_time_ = Timestamp::MinusInfinity();
+            
+            RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Initiating sweep towards " 
+                             << sweep_target_rate_.kbps() << " kbps.";
+                             
+            // DO NOT jump the estimator yet. Let the Pacer do the work.
+            probe_ceiling = sweep_target_rate_;
+
+
+            // probe_ceiling = effective_probe_rate; 
+            
+            // RTC_LOG(LS_INFO) << "L4S: [Blind Trust Phase] Probe " << probe_trust_counter_ 
+            //                  << " valid at " << probe_ceiling.kbps() 
+            //                  << " kbps. Instant jump executed.";
+
+            // // Instantly jump the actual target rate to the probe result
+            // prague_estimator_->SetCurrentEstimate(probe_ceiling);
+            // prague_estimator_->SetProbeConstraint(probe_ceiling, now);
             
             // Note: We deliberately do NOT exit discovery mode here. We wait 
             // for the actual DualPI2 CE marks to force us out.
@@ -1382,8 +1428,41 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   // Keep the link warm to maintain a smooth RTT and Send Rate. 
   // max_padding_rate_ is provided by WebRTC's BitrateAllocator.
   // We pad up to the max requested, but NEVER pad higher than the L4S safe target.
+
   DataRate padding_rate = max_padding_rate_.value_or(DataRate::Zero());
   padding_rate = std::min(padding_rate, current_rate);
+
+  // --- EXECUTE THE PACED SWEEP ---
+  if (sweep_mode_active_) {
+      TimeDelta elapsed = at_time - sweep_last_update_time_;
+      sweep_last_update_time_ = at_time;
+      
+      if (elapsed > TimeDelta::Zero()) {
+          // Sweep aggressively at 5 Mbps per second
+          double sweep_step = 5000000.0 * elapsed.seconds<double>();
+          sweep_current_padding_rate_ += DataRate::BitsPerSec(sweep_step);
+          sweep_current_padding_rate_ = std::min(sweep_current_padding_rate_, sweep_target_rate_);
+      }
+      
+      // Override the Pacer parameters
+      padding_rate = sweep_current_padding_rate_;
+      pacing_rate = std::max(pacing_rate, sweep_current_padding_rate_ * 1.05);
+
+      // Check if we survived the entire sweep without tripping the queue
+      if (sweep_current_padding_rate_ >= sweep_target_rate_) {
+          if (sweep_reached_target_time_.IsInfinite()) {
+              sweep_reached_target_time_ = at_time;
+          } else if (at_time - sweep_reached_target_time_ > TimeDelta::Millis(200)) {
+              // We sat at the max probe rate for 200ms with NO CE marks! It's safe.
+              sweep_mode_active_ = false;
+              if (prague_estimator_) {
+                  prague_estimator_->SetCurrentEstimate(sweep_target_rate_);
+              }
+              RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Success! Network is clear. Anchoring target at " 
+                               << sweep_target_rate_.kbps() << " kbps.";
+          }
+      }
+  }
 
   // =========================================================
   // 3. CONFIGURE THE PACER
