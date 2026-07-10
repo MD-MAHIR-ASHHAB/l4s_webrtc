@@ -1045,7 +1045,7 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
-  RTC_LOG(LS_VERBOSE) << "L4S: ECN feedback received. Batch ECT count: " << batch_ect_count
+  RTC_LOG(LS_INFO) << "L4S: ECN feedback received. Batch ECT count: " << batch_ect_count
                     << ", Batch CE count: " << batch_ce_count
                     << ", probe caused congestion: " << probe_caused_congestion;
 
