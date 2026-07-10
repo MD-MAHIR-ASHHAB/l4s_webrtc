@@ -316,9 +316,8 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   // =========================================================
   // 7. COMMIT
   // =========================================================
-  congestion_based_estimate_ =
-      std::max(reduced, DataRate::KilobitsPerSec(300));
-
+  // congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(300));
+ 
   last_md_time_ = current_time;
   last_congestion_signal_ = current_time;
 
