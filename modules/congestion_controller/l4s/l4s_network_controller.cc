@@ -1056,7 +1056,6 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
   // --- THE SWEEP TRIPWIRE ---
   if (batch_ce_count > 0 && sweep_mode_active_) {
       sweep_mode_active_ = false;
-      DataRate current_target = prague_estimator_->GetCurrentEstimate();
       
       // We found the exact limit of the physical queue. 
       // Anchor the video target to the physical rate that triggered the mark.
@@ -1178,6 +1177,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
         DataRate current_prague = prague_estimator_->GetCurrentEstimate();
         if (effective_probe_rate > (current_prague * 1.05)) {
           DataRate max_uplift = current_prague * 1.5;
+          DataRate probe_ceiling ;
 
           if (prague_estimator_->IsDiscoveryModeActive() && probe_trust_counter_ < 5) {
             // --- YOUR THEORY: Blind Trust for the first 5 probes ---
@@ -1217,8 +1217,6 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
             prague_estimator_->SetProbeConstraint(probe_ceiling, now);
           }
 
-
-          DataRate probe_ceiling = std::min(effective_probe_rate * 0.95, max_uplift);
           
           probe_reject_streak_ = 0;
           next_probe_allowed_at_ = Timestamp::MinusInfinity();
