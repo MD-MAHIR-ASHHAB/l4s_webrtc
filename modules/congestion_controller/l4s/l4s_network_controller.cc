@@ -1212,7 +1212,6 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
             
           } else {
             // --- Normal Steady-State Bounded Behavior ---
-            DataRate max_uplift = current_prague * 1.5;
             probe_ceiling = std::min(effective_probe_rate * 0.95, max_uplift);
             prague_estimator_->SetProbeConstraint(probe_ceiling, now);
           }
@@ -1426,40 +1425,16 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
   // Keep the link warm to maintain a smooth RTT and Send Rate. 
   // max_padding_rate_ is provided by WebRTC's BitrateAllocator.
   // We pad up to the max requested, but NEVER pad higher than the L4S safe target.
-
+  // =========================================================
+  // 2. THE PADDING RATE (The CBR Smoother)
+  // =========================================================
   DataRate padding_rate = max_padding_rate_.value_or(DataRate::Zero());
   padding_rate = std::min(padding_rate, current_rate);
 
-  // --- EXECUTE THE PACED SWEEP ---
+  // --- READ THE PACED SWEEP STATE (NO MATH HERE) ---
   if (sweep_mode_active_) {
-      TimeDelta elapsed = at_time - sweep_last_update_time_;
-      sweep_last_update_time_ = at_time;
-      
-      if (elapsed > TimeDelta::Zero()) {
-          // Sweep aggressively at 5 Mbps per second
-          double sweep_step = 5000000.0 * elapsed.seconds<double>();
-          sweep_current_padding_rate_ += DataRate::BitsPerSec(sweep_step);
-          sweep_current_padding_rate_ = std::min(sweep_current_padding_rate_, sweep_target_rate_);
-      }
-      
-      // Override the Pacer parameters
       padding_rate = sweep_current_padding_rate_;
       pacing_rate = std::max(pacing_rate, sweep_current_padding_rate_ * 1.05);
-
-      // Check if we survived the entire sweep without tripping the queue
-      if (sweep_current_padding_rate_ >= sweep_target_rate_) {
-          if (sweep_reached_target_time_.IsInfinite()) {
-              sweep_reached_target_time_ = at_time;
-          } else if (at_time - sweep_reached_target_time_ > TimeDelta::Millis(200)) {
-              // We sat at the max probe rate for 200ms with NO CE marks! It's safe.
-              sweep_mode_active_ = false;
-              if (prague_estimator_) {
-                  prague_estimator_->SetCurrentEstimate(sweep_target_rate_);
-              }
-              RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Success! Network is clear. Anchoring target at " 
-                               << sweep_target_rate_.kbps() << " kbps.";
-          }
-      }
   }
 
   // =========================================================
@@ -1477,6 +1452,9 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::CreateRateUpdate(Time
 
 void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUpdate* update, Timestamp at_time) {
   if (!at_time.IsFinite()) at_time = Timestamp::Millis(env_.clock().TimeInMilliseconds());
+
+  // 1. Update the math first!
+  UpdatePacedSweepState(at_time);
   
   NetworkControlUpdate rate_update = CreateRateUpdate(at_time);
   
@@ -1533,6 +1511,33 @@ bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
 
   TimeDelta effective_rtt = last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20)) : TimeDelta::Millis(100);
   return (now - last_congestion_signal_) >= (effective_rtt * kRecoveryCeQuietRttMultiplier);
+}
+
+void webrtc::L4SNetworkController::UpdatePacedSweepState(Timestamp at_time) {
+  if (!sweep_mode_active_) return;
+
+  TimeDelta elapsed = at_time - sweep_last_update_time_;
+  sweep_last_update_time_ = at_time;
+  
+  if (elapsed > TimeDelta::Zero()) {
+      double sweep_step = 5000000.0 * elapsed.seconds<double>();
+      sweep_current_padding_rate_ += DataRate::BitsPerSec(sweep_step);
+      sweep_current_padding_rate_ = std::min(sweep_current_padding_rate_, sweep_target_rate_);
+  }
+
+  // Check if we survived the entire sweep
+  if (sweep_current_padding_rate_ >= sweep_target_rate_) {
+      if (sweep_reached_target_time_.IsInfinite()) {
+          sweep_reached_target_time_ = at_time;
+      } else if (at_time - sweep_reached_target_time_ > TimeDelta::Millis(200)) {
+          sweep_mode_active_ = false;
+          if (prague_estimator_) {
+              prague_estimator_->SetCurrentEstimate(sweep_target_rate_);
+          }
+          RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Success! Network is clear. Anchoring target at " 
+                           << sweep_target_rate_.kbps() << " kbps.";
+      }
+  }
 }
 
 void webrtc::L4SNetworkController::LogStateSnapshot(Timestamp now) {
