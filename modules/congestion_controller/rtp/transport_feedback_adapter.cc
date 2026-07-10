@@ -593,18 +593,18 @@ int ignored_packets = 0;
     return lhs.sent_packet.sequence_number < rhs.sent_packet.sequence_number;
   });
   
-// Add this right before the return statement
-  if (!packet_result_vector.empty()) {
-    int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
-    int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
-    RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
-             << "  Packets Acknowledged: " << packet_result_vector.size() << "\n"
-             << "  Seq Range: [" << min_seq << ", " << max_seq << "]\n"
-             << "  ECT Marks: " << ect_count << "\n"
-             << "  CE Marks: " << ce_count << "\n"
-             << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
-             << "======================================";
-  }
+// // Add this right before the return statement
+//   if (!packet_result_vector.empty()) {
+//     int64_t min_seq = packet_result_vector.front().sent_packet.sequence_number;
+//     int64_t max_seq = packet_result_vector.back().sent_packet.sequence_number;
+//     RTC_LOG(LS_INFO) << "====== RFC 8888 PIPELINE ACTIVE ======\n"
+//              << "  Packets Acknowledged: " << packet_result_vector.size() << "\n"
+//              << "  Seq Range: [" << min_seq << ", " << max_seq << "]\n"
+//              << "  ECT Marks: " << ect_count << "\n"
+//              << "  CE Marks: " << ce_count << "\n"
+//              << "  ECN Supported: " << (supports_ecn ? "true" : "false") << "\n"
+//              << "======================================";
+//   }
   
   return ToTransportFeedback(std::move(packet_result_vector),
                              feedback_receive_time, supports_ecn,ect_count, ce_count);
