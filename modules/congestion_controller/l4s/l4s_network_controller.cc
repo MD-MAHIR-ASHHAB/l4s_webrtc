@@ -350,7 +350,7 @@ void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
   }
 }
 
-void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets) {
+void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets, DataRate historical_max) {
   // Accumulate loss incrementally as WebRTC reports tiny asynchronous batches
   accumulated_lost_packets_ += lost_packets;
   accumulated_expected_packets_ += total_packets;
@@ -393,7 +393,7 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       double retention_factor = 1.0 - loss_penalty;
       DataRate reduced = std::max(current_rate * retention_factor, min_target_rate_);
       // Apply the same structural shield to the packet loss path
-      DataRate clamped_rate = ApplyBullyShield(reduced, historical_max_); 
+      DataRate clamped_rate = ApplyBullyShield(reduced, historical_max); 
       congestion_based_estimate_ = std::max(clamped_rate, DataRate::KilobitsPerSec(300));
       // Reset Alpha so the continuous CE engine doesn't double-penalize the drop
       alpha_ = 0.0;
@@ -914,7 +914,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport
     
     // --- INTEGRATION: Pass BOTH lost and received packets to calculate Loss Ratio ---
     int total_packets = msg.packets_lost_delta + msg.packets_received_delta;
-    prague_estimator_->OnPacketLoss(current_rate, msg.receive_time, msg.packets_lost_delta, total_packets);
+    prague_estimator_->OnPacketLoss(current_rate, msg.receive_time, msg.packets_lost_delta, total_packets,historical_max_capacity_);
   }
   
   int total_packets = msg.packets_lost_delta + msg.packets_received_delta;

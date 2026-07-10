@@ -88,7 +88,7 @@ class PragueCapacityEstimator {
   ~PragueCapacityEstimator();
 
   void UpdateFromCongestionSignal(DataRate current_rate, double ce_ratio, int window_packet_count, Timestamp current_time, DataRate historical_max);
-  void OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets);
+  void OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets, DataRate historical_max);
   void OnAckedUpdate(Timestamp current_time, bool is_app_limited, DataRate actual_throughput, TimeDelta rtt_bloat);
   void EnterAdditiveMode(Timestamp current_time);
   void UpdateFromRtt(TimeDelta rtt);
