@@ -341,7 +341,6 @@ private:
 
   // Probing state
   int probe_trust_counter_ = 0;
-
   Timestamp last_probe_time_ = Timestamp::MinusInfinity();
   Timestamp probe_hold_until_ = Timestamp::MinusInfinity();
   Timestamp next_probe_allowed_at_ = Timestamp::MinusInfinity();
@@ -353,6 +352,13 @@ private:
   // suppress the call when the estimate hasn't changed meaningfully (>5%) so we
   // don't flood probe_controller.cc's "Measured bitrate" log.
   DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
+
+  // --- PACED SWEEP STATE ---
+  bool sweep_mode_active_ = false;
+  DataRate sweep_target_rate_ = DataRate::Zero();
+  DataRate sweep_current_padding_rate_ = DataRate::Zero();
+  Timestamp sweep_last_update_time_ = Timestamp::MinusInfinity();
+  Timestamp sweep_reached_target_time_ = Timestamp::MinusInfinity();
 
   // ALR state tracking for probe controller
   bool previously_in_alr_ = false;
