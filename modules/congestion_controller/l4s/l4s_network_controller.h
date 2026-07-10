@@ -115,6 +115,7 @@ class PragueCapacityEstimator {
   double CalculateRecoveryStep(double current_bps, double target_probe_bps, double elapsed_s) const;
   double CalculateStableStep(double current_bps, double elapsed_s) const;
   DataRate ApplyThroughputTether(DataRate proposed_rate, DataRate actual_throughput) const;
+  DataRate ApplyBullyShield(DataRate calculated_rate, DataRate historical_max);
 
   DataRate congestion_based_estimate_;
   DataRate min_target_rate_;
@@ -363,7 +364,7 @@ private:
   DataRate sweep_current_padding_rate_ = DataRate::Zero();
   Timestamp sweep_last_update_time_ = Timestamp::MinusInfinity();
   Timestamp sweep_reached_target_time_ = Timestamp::MinusInfinity();
-  
+
   // ALR state tracking for probe controller
   bool previously_in_alr_ = false;
 

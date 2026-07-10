@@ -166,6 +166,21 @@ int webrtc::PragueCapacityEstimator::ComputeAdaptiveNonCeThreshold() const {
 //   } 
 // }
 
+
+DataRate PragueCapacityEstimator::ApplyBullyShield(DataRate calculated_rate, DataRate historical_max) {
+  DataRate bully_floor = DataRate::KilobitsPerSec(600);
+  if (historical_max > DataRate::Zero()) {
+    bully_floor = std::max(bully_floor, historical_max * 0.40);
+  }
+
+  if (calculated_rate < bully_floor) {
+    RTC_LOG(LS_INFO) << "L4S: Bully Shield ENGAGED. Clamping rate from " 
+                     << calculated_rate.kbps() << " kbps up to floor " << bully_floor.kbps() << " kbps.";
+    return bully_floor;
+  }
+  return calculated_rate;
+}
+
 void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
     DataRate current_rate,
     double ce_ratio,
@@ -295,25 +310,14 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   // =========================================================
   // 6. BULLY SHIELD (unchanged but stable)
   // =========================================================
-  DataRate bully_floor = DataRate::KilobitsPerSec(600);
-
-  if (historical_max > DataRate::Zero()) {
-    bully_floor =std::max(bully_floor,historical_max * 0.40);
-    RTC_LOG(LS_INFO) << "L4S: Bully Shield floor set to " << bully_floor.kbps() << " kbps."
-                    << " Historical max: " << historical_max.kbps() << " kbps.";
-  }
-
-  if (reduced < bully_floor && ce_ratio > 0.02) {
-    reduced = current_rate * 0.93;
-    alpha_ *= 0.7;
-  }
+  DataRate clamped_rate = ApplyBullyShield(reduced, historical_max);
+  congestion_based_estimate_ = std::max(clamped_rate, DataRate::KilobitsPerSec(300));
 
   // =========================================================
   // 7. COMMIT
   // =========================================================
   congestion_based_estimate_ =
-      std::max(reduced,
-               DataRate::KilobitsPerSec(20));
+      std::max(reduced, DataRate::KilobitsPerSec(300));
 
   last_md_time_ = current_time;
   last_congestion_signal_ = current_time;
@@ -388,8 +392,9 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
       
       double retention_factor = 1.0 - loss_penalty;
       DataRate reduced = std::max(current_rate * retention_factor, min_target_rate_);
-      congestion_based_estimate_ = std::max(reduced, DataRate::KilobitsPerSec(20));
-      
+      // Apply the same structural shield to the packet loss path
+      DataRate clamped_rate = ApplyBullyShield(reduced, historical_max_); 
+      congestion_based_estimate_ = std::max(clamped_rate, DataRate::KilobitsPerSec(300));
       // Reset Alpha so the continuous CE engine doesn't double-penalize the drop
       alpha_ = 0.0;
       last_hard_loss_time_ = current_time;
