@@ -1540,6 +1540,7 @@ void webrtc::L4SNetworkController::UpdatePacedSweepState(Timestamp at_time) {
       } else if (at_time - sweep_reached_target_time_ > TimeDelta::Millis(200)) {
           sweep_mode_active_ = false;
           if (prague_estimator_) {
+              sweep_target_rate_ = sweep_target_rate_ * 0.90; // Back off 10% to avoid hitting the CE tripwire again
               prague_estimator_->SetCurrentEstimate(sweep_target_rate_);
           }
           RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Success! Network is clear. Anchoring target at " 
