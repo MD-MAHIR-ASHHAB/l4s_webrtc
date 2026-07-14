@@ -1193,15 +1193,28 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
 
             // --- INITIATE THE PACED SWEEP ---
             sweep_mode_active_ = true;
-            sweep_target_rate_ = effective_probe_rate * 0.95; // Chase 95% of the probe
-            sweep_current_padding_rate_ = std::max(current_prague, last_send_rate_);
+            TimeDelta rtt = last_rtt_.IsFinite() ? last_rtt_ : TimeDelta::Millis(50);
+            double rtt_s = rtt.seconds<double>();
+
+            double max_step_bps = (64000.0 *8.0) / rtt_s; // 64kbps per RTT
+            DataRate dynamic_step = DataRate::BitsPerSec(static_cast<int64_t>(max_step_bps));
+
+            DataRate current_base = std::max(current_prague, last_send_rate_);
+            DataRate raw_probe_target = effective_probe_rate * 0.95;
+           
+           
+            // sweep_target_rate_ = effective_probe_rate * 0.95; // Chase 95% of the probe
+
+            sweep_target_rate_ = std::min(raw_probe_target, current_base + dynamic_step);
+            // sweep_current_padding_rate_ = std::max(current_prague, last_send_rate_);
+            sweep_current_padding_rate_ = current_base;
             sweep_last_update_time_ = now;
             sweep_reached_target_time_ = Timestamp::MinusInfinity();
             
-            RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] Initiating sweep towards " 
-                             << sweep_target_rate_.kbps() << " kbps.";
-                             
-            // DO NOT jump the estimator yet. Let the Pacer do the work.
+            RTC_LOG(LS_INFO) << "L4S: [Paced Sweep] RTT=" << rtt.ms() 
+                             << "ms. Max Step=" << dynamic_step.kbps() 
+                             << " kbps. Target clamped to " << sweep_target_rate_.kbps() << " kbps.";
+            
             probe_ceiling = sweep_target_rate_;
 
 
