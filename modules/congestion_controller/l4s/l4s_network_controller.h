@@ -354,17 +354,6 @@ private:
   // don't flood probe_controller.cc's "Measured bitrate" log.
   DataRate last_reported_bitrate_to_probe_controller_ = DataRate::Zero();
 
-  // --- PACED SWEEP STATE ---
-
-  void UpdatePacedSweepState(Timestamp at_time); // Add this
-  
-  // Keep these strictly normal (NO mutable keyword)
-  bool sweep_mode_active_ = false;
-  DataRate sweep_target_rate_ = DataRate::Zero();
-  DataRate sweep_current_padding_rate_ = DataRate::Zero();
-  Timestamp sweep_last_update_time_ = Timestamp::MinusInfinity();
-  Timestamp sweep_reached_target_time_ = Timestamp::MinusInfinity();
-
   // ALR state tracking for probe controller
   bool previously_in_alr_ = false;
 
