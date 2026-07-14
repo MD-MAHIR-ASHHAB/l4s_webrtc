@@ -1187,7 +1187,7 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
           DataRate max_uplift = current_prague * 1.5;
           DataRate probe_ceiling ;
 
-          if (prague_estimator_->IsDiscoveryModeActive() && probe_trust_counter_ < 3) {
+          if (prague_estimator_->IsDiscoveryModeActive() && probe_trust_counter_ <= 3) {
             // --- YOUR THEORY: Blind Trust for the first 3 probes ---
             probe_trust_counter_++;
 
@@ -1196,11 +1196,11 @@ void webrtc::L4SNetworkController::ProcessRealProbeResults(const TransportPacket
             TimeDelta rtt = last_rtt_.IsFinite() ? last_rtt_ : TimeDelta::Millis(100);
             double rtt_s = rtt.seconds<double>();
 
-            double max_step_bps = (500000.0 *8.0) / rtt_s; // 500kbps per RTT
+            double max_step_bps = (128000.0 *8.0) / rtt_s; // 128kbps per RTT
             DataRate dynamic_step = DataRate::BitsPerSec(static_cast<int64_t>(max_step_bps));
 
             DataRate current_base = std::max(current_prague, last_send_rate_);
-            DataRate raw_probe_target = effective_probe_rate * 0.80;
+            DataRate raw_probe_target = effective_probe_rate * 0.90;
            
            
             // sweep_target_rate_ = effective_probe_rate * 0.95; // Chase 95% of the probe
