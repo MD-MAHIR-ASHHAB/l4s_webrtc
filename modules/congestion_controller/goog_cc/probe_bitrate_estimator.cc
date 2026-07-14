@@ -36,7 +36,7 @@ constexpr double kMinReceivedProbesRatio = .80;
 constexpr double kMinReceivedBytesRatio = .95;
 
 // The maximum |receive rate| / |send rate| ratio for a valid estimate.
-constexpr float kMaxValidRatio = 1.2f;
+constexpr float kMaxValidRatio = 1.3f;
 
 // The minimum |receive rate| / |send rate| ratio assuming that the link is
 // not saturated, i.e. we assume that we will receive at least
