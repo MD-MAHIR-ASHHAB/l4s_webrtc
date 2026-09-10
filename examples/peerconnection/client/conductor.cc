@@ -101,7 +101,7 @@ std::unique_ptr<TestVideoCapturer> CreateCapturer(
     webrtc::TaskQueueFactory& task_queue_factory) {
   const size_t kWidth = 1920;   // (1920x1080) Full HD
   const size_t kHeight = 1080;
-  const size_t kFps = 24;       // 30 FPS
+  const size_t kFps = 24;       // 24 FPS
 
   
   std::unique_ptr<webrtc::VideoCaptureModule::DeviceInfo> info(
