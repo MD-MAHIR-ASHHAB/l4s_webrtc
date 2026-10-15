@@ -481,7 +481,6 @@ bool Conductor::CreatePeerConnection() {
       peer_connection_,
       signaling_thread_.get());
   }
-  media_stats_collector_ = std::make_unique<MediaStatsCollector>();
   return peer_connection_ != nullptr;
 }
 
