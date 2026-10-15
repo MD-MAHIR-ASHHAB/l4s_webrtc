@@ -677,6 +677,7 @@ if (is_linux || is_chromeos || is_win) {
       "peerconnection/client/defaults.h",
       "peerconnection/client/peer_connection_client.cc",
       "peerconnection/client/peer_connection_client.h",
+      "peerconnection/client/media_stats_collector.h",
     ]
 
     deps = [
@@ -732,6 +733,7 @@ if (is_linux || is_chromeos || is_win) {
       "../test:test_video_capturer",
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/jsoncpp",
+      "../api:rtc_stats_api",
     ]
     if (is_win) {
       sources += [
