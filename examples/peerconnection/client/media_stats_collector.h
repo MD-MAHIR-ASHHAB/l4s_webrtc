@@ -159,7 +159,7 @@ class MediaStatsCollector {
       return IsVideo(stats.cast_to<webrtc::RTCOutboundRtpStreamStats>().kind);
     }
     if (type == "media-source") {
-      return IsVideo(stats.cast_to<webrtc::RTCMediaSourceStats>().kind);
+      return false;
     }
     if (type == "codec") {
       const auto& mime = stats.cast_to<webrtc::RTCCodecStats>().mime_type;
