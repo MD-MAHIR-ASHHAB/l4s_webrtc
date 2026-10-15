@@ -32,6 +32,9 @@ namespace webrtc {
 class VideoCaptureModule;
 }  // namespace webrtc
 
+
+class MediaStatsCollector;
+
 class Conductor : public webrtc::PeerConnectionObserver,
                   public webrtc::CreateSessionDescriptionObserver,
                   public PeerConnectionClientObserver,
@@ -133,6 +136,7 @@ class Conductor : public webrtc::PeerConnectionObserver,
   MainWindow* main_wnd_;
   std::deque<std::string*> pending_messages_;
   std::string server_;
+  std::unique_ptr<MediaStatsCollector> media_stats_collector_;
 };
 
 #endif  // EXAMPLES_PEERCONNECTION_CLIENT_CONDUCTOR_H_
