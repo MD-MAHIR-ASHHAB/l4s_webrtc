@@ -67,6 +67,9 @@
 #include "test/test_video_capturer.h"
 #include "test/testsupport/file_utils.h"
 
+#include "examples/peerconnection/client/media_stats_collector.h"
+
+
 namespace {
 using webrtc::test::TestVideoCapturer;
 
@@ -288,6 +291,7 @@ Conductor::Conductor(const webrtc::Environment& env,
 }
 
 Conductor::~Conductor() {
+  media_stats_collector_.reset();
   RTC_DCHECK(!peer_connection_);
 }
 
@@ -362,6 +366,7 @@ bool Conductor::ReinitializePeerConnectionForLoopback() {
   loopback_ = true;
   std::vector<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> senders =
       peer_connection_->GetSenders();
+  media_stats_collector_.reset();
   peer_connection_ = nullptr;
   // Loopback is only possible if encryption is disabled.
   webrtc::PeerConnectionFactoryInterface::Options options;
@@ -403,18 +408,30 @@ bool Conductor::CreatePeerConnection() {
       peer_connection_factory_->CreatePeerConnectionOrError(
           config, std::move(pc_dependencies));
   if (error_or_peer_connection.ok()) {
-    peer_connection_ = std::move(error_or_peer_connection.value());
+    media_stats_collector_.reset();
+
+    peer_connection_ =
+        std::move(error_or_peer_connection.value());
+
+    media_stats_collector_ = MediaStatsCollector::Start(
+        peer_connection_, signaling_thread_.get());
   }
+
   return peer_connection_ != nullptr;
 }
 
 void Conductor::DeletePeerConnection() {
+
+  media_stats_collector_.reset();
+
   main_wnd_->StopLocalRenderer();
   main_wnd_->StopRemoteRenderer();
+  
   peer_connection_ = nullptr;
   peer_connection_factory_ = nullptr;
   peer_id_ = -1;
   loopback_ = false;
+  
 }
 
 void Conductor::EnsureStreamingUI() {
