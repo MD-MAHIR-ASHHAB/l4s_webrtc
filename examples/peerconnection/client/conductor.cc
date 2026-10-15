@@ -472,16 +472,15 @@ bool Conductor::CreatePeerConnection() {
       peer_connection_factory_->CreatePeerConnectionOrError(
           config, std::move(pc_dependencies));
   if (error_or_peer_connection.ok()) {
-  media_stats_collector_.reset();
+    media_stats_collector_.reset();
 
-  peer_connection_ =
-      std::move(error_or_peer_connection.value());
+    peer_connection_ =
+        std::move(error_or_peer_connection.value());
 
-  media_stats_collector_ = MediaStatsCollector::Start(
-      peer_connection_,
-      signaling_thread_.get());
+    media_stats_collector_ = MediaStatsCollector::Start(
+        peer_connection_, signaling_thread_.get());
   }
-  media_stats_collector_ = std::make_unique<MediaStatsCollector>();
+
   return peer_connection_ != nullptr;
 }
 
