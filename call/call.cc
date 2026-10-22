@@ -103,6 +103,57 @@
 #include "video/video_receive_stream2.h"
 #include "video/video_send_stream_impl.h"
 
+#include <cstddef>
+#include <cstdint>
+#if defined(__linux__)
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+#include "rtc_base/time_utils.h"
+
+
+// Temporary RTT diagnostic. Only SR/RR-leading packets are logged.
+// Timestamp is captured before hashing/log output; hashes identify bytes, not secrets.
+namespace {
+void TraceRtcpReceiveStage(const char* stage,
+                           const uint8_t* data,
+                           size_t size,
+                           const void* owner,
+                           int64_t socket_arrival_us = -1,
+                           int64_t lock_wait_us = -1) {
+  if (size < 8 || (data[0] >> 6) != 2 ||
+      (data[1] != 200 && data[1] != 201)) {
+    return;
+  }
+  const int64_t mono_us = webrtc::TimeMicros();
+  uint64_t hash = UINT64_C(14695981039346656037);
+  for (size_t i = 0; i < size; ++i) {
+    hash ^= data[i];
+    hash *= UINT64_C(1099511628211);
+  }
+  const uint32_t sender_ssrc =
+      (static_cast<uint32_t>(data[4]) << 24) |
+      (static_cast<uint32_t>(data[5]) << 16) |
+      (static_cast<uint32_t>(data[6]) << 8) |
+      static_cast<uint32_t>(data[7]);
+#if defined(__linux__)
+  const long tid = syscall(SYS_gettid);
+#else
+  const long tid = 0;
+#endif
+  RTC_LOG(LS_INFO) << "RTCP_RX_TRACE stage=" << stage
+                   << " mono_us=" << mono_us
+                   << " tid=" << tid
+                   << " owner=" << owner
+                   << " bytes=" << size
+                   << " pt=" << static_cast<unsigned>(data[1])
+                   << " sender_ssrc=" << sender_ssrc
+                   << " hash=" << hash
+                   << " socket_arrival_us=" << socket_arrival_us
+                   << " lock_wait_us=" << lock_wait_us;
+}
+}  // namespace
+
 namespace webrtc {
 
 namespace {
@@ -1422,6 +1473,7 @@ void Call::ConfigureSync(absl::string_view sync_group) {
 void Call::DeliverRtcpPacket(CopyOnWriteBuffer packet) {
   RTC_DCHECK_RUN_ON(worker_thread_);
   RTC_DCHECK(IsRtcpPacket(packet));
+  TraceRtcpReceiveStage("call_worker_enter", packet.cdata(), packet.size(), this);
   TRACE_EVENT0("webrtc", "Call::DeliverRtcp");
 
   receive_stats_.AddReceivedRtcpBytes(static_cast<int>(packet.size()));
@@ -1446,6 +1498,7 @@ void Call::DeliverRtcpPacket(CopyOnWriteBuffer packet) {
     rtcp_delivered = true;
   }
 
+  TraceRtcpReceiveStage("call_worker_streams_done", packet.cdata(), packet.size(), this);
   if (rtcp_delivered) {
     env_.event_log().Log(std::make_unique<RtcEventRtcpPacketIncoming>(packet));
   }
