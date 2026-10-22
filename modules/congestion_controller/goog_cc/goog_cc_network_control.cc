@@ -49,6 +49,57 @@
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+
+namespace {
+// Opt in per process while the experiment shutdown protocol is being validated.
+bool RequestOnlyMetricsExportEnabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("L4S_EXPORT_ON_REQUEST");
+    const bool result = value && std::string(value) == "1";
+    RTC_LOG(LS_INFO) << "METRICS_EXPORT_MODE request_only=" << (result ? 1 : 0);
+    return result;
+  }();
+  return enabled;
+}
+
+std::string ReadMetricsExportRequest(const std::string& filename) {
+  const std::string request_path = filename + ".export_request";
+  FILE* request = fopen(request_path.c_str(), "r");
+  if (!request) return {};
+  char buffer[64];
+  const size_t count = fread(buffer, 1, sizeof(buffer), request);
+  const bool failed = ferror(request) != 0;
+  fclose(request);
+  if (failed || count != 32) return {};
+  for (size_t i = 0; i < count; ++i) {
+    if (!((buffer[i] >= '0' && buffer[i] <= '9') ||
+          (buffer[i] >= 'a' && buffer[i] <= 'f'))) return {};
+  }
+  return std::string(buffer, count);
+}
+
+bool AcknowledgeMetricsExport(const std::string& filename,
+                              const std::string& token) {
+  const std::string ack_path = filename + ".export_ack";
+  const std::string ack_temp = ack_path + ".tmp";
+  FILE* ack = fopen(ack_temp.c_str(), "w");
+  if (!ack) return false;
+  bool ok = fprintf(ack, "%s\n", token.c_str()) > 0;
+  if (fflush(ack) != 0) ok = false;
+  if (fsync(fileno(ack)) != 0) ok = false;
+  if (fclose(ack) != 0) ok = false;
+  if (!ok || rename(ack_temp.c_str(), ack_path.c_str()) != 0) {
+    remove(ack_temp.c_str());
+    return false;
+  }
+  remove((filename + ".export_request").c_str());
+  return true;
+}
+}  // namespace
+
 namespace webrtc {
 
 namespace {
@@ -1129,7 +1180,12 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
   // Periodically export all metrics to JSON
-  ExportToJsonFile("gcc_test_c2.json");
+  // Keep collecting in memory; copy and serialize only after an export request.
+  const std::string filename = "gcc_test_c2.json";
+  if (!RequestOnlyMetricsExportEnabled() ||
+      !ReadMetricsExportRequest(filename).empty()) {
+    ExportToJsonFile(filename);
+  }
 }
 
 
@@ -1197,6 +1253,7 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
     return;
   }
 
+  const std::string export_token = ReadMetricsExportRequest(filename);
   auto metrics = logger_->GetCollectedMetrics();
 
   // Write to a temporary file first.
@@ -1239,6 +1296,13 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
 
   fprintf(f, "]\n");
 
+  // Do not acknowledge a snapshot after a buffered write error.
+  if (ferror(f) != 0) {
+    RTC_LOG(LS_ERROR) << "Failed to write temporary metrics file: " << temp_filename;
+    fclose(f);
+    return;
+  }
+
   // Flush stdio buffers.
   if (fflush(f) != 0) {
     RTC_LOG(LS_ERROR)
@@ -1275,6 +1339,16 @@ void GCCMetricsCollector::ExportToJsonFile(const std::string& filename) {
 
     remove(temp_filename.c_str());
     return;
+  }
+
+  // Only acknowledge after the JSON was flushed, synced, closed and renamed.
+  if (!export_token.empty()) {
+    if (!AcknowledgeMetricsExport(filename, export_token)) {
+      RTC_LOG(LS_ERROR) << "METRICS_FINAL_EXPORT acknowledgement failed";
+      return;
+    }
+    RTC_LOG(LS_INFO) << "METRICS_FINAL_EXPORT token=" << export_token
+                     << " filename=" << filename;
   }
 
   // Heartbeat logging.
