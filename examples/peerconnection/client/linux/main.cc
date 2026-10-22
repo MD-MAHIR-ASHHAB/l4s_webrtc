@@ -52,17 +52,8 @@ class CustomSocketServer : public webrtc::PhysicalSocketServer {
         client_ != nullptr && !client_->is_connected()) {
       message_queue_->Quit();
     }
-    // Allow a short socket wait while keeping GTK responsive.
-    // Respect earlier deadlines requested by the WebRTC thread.
-    const auto gtk_poll_interval = webrtc::TimeDelta::Millis(5);
-    const auto wait_duration =
-        max_wait_duration < gtk_poll_interval
-            ? max_wait_duration
-            : gtk_poll_interval;
-
-    return webrtc::PhysicalSocketServer::Wait(wait_duration, process_io);
-    // return webrtc::PhysicalSocketServer::Wait(webrtc::TimeDelta::Zero(),
-    //                                           process_io);
+    return webrtc::PhysicalSocketServer::Wait(webrtc::TimeDelta::Zero(),
+                                              process_io);
   }
 
  protected:

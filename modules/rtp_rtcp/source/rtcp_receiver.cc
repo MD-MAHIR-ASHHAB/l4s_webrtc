@@ -71,57 +71,6 @@
 #include "system_wrappers/include/clock.h"
 #include "system_wrappers/include/ntp_time.h"
 
-#include <cstddef>
-#include <cstdint>
-#if defined(__linux__)
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-#include "rtc_base/time_utils.h"
-
-
-// Temporary RTT diagnostic. Only SR/RR-leading packets are logged.
-// Timestamp is captured before hashing/log output; hashes identify bytes, not secrets.
-namespace {
-void TraceRtcpReceiveStage(const char* stage,
-                           const uint8_t* data,
-                           size_t size,
-                           const void* owner,
-                           int64_t socket_arrival_us = -1,
-                           int64_t lock_wait_us = -1) {
-  if (size < 8 || (data[0] >> 6) != 2 ||
-      (data[1] != 200 && data[1] != 201)) {
-    return;
-  }
-  const int64_t mono_us = webrtc::TimeMicros();
-  uint64_t hash = UINT64_C(14695981039346656037);
-  for (size_t i = 0; i < size; ++i) {
-    hash ^= data[i];
-    hash *= UINT64_C(1099511628211);
-  }
-  const uint32_t sender_ssrc =
-      (static_cast<uint32_t>(data[4]) << 24) |
-      (static_cast<uint32_t>(data[5]) << 16) |
-      (static_cast<uint32_t>(data[6]) << 8) |
-      static_cast<uint32_t>(data[7]);
-#if defined(__linux__)
-  const long tid = syscall(SYS_gettid);
-#else
-  const long tid = 0;
-#endif
-  RTC_LOG(LS_INFO) << "RTCP_RX_TRACE stage=" << stage
-                   << " mono_us=" << mono_us
-                   << " tid=" << tid
-                   << " owner=" << owner
-                   << " bytes=" << size
-                   << " pt=" << static_cast<unsigned>(data[1])
-                   << " sender_ssrc=" << sender_ssrc
-                   << " hash=" << hash
-                   << " socket_arrival_us=" << socket_arrival_us
-                   << " lock_wait_us=" << lock_wait_us;
-}
-}  // namespace
-
 namespace webrtc {
 namespace {
 
@@ -286,13 +235,10 @@ void RTCPReceiver::IncomingPacket(ArrayView<const uint8_t> packet) {
     return;
   }
 
-  TraceRtcpReceiveStage("receiver_enter", packet.data(), packet.size(), this);
   PacketInformation packet_information;
   if (!ParseCompoundPacket(packet, &packet_information))
     return;
-  TraceRtcpReceiveStage("receiver_parse_done", packet.data(), packet.size(), this);
   TriggerCallbacksFromRtcpPacket(packet_information);
-  TraceRtcpReceiveStage("receiver_callbacks_done", packet.data(), packet.size(), this);
 }
 
 // This method is only used by test and legacy code, so we should be able to
@@ -448,10 +394,7 @@ std::vector<ReportBlockData> RTCPReceiver::GetLatestReportBlockData() const {
 
 bool RTCPReceiver::ParseCompoundPacket(ArrayView<const uint8_t> packet,
                                        PacketInformation* packet_information) {
-  const int64_t trace_lock_start_us = TimeMicros();
   MutexLock lock(&rtcp_receiver_lock_);
-  TraceRtcpReceiveStage("parse_lock_acquired", packet.data(), packet.size(), this, -1,
-                        TimeMicros() - trace_lock_start_us);
 
   CommonHeader rtcp_block;
   // If a sender report is received but no DLRR, we need to reset the
@@ -693,24 +636,6 @@ void RTCPReceiver::HandleReportBlock(const ReportBlock& report_block,
     uint32_t rtt_ntp = receive_time_ntp - delay_ntp - send_time_ntp;
     // Convert to 1/1000 seconds (milliseconds).
     TimeDelta rtt = CompactNtpRttToTimeDelta(rtt_ntp);
-    
-    RTC_LOG(LS_INFO)
-      << "RTT_TRACE"
-      << " receiver=" << static_cast<const void*>(this)
-      << " mono_ms=" << now.ms()
-      << " remote_ssrc=" << remote_ssrc
-      << " source_ssrc=" << report_block.source_ssrc()
-      << " local_media_ssrc=" << local_media_ssrc()
-      << " arrival_ntp=" << receive_time_ntp
-      << " lsr=" << send_time_ntp
-      << " elapsed_ms="
-      << (static_cast<double>(
-              static_cast<uint32_t>(receive_time_ntp - send_time_ntp))
-          * 1000.0 / 65536.0)
-      << " dlsr_ms="
-      << (static_cast<double>(delay_ntp) * 1000.0 / 65536.0)
-      << " rtt_ms=" << rtt.ms();
-
     report_block_data->AddRoundTripTimeSample(rtt);
     if (report_block.source_ssrc() == local_media_ssrc()) {
       rtts_[remote_ssrc].AddRtt(rtt);
