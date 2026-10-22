@@ -46,6 +46,9 @@ class ReceiveSideCongestionController : public CallStatsObserver {
 
   void EnableSendCongestionControlFeedbackAccordingToRfc8888();
 
+  void SendImmediateCongestionFeedback()
+    RTC_NO_THREAD_SAFETY_ANALYSIS;
+
   void OnReceivedPacket(const RtpPacketReceived& packet, MediaType media_type);
 
   // Implements CallStatsObserver.

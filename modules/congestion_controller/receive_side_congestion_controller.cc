@@ -178,4 +178,14 @@ void ReceiveSideCongestionController::SetMaxDesiredReceiveBitrate(
   remb_throttler_.SetMaxDesiredReceiveBitrate(bitrate);
 }
 
+void ReceiveSideCongestionController::SendImmediateCongestionFeedback()
+    RTC_NO_THREAD_SAFETY_ANALYSIS {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+
+  if (send_rfc8888_congestion_feedback_) {
+    congestion_control_feedback_generator_.SendImmediateFeedback();
+  }
+}
+
+
 }  // namespace webrtc

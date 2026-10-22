@@ -1534,6 +1534,7 @@ void Call::ProcessL4sEcnMarking(const RtpPacketReceived& packet) {
       l4s_rfc8888_enabled_ = true;
       RTC_LOG(LS_VERBOSE) << "L4S: Enabled RFC 8888 feedback for ECN information";
     }
+    receive_side_cc_.SendImmediateCongestionFeedback();
   }
 }
 

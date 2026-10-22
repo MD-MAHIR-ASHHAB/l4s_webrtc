@@ -29,6 +29,7 @@
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "api/transport/ecn_marking.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 
 namespace webrtc {
@@ -58,6 +59,8 @@ void CongestionControlFeedbackGenerator::OnReceivedPacket(
   if (!first_arrival_time_since_feedback_) {
     first_arrival_time_since_feedback_ = packet.arrival_time();
   }
+
+
   feedback_trackers_[packet.Ssrc()].ReceivedPacket(packet);
   if (NextFeedbackTime() < packet.arrival_time()) {
     SendFeedback(env_.clock().CurrentTime());
@@ -87,10 +90,16 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
 }
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
-  if (now < next_possible_feedback_send_time_) {
-    // Adjust timestamp to prevent timing issues
-    now = next_possible_feedback_send_time_;
+  // if (now < next_possible_feedback_send_time_) {
+  //   // Adjust timestamp to prevent timing issues
+  //   now = next_possible_feedback_send_time_;
+  // }
+
+  // Use the actual send time without moving timestamps into the future.
+  if (now < last_feedback_sent_time_) {
+    now = last_feedback_sent_time_;
   }
+
   uint32_t compact_ntp =
       CompactNtp(env_.clock().ConvertTimestampToNtpTime(now));
   std::vector<rtcp::CongestionControlFeedback::PacketInfo> rtcp_packet_info;
@@ -128,6 +137,12 @@ void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
   std::vector<std::unique_ptr<rtcp::RtcpPacket>> rtcp_packets;
   rtcp_packets.push_back(std::move(feedback));
   rtcp_sender_(std::move(rtcp_packets));
+}
+
+
+void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
+  RTC_DCHECK_RUN_ON(&sequence_checker_);
+  SendFeedback(env_.clock().CurrentTime());
 }
 
 void CongestionControlFeedbackGenerator::CalculateNextPossibleSendTime(
