@@ -37,7 +37,6 @@
 #include "modules/congestion_controller/goog_cc/send_side_bandwidth_estimation.h"
 #include "rtc_base/experiments/field_trial_parser.h"
 #include "rtc_base/experiments/rate_control_settings.h"
-#include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
 #include "api/numerics/samples_stats_counter.h"
 #include "api/test/metrics/global_metrics_logger_and_exporter.h"
 #include "api/test/metrics/metrics_logger.h"
@@ -178,7 +177,6 @@ class GoogCcNetworkController : public NetworkControllerInterface {
 
   std::unique_ptr<SendSideBandwidthEstimation> bandwidth_estimation_;
   std::unique_ptr<AlrDetector> alr_detector_;
-  std::unique_ptr<EcnBasedBwe> ecn_based_bwe_; 
   std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<NetworkStateEstimator> network_estimator_;
   std::unique_ptr<NetworkStatePredictor> network_state_predictor_;

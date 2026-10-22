@@ -1145,7 +1145,12 @@ bool LossBasedBweV2::PushBackObservation(
   Timestamp last_send_time = Timestamp::MinusInfinity();
   Timestamp first_send_time = Timestamp::PlusInfinity();
   for (const PacketResult& packet : packet_results) {
-    if (packet.IsReceived()) {
+    // GCC-ECN-1: feed CE into the existing loss model as a loss observation.
+    // Keep the original feedback intact for delay, acknowledged throughput,
+    // and actual packet-loss metrics. The map counts each sequence once.
+    const bool congestion_loss =
+        !packet.IsReceived() || packet.ecn == EcnMarking::kCe;
+    if (!congestion_loss) {
       partial_observation_.lost_packets.erase(
           packet.sent_packet.sequence_number);
     } else {

@@ -176,7 +176,6 @@ GoogCcNetworkController::GoogCcNetworkController(NetworkControllerConfig config,
                                                         &env_.event_log())),
       alr_detector_(std::make_unique<AlrDetector>(&env_.field_trials(),
                                                   &env_.event_log())),
-      ecn_based_bwe_(std::make_unique<EcnBasedBwe>()),
       probe_bitrate_estimator_(new ProbeBitrateEstimator(&env_.event_log())),
       network_estimator_(std::move(goog_cc_config.network_state_estimator)),
       network_state_predictor_(
@@ -501,9 +500,6 @@ std::vector<ProbeClusterConfig> GoogCcNetworkController::ResetConstraints(
     delay_based_bwe_->SetStartBitrate(*starting_rate_);
   delay_based_bwe_->SetMinBitrate(min_data_rate_);
 
-  if (ecn_based_bwe_) {
-    ecn_based_bwe_->SetMinMaxBitrate(min_data_rate_, max_data_rate_);
-  }
 
   return probe_controller_->SetBitrates(
       min_data_rate_, starting_rate_.value_or(DataRate::Zero()), max_data_rate_,
@@ -628,10 +624,6 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
     if (feedback_min_rtt.IsFinite()) {
       bandwidth_estimation_->UpdateRtt(feedback_min_rtt, report.feedback_time);
     }
-  // Keep ECN Controller's RTT synchronized
-    if (ecn_based_bwe_) {
-      ecn_based_bwe_->UpdateRtt(feedback_min_rtt);
-    }
 
     expected_packets_since_last_loss_update_ +=
         report.PacketsWithFeedback().size();
@@ -704,66 +696,9 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
       alr_start_time.has_value());
 
 
-   // --- 2. PLUG IN YOUR ECN-BASED BWE ---
-  // Treat ECN-based BWE as a cap provider rather than an override. If the ECN
-  // module observed CE marks it will request a multiplicative decrease; we
-  // enforce that by capping the delay-based target or, if delay-based did not
-  // produce an update, by producing an update that lowers the current target.
-  std::optional<DataRate> ecn_cap;
-  if (ecn_based_bwe_ && report.transport_supports_ecn) {
+  // CE-as-loss is handled by LossBasedBweV2. Do not apply a separate
+  // ECN cap or push CE reductions into the delay estimator's state.
 
-        // --- EXACT SYNC FIX ---
-    // Force the ECN module's internal state to exactly match GCC's overarching target
-    // before computing any Multiplicative Decreases.
-    ecn_based_bwe_->SetTargetBitrate(bandwidth_estimation_->target_rate());
-    
-    EcnBasedBwe::ECNResult ecn_result = ecn_based_bwe_->IncomingPacketFeedbackVector(
-        report, acknowledged_bitrate, probe_bitrate, estimate_,
-        alr_start_time.has_value());
-
-    if (ecn_result.updated) {
-      ecn_cap = ecn_result.target_bitrate;
-      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Suggested cap: "
-                          << ecn_cap->kbps() << " kbps";
-    }
-  }
-
-  // If ECN provided a cap, apply it conservatively.
-  if (ecn_cap.has_value()) {
-    if (result.updated) {
-      // Apply cap to the delay-based target.
-      if (*ecn_cap < result.target_bitrate) {
-          result.target_bitrate = *ecn_cap;
-          
-          // NEW: Force DelayBasedBwe's internal state down to the ECN cap
-          delay_based_bwe_->SetStartBitrate(*ecn_cap); 
-      }
-
-
-      // // Apply cap to the delay-based target.
-      // result.target_bitrate = std::min(result.target_bitrate, *ecn_cap);
-      RTC_LOG(LS_VERBOSE) << "[ECN BWE] Capped GCC target rate to: "
-                          << result.target_bitrate.kbps() << " kbps";
-    } else {
-      // Delay-based didn't request an update, but ECN demands a reduction.
-      // Force an update to lower the current target to the ECN cap (or keep
-      // current target if already below the cap).
-      DataRate current_target = bandwidth_estimation_->target_rate();
-      DataRate new_target = std::min(current_target, *ecn_cap);
-      if (new_target < current_target) {
-        result.updated = true;
-        result.target_bitrate = new_target;
-        result.recovered_from_overuse = false;
-
-        // NEW: Force DelayBasedBwe's internal state down to the ECN cap
-        delay_based_bwe_->SetStartBitrate(new_target);
-
-        RTC_LOG(LS_VERBOSE) << "[ECN BWE] Forcing reduction to ECN cap: "
-                            << result.target_bitrate.kbps() << " kbps";
-      }
-    }
-  }
-  // -------------------------------------- 
 
   if (result.updated) {
     if (result.probe) {
@@ -778,10 +713,9 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   bandwidth_estimation_->UpdateLossBasedEstimator(
       report, result.delay_detector_state, probe_bitrate,
       alr_start_time.has_value());
-  if (result.updated) {
-    // Update the estimate in the ProbeController, in case we want to probe.
-    MaybeTriggerOnNetworkChanged(&update, report.feedback_time);
-  }
+  // A loss-estimator update can change the target even when the delay
+  // estimator holds. This method checks for changes before publishing.
+  MaybeTriggerOnNetworkChanged(&update, report.feedback_time);
 
   recovered_from_overuse = result.recovered_from_overuse;
 
