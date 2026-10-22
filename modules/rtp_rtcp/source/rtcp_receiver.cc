@@ -636,6 +636,23 @@ void RTCPReceiver::HandleReportBlock(const ReportBlock& report_block,
     uint32_t rtt_ntp = receive_time_ntp - delay_ntp - send_time_ntp;
     // Convert to 1/1000 seconds (milliseconds).
     TimeDelta rtt = CompactNtpRttToTimeDelta(rtt_ntp);
+    
+    RTC_LOG(LS_INFO)
+      << "RTT_TRACE"
+      << " mono_ms=" << now.ms()
+      << " remote_ssrc=" << remote_ssrc
+      << " source_ssrc=" << report_block.source_ssrc()
+      << " local_media_ssrc=" << local_media_ssrc()
+      << " arrival_ntp=" << receive_time_ntp
+      << " lsr=" << send_time_ntp
+      << " elapsed_ms="
+      << (static_cast<double>(
+              static_cast<uint32_t>(receive_time_ntp - send_time_ntp))
+          * 1000.0 / 65536.0)
+      << " dlsr_ms="
+      << (static_cast<double>(delay_ntp) * 1000.0 / 65536.0)
+      << " rtt_ms=" << rtt.ms();
+
     report_block_data->AddRoundTripTimeSample(rtt);
     if (report_block.source_ssrc() == local_media_ssrc()) {
       rtts_[remote_ssrc].AddRtt(rtt);
