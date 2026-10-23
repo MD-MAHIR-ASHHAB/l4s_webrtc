@@ -1,0 +1,119 @@
+diff --git a/modules/congestion_controller/l4s/l4s_metrics_collector.cc b/modules/congestion_controller/l4s/l4s_metrics_collector.cc
+--- a/modules/congestion_controller/l4s/l4s_metrics_collector.cc
++++ b/modules/congestion_controller/l4s/l4s_metrics_collector.cc
+@@ -1,6 +1,7 @@
+ #include "modules/congestion_controller/l4s/l4s_network_controller.h"
+ 
+ #include <cstdio>
++#include <cstdlib>
+ #include <unistd.h>
+ 
+ #include "rtc_base/checks.h"
+@@ -65,6 +66,54 @@
+ };
+ }  // namespace
+ 
++
++namespace {
++// Opt in per process while the experiment shutdown protocol is being validated.
++bool RequestOnlyMetricsExportEnabled() {
++  static const bool enabled = [] {
++    const char* value = std::getenv("L4S_EXPORT_ON_REQUEST");
++    const bool result = value && std::string(value) == "1";
++    RTC_LOG(LS_INFO) << "METRICS_EXPORT_MODE request_only=" << (result ? 1 : 0);
++    return result;
++  }();
++  return enabled;
++}
++
++std::string ReadMetricsExportRequest(const std::string& filename) {
++  const std::string request_path = filename + ".export_request";
++  FILE* request = fopen(request_path.c_str(), "r");
++  if (!request) return {};
++  char buffer[64];
++  const size_t count = fread(buffer, 1, sizeof(buffer), request);
++  const bool failed = ferror(request) != 0;
++  fclose(request);
++  if (failed || count != 32) return {};
++  for (size_t i = 0; i < count; ++i) {
++    if (!((buffer[i] >= '0' && buffer[i] <= '9') ||
++          (buffer[i] >= 'a' && buffer[i] <= 'f'))) return {};
++  }
++  return std::string(buffer, count);
++}
++
++bool AcknowledgeMetricsExport(const std::string& filename,
++                              const std::string& token) {
++  const std::string ack_path = filename + ".export_ack";
++  const std::string ack_temp = ack_path + ".tmp";
++  FILE* ack = fopen(ack_temp.c_str(), "w");
++  if (!ack) return false;
++  bool ok = fprintf(ack, "%s\n", token.c_str()) > 0;
++  if (fflush(ack) != 0) ok = false;
++  if (fsync(fileno(ack)) != 0) ok = false;
++  if (fclose(ack) != 0) ok = false;
++  if (!ok || rename(ack_temp.c_str(), ack_path.c_str()) != 0) {
++    remove(ack_temp.c_str());
++    return false;
++  }
++  remove((filename + ".export_request").c_str());
++  return true;
++}
++}  // namespace
++
+ namespace webrtc {
+ 
+ L4SMetricsCollector::L4SMetricsCollector(test::MetricsLogger* logger,
+@@ -274,7 +323,13 @@
+         {{"stat_type", "std_dev"}, {"metric", "packet_loss"},{"timestamp_ms", std::to_string(global_utc_ms)}});
+   }
+ 
+-  ExportToJsonFile("l4s_test_c6.json");
++  // Keep recording samples, but avoid full-history copies and disk work
++  // during a request-only experiment. Handle the final request on this thread.
++  const std::string filename = "l4s_test_c6.json";
++  if (!RequestOnlyMetricsExportEnabled() ||
++      !ReadMetricsExportRequest(filename).empty()) {
++    ExportToJsonFile(filename);
++  }
+ }
+ 
+ 
+@@ -290,6 +345,7 @@
+     return;
+   }
+ 
++  const std::string export_token = ReadMetricsExportRequest(filename);
+   auto metrics = logger_->GetCollectedMetrics();
+   export_timing.collect_end_us = TimeMicros();
+   export_timing.entries = metrics.size();
+@@ -337,6 +393,12 @@
+ 
+   fprintf(f, "]\n");
+ 
++  // Do not acknowledge a snapshot after an earlier buffered write error.
++  if (ferror(f) != 0) {
++    export_timing.outcome = "write_failed";
++    fclose(f);
++    return;
++  }
+   export_timing.serialize_end_us = TimeMicros();
+   export_timing.bytes = ftell(f);
+ 
+@@ -391,6 +453,16 @@
+   }
+ 
+   export_timing.outcome = "ok";
++  // Only acknowledge after the JSON was flushed, synced, closed and renamed.
++  if (!export_token.empty()) {
++    if (!AcknowledgeMetricsExport(filename, export_token)) {
++      export_timing.outcome = "ack_failed";
++      RTC_LOG(LS_ERROR) << "METRICS_FINAL_EXPORT acknowledgement failed";
++      return;
++    }
++    RTC_LOG(LS_INFO) << "METRICS_FINAL_EXPORT token=" << export_token
++                     << " filename=" << filename;
++  }
+ 
+   // Heartbeat logging.
+   static int export_call_count = 0;

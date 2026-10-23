@@ -1,0 +1,159 @@
+diff --git a/modules/congestion_controller/l4s/l4s_metrics_collector.cc b/modules/congestion_controller/l4s/l4s_metrics_collector.cc
+--- a/modules/congestion_controller/l4s/l4s_metrics_collector.cc
++++ b/modules/congestion_controller/l4s/l4s_metrics_collector.cc
+@@ -6,6 +6,64 @@
+ #include "rtc_base/checks.h"
+ #include "rtc_base/logging.h"
+ #include "chrono"
++
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#if defined(__linux__)
++#include <sys/syscall.h>
++#endif
++#include "rtc_base/time_utils.h"
++
++
++// Temporary diagnostic: one timing record per export, emitted after the work.
++// Keep this guard before `metrics` so total time includes snapshot destruction.
++namespace {
++struct ScopedMetricsExportTiming {
++  ScopedMetricsExportTiming(const void* owner, const std::string& filename)
++      : owner(owner), filename(filename), begin_us(webrtc::TimeMicros()) {
++#if defined(__linux__)
++    tid = syscall(SYS_gettid);
++#endif
++  }
++  static double DurationMs(int64_t start, int64_t end) {
++    return start > 0 && end >= start ? (end - start) / 1000.0 : -1.0;
++  }
++  ~ScopedMetricsExportTiming() {
++    const int64_t end_us = webrtc::TimeMicros();
++    RTC_LOG(LS_INFO) << "METRICS_EXPORT_TRACE"
++        << " begin_us=" << begin_us << " end_us=" << end_us
++        << " tid=" << tid << " owner=" << owner
++        << " filename=" << filename << " outcome=" << outcome
++        << " entries=" << entries << " samples=" << samples
++        << " bytes=" << bytes
++        << " collect_ms=" << DurationMs(begin_us, collect_end_us)
++        << " open_ms=" << DurationMs(collect_end_us, open_end_us)
++        << " serialize_write_ms=" << DurationMs(open_end_us, serialize_end_us)
++        << " fflush_ms=" << DurationMs(serialize_end_us, flush_end_us)
++        << " fsync_ms=" << DurationMs(flush_end_us, sync_end_us)
++        << " fclose_ms=" << DurationMs(sync_end_us, close_end_us)
++        << " rename_ms=" << DurationMs(close_end_us, rename_end_us)
++        << " tail_ms=" << DurationMs(rename_end_us, end_us)
++        << " total_ms=" << DurationMs(begin_us, end_us);
++  }
++  const void* owner;
++  const std::string& filename;
++  const int64_t begin_us;
++  long tid = 0;
++  const char* outcome = "no_logger";
++  size_t entries = 0;
++  size_t samples = 0;
++  long bytes = -1;
++  int64_t collect_end_us = 0;
++  int64_t open_end_us = 0;
++  int64_t serialize_end_us = 0;
++  int64_t flush_end_us = 0;
++  int64_t sync_end_us = 0;
++  int64_t close_end_us = 0;
++  int64_t rename_end_us = 0;
++};
++}  // namespace
+ 
+ namespace webrtc {
+ 
+@@ -227,16 +285,21 @@
+ 
+ 
+ void L4SMetricsCollector::ExportToJsonFile(const std::string& filename) {
++  ScopedMetricsExportTiming export_timing(this, filename);
+   if (!logger_) {
+     return;
+   }
+ 
+   auto metrics = logger_->GetCollectedMetrics();
++  export_timing.collect_end_us = TimeMicros();
++  export_timing.entries = metrics.size();
+ 
+   // Write to a temporary file first.
+   std::string temp_filename = filename + ".tmp";
+ 
+   FILE* f = fopen(temp_filename.c_str(), "w");
++  export_timing.open_end_us = TimeMicros();
++  export_timing.outcome = "open_failed";
+   if (!f) {
+     RTC_LOG(LS_ERROR)
+         << "Failed to open temporary metrics file: "
+@@ -248,6 +311,7 @@
+ 
+   for (size_t i = 0; i < metrics.size(); ++i) {
+     const auto& m = metrics[i];
++    export_timing.samples += m.time_series.samples.size();
+ 
+     fprintf(f, "  {\n");
+     fprintf(f, "    \"name\": \"%s\",\n", m.name.c_str());
+@@ -273,8 +337,14 @@
+ 
+   fprintf(f, "]\n");
+ 
++  export_timing.serialize_end_us = TimeMicros();
++  export_timing.bytes = ftell(f);
++
+   // Flush stdio buffers.
+-  if (fflush(f) != 0) {
++  const int trace_flush_result = fflush(f);
++  export_timing.flush_end_us = TimeMicros();
++  if (trace_flush_result != 0) {
++    export_timing.outcome = "fflush_failed";
+     RTC_LOG(LS_ERROR)
+         << "fflush failed for temporary metrics file: "
+         << temp_filename;
+@@ -283,7 +353,10 @@
+   }
+ 
+   // Flush kernel buffers to disk.
+-  if (fsync(fileno(f)) != 0) {
++  const int trace_sync_result = fsync(fileno(f));
++  export_timing.sync_end_us = TimeMicros();
++  if (trace_sync_result != 0) {
++    export_timing.outcome = "fsync_failed";
+     RTC_LOG(LS_ERROR)
+         << "fsync failed for temporary metrics file: "
+         << temp_filename;
+@@ -292,7 +365,10 @@
+   }
+ 
+   // Close the file.
+-  if (fclose(f) != 0) {
++  const int trace_close_result = fclose(f);
++  export_timing.close_end_us = TimeMicros();
++  if (trace_close_result != 0) {
++    export_timing.outcome = "fclose_failed";
+     RTC_LOG(LS_ERROR)
+         << "Failed to close temporary metrics file: "
+         << temp_filename;
+@@ -300,7 +376,10 @@
+   }
+ 
+   // Atomically replace the old file with the new one.
+-  if (rename(temp_filename.c_str(), filename.c_str()) != 0) {
++  const int trace_rename_result = rename(temp_filename.c_str(), filename.c_str());
++  export_timing.rename_end_us = TimeMicros();
++  if (trace_rename_result != 0) {
++    export_timing.outcome = "rename_failed";
+     RTC_LOG(LS_ERROR)
+         << "Failed to rename "
+         << temp_filename
+@@ -310,6 +389,8 @@
+     remove(temp_filename.c_str());
+     return;
+   }
++
++  export_timing.outcome = "ok";
+ 
+   // Heartbeat logging.
+   static int export_call_count = 0;

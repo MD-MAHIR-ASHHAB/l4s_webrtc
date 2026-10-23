@@ -1135,13 +1135,13 @@ void GCCMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
                                   {{"stat_type", "std_dev"}, {"metric", "packet_loss"},{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
   // Periodically export all metrics to JSON
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c7.json");
 }
 
 
 GCCMetricsCollector::~GCCMetricsCollector() {
   RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
-  ExportToJsonFile("gcc_test_c3.json");
+  ExportToJsonFile("gcc_test_c7.json");
 }
 
 void GCCMetricsCollector::UpdateAckedRateStats(DataRate acked_rate) {
