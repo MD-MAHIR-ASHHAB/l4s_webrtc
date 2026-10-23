@@ -660,7 +660,7 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
 
 webrtc::L4SNetworkController::~L4SNetworkController() {
   if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->ExportToJsonFile("l4s_test_c6.json");
+    metrics_collector_->ExportToJsonFile("l4s_test_c8.json");
   }
 }
 
