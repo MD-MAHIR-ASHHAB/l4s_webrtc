@@ -190,6 +190,9 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
 
   last_feedback_time_ = current_time;
   
+  // C9: each call represents one disjoint, completed feedback-time window.
+  constexpr double g = 1.0 / 16.0;
+  alpha_ = (1.0 - g) * alpha_ + g * std::clamp(ce_ratio, 0.0, 1.0);
   if (ce_ratio <= 0.0) {
     non_ce_packet_count_ += window_packet_count;
     return;
@@ -227,10 +230,6 @@ void webrtc::PragueCapacityEstimator::UpdateFromCongestionSignal(
   // =========================================================
   // 2. PRAGUE ALPHA (CORE SIGNAL)
   // =========================================================
-  constexpr double g = 1.0 / 16.0;
-
-  alpha_ = (1.0 - g) * alpha_ + g * ce_ratio;
-
   double effective_alpha = alpha_;
 
   // =========================================================
@@ -350,14 +349,17 @@ void webrtc::PragueCapacityEstimator::UpdateFromRtt(TimeDelta rtt) {
 }
 
 void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timestamp current_time, int lost_packets, int total_packets, DataRate historical_max) {
-  // Accumulate loss incrementally as WebRTC reports tiny asynchronous batches
+  if (lost_packets < 0 || total_packets <= 0 || lost_packets > total_packets) return;
+  if (loss_window_start_.IsInfinite()) loss_window_start_ = current_time;
+  // C9: include clean reports in the denominator and close measurement windows
+  // independently of whether their loss fraction warrants a reduction.
   accumulated_lost_packets_ += lost_packets;
   accumulated_expected_packets_ += total_packets;
 
   TimeDelta rtt = current_rtt_.IsFinite() ? current_rtt_ : TimeDelta::Millis(175);
   
   // Only react to hard loss once per RTT to prevent cascading collapse
-  if (last_hard_loss_time_.IsInfinite() || (current_time - last_hard_loss_time_ >= rtt)) {
+  if (current_time - loss_window_start_ >= std::max(rtt, TimeDelta::Millis(20))) {
       
       // --- FIX 2: THE MICRO-BATCH LOSS TRAP ---
       double loss_ratio = (accumulated_expected_packets_ > 0) ? 
@@ -370,7 +372,8 @@ void webrtc::PragueCapacityEstimator::OnPacketLoss(DataRate current_rate, Timest
           
       accumulated_lost_packets_ = 0;
       accumulated_expected_packets_ = 0;
-      
+      loss_window_start_ = current_time;
+
       // --- THE GCC LOSS THRESHOLD ---
       if (loss_ratio <= 0.02) {
           return;
@@ -571,7 +574,7 @@ void webrtc::PragueCapacityEstimator::OnAckedUpdate(
   }
 
 
-  DecayAlpha(current_time);
+  // C9: alpha decays through clean accounting windows, not callback count.
 }
 
 void webrtc::PragueCapacityEstimator::OnTimeUpdate(Timestamp current_time, bool is_app_limited) {
@@ -660,7 +663,7 @@ webrtc::L4SNetworkController::L4SNetworkController(NetworkControllerConfig confi
 
 webrtc::L4SNetworkController::~L4SNetworkController() {
   if (metrics_enabled_ && metrics_collector_) {
-    metrics_collector_->ExportToJsonFile("l4s_test_c6.json");
+    metrics_collector_->ExportToJsonFile("l4s_test_c9.json");
   }
 }
 
@@ -706,7 +709,14 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
   min_target_rate_ = msg.constraints.min_data_rate;
   max_target_rate_ = msg.constraints.max_data_rate;
 
-  base_rtt_ = TimeDelta::PlusInfinity(); 
+  base_rtt_ = TimeDelta::PlusInfinity();
+  window_ce_count_ = window_ect_count_ = 0;
+  window_start_time_ = Timestamp::MinusInfinity();
+  window_duration_ = TimeDelta::Millis(100);
+  window_probe_ce_ = false;
+  pushback_target_rate_ = DataRate::Zero();
+  last_pushback_ratio_ = 1.0;
+  last_emitted_target_rate_.reset();
   DataRate reset_starting_rate = starting_rate_.value_or(DataRate::KilobitsPerSec(300));
   DataRate reset_min_rate = min_target_rate_.value_or(DataRate::KilobitsPerSec(30));
   DataRate reset_max_rate = max_target_rate_.value_or(DataRate::KilobitsPerSec(100000));
@@ -744,6 +754,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnNetworkRouteChange(
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(ProcessInterval msg) {
   NetworkControlUpdate update;
   LogPeriodicMetrics(msg.at_time);
+  FinalizeEcnWindow(msg.at_time);
 
   if (probe_controller_) {
     if (!initial_probes_sent_) {
@@ -779,6 +790,7 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnProcessInterval(Pro
   HandlePeriodicProbing(msg.at_time, &update);
   DataRate fused_rate = FuseBandwidthEstimates(msg.at_time);
   target_rate_ = fused_rate;
+  pushback_target_rate_ = fused_rate * last_pushback_ratio_;
 
   MaybeTriggerOnNetworkChanged(&update, msg.at_time);
   LogStateSnapshot(msg.at_time);
@@ -908,7 +920,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstrain
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(TransportLossReport msg) {
   NetworkControlUpdate update;
   
-  if (msg.packets_lost_delta > 0) {
+  if (msg.packets_lost_delta >= 0 && msg.packets_received_delta >= 0 &&
+      msg.packets_lost_delta + msg.packets_received_delta > 0) {
     DataRate current_rate = target_rate_.value_or(DataRate::KilobitsPerSec(300));
     
     // --- INTEGRATION: Pass BOTH lost and received packets to calculate Loss Ratio ---
@@ -938,8 +951,6 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   DataRate fused_rate = FuseBandwidthEstimates(msg.feedback_time);
   target_rate_ = fused_rate;
 
-  MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
-  LogStateSnapshot(msg.feedback_time);
 
   if (fused_rate.IsFinite() && last_rtt_.IsFinite() && !last_rtt_.IsZero()) {
       TimeDelta unloaded_rtt = base_rtt_.IsFinite() ? base_rtt_ : last_rtt_;
@@ -951,7 +962,8 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
   }
 
   // --- NEW: THE LIGHTWEIGHT PUSHBACK CONTROLLER ---
-  pushback_target_rate_ = fused_rate; 
+  last_pushback_ratio_ = 1.0;
+  pushback_target_rate_ = fused_rate;
   if (update.congestion_window && msg.data_in_flight.bytes() > 0) {
       if (msg.data_in_flight > *update.congestion_window) {
           // The physical wire is over the limit! Calculate the overflow ratio.
@@ -960,11 +972,13 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportPacketsFee
           
           // Cap the drop at 50% to prevent total video collapse
           pushback_ratio = std::max(0.50, pushback_ratio);
+          last_pushback_ratio_ = pushback_ratio;
           pushback_target_rate_ = fused_rate * pushback_ratio;
       }
   }
 
-
+  MaybeTriggerOnNetworkChanged(&update, msg.feedback_time);
+  LogStateSnapshot(msg.feedback_time);
   return update;
 }
 
@@ -1029,84 +1043,71 @@ void webrtc::L4SNetworkController::EnforceHistoricalSafetyFloor() {
   }
 }
 
-void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
-  if (feedback.packet_feedbacks.empty()) return;
-
-  TimeDelta window_duration = last_rtt_.IsFinite() && !last_rtt_.IsZero() ? last_rtt_ : TimeDelta::Millis(100);
-  int batch_ect_count = 0;
-  int batch_ce_count = 0;
-  bool probe_caused_congestion = false;
-
-  for (const auto& packet : feedback.packet_feedbacks) {
-    if (packet.ecn == EcnMarking::kEct0 || packet.ecn == EcnMarking::kEct1) batch_ect_count++;
-    if (packet.ecn == EcnMarking::kCe) {
-      batch_ce_count++;
-      last_congestion_signal_ = feedback.feedback_time;
-      if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
-        probe_caused_congestion = true;
-      }
-      prague_estimator_->ClearProbeConstraint(); 
+void webrtc::L4SNetworkController::FinalizeEcnWindow(Timestamp now) {
+  if (window_start_time_.IsInfinite() || now - window_start_time_ < window_duration_) return;
+  const int total = window_ce_count_ + window_ect_count_;
+  if (total > 0) {
+    const double measured_ce = static_cast<double>(window_ce_count_) / total;
+    const DataRate current = prague_estimator_->GetCurrentEstimate();
+    const TimeDelta bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite())
+        ? last_rtt_ - base_rtt_ : TimeDelta::PlusInfinity();
+    const double share = historical_max_capacity_ > DataRate::Zero()
+        ? current.bps() / static_cast<double>(historical_max_capacity_.bps()) : 1.0;
+    const double effective_ce = CalculateEcnYieldRatio(measured_ce, share, bloat);
+    // Preserve C6's delivery anchoring and yielding policy for this first revision.
+    DataRate cut_base = current;
+    if (last_send_rate_ > DataRate::Zero()) cut_base = std::min(current, last_send_rate_);
+    prague_estimator_->UpdateFromCongestionSignal(
+        cut_base, effective_ce, total, now, historical_max_capacity_);
+    if (window_probe_ce_) {
+      const TimeDelta rtt = last_estimated_round_trip_time_;
+      prague_estimator_->SetAdditiveHoldUntil(now + rtt * 2);
     }
+    EnforceHistoricalSafetyFloor();
+    // One bounded diagnostic line per accounting window, not per packet.
+    RTC_LOG(LS_VERBOSE) << "C9_ECN_WINDOW packets=" << total
+        << " ce=" << window_ce_count_ << " measured_fraction=" << measured_ce
+        << " policy_fraction=" << effective_ce;
   }
+  window_ce_count_ = window_ect_count_ = 0;
+  window_probe_ce_ = false;
+  window_start_time_ = Timestamp::MinusInfinity();
+}
 
-  // RTC_LOG(LS_INFO) << "L4S: ECN feedback received. Batch ECT count: " << batch_ect_count
-  //                   << ", Batch CE count: " << batch_ce_count
-  //                   << ", probe caused congestion: " << probe_caused_congestion;
-
-  if (batch_ect_count > 0 || batch_ce_count > 0) {
+void webrtc::L4SNetworkController::ProcessEcnFeedback(
+    const TransportPacketsFeedback& feedback, DataRate current_fused_rate) {
+  (void)current_fused_rate;
+  // Windows use sender-local feedback arrival time. No zero samples are
+  // manufactured during silence, and a long pause causes no catch-up loop.
+  FinalizeEcnWindow(feedback.feedback_time);
+  int ce = 0;
+  for (const auto& packet : feedback.packet_feedbacks) {
+    if (!packet.receive_time.IsFinite()) continue;
+    if (packet.ecn != EcnMarking::kEct0 && packet.ecn != EcnMarking::kEct1 &&
+        packet.ecn != EcnMarking::kCe) continue;
+    if (window_start_time_.IsInfinite()) {
+      window_start_time_ = feedback.feedback_time;
+      window_duration_ = std::max(last_estimated_round_trip_time_, TimeDelta::Millis(20));
+    }
     ecn_supported_ = true;
     prague_estimator_->UpdateEcnActivity(feedback.feedback_time);
-  }
-
-  window_ce_count_ += batch_ce_count;
-  window_ect_count_ += batch_ect_count;
-
-  double rtt_s = last_rtt_.IsFinite() ? last_rtt_.seconds<double>() : 0.1;
-  double rate_bps = current_fused_rate.bps();
-  double pkt_size_bits = 1400.0 * 8.0;
-
-  int dynamic_threshold = std::clamp(static_cast<int>((rate_bps * rtt_s) / pkt_size_bits), 10, 200);
-  bool window_expired = (window_start_time_.IsInfinite() || (feedback.feedback_time - window_start_time_) >= window_duration);
-  int window_total = window_ce_count_ + window_ect_count_;
-  bool immediate_ce_trigger = (batch_ce_count > 0);
-
-  if (window_expired || window_total >= dynamic_threshold || immediate_ce_trigger) {
-    int safe_denominator = std::max(window_total, dynamic_threshold);
-    double ce_ratio = (safe_denominator > 0) ? static_cast<double>(window_ce_count_) / safe_denominator : 0.0;
-
-    if (window_total >= 3 || immediate_ce_trigger) {
-      if (window_ce_count_ > 0 && probe_caused_congestion) {
-        prague_estimator_->SetAdditiveHoldUntil(feedback.feedback_time + (last_rtt_ * 2));
-      } else {
-        DataRate current_target = prague_estimator_->GetCurrentEstimate();
-        DataRate physical_traffic = std::min(current_target, last_send_rate_);
-        DataRate base_for_cut = current_target;
-        
-        if (physical_traffic > DataRate::Zero() && physical_traffic < current_target) {
-            base_for_cut = physical_traffic;
-        }
-
-        TimeDelta rtt_bloat = (last_rtt_.IsFinite() && base_rtt_.IsFinite()) ? (last_rtt_ - base_rtt_) : TimeDelta::PlusInfinity();
-        double starvation_ratio = 1.0;
-        if (historical_max_capacity_ > DataRate::Zero()) {
-            starvation_ratio = current_fused_rate.bps() / static_cast<double>(historical_max_capacity_.bps());
-        }
-
-        double effective_ce_ratio = CalculateEcnYieldRatio(ce_ratio, starvation_ratio, rtt_bloat);
-
-        prague_estimator_->UpdateFromCongestionSignal(base_for_cut, effective_ce_ratio, window_total, feedback.feedback_time, historical_max_capacity_);
-      }
-
-      EnforceHistoricalSafetyFloor();
+    if (packet.ecn == EcnMarking::kCe) {
+      ++window_ce_count_;
+      ++ce;
+      last_congestion_signal_ = feedback.feedback_time;
+      prague_estimator_->ClearProbeConstraint();
+      // Immediate feedback still exits discovery and invalidates probing now.
+      // Proportional MD waits for the completed, disjoint accounting window.
+      prague_estimator_->ExitDiscoveryMode("C9 immediate CE notification");
+      if (packet.sent_packet.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe)
+        window_probe_ce_ = true;
+    } else {
+      ++window_ect_count_;
     }
-
-    window_ce_count_ = 0;
-    window_ect_count_ = 0;
-    window_start_time_ = feedback.feedback_time;
   }
-
-  HandleRecoveryDetection(batch_ce_count, feedback.feedback_time);
+  HandleRecoveryDetection(ce, feedback.feedback_time);
 }
+
 
 void webrtc::L4SNetworkController::UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback) {
   if (feedback.packet_feedbacks.empty() || !acked_estimator_) return;
@@ -1464,6 +1465,7 @@ void webrtc::L4SNetworkController::MaybeTriggerOnNetworkChanged(NetworkControlUp
 bool webrtc::L4SNetworkController::CanEnterRecoveryState(Timestamp now) const {
   if (!prague_estimator_ || prague_estimator_->IsDiscoveryModeActive() || recovery_mode_active_) return false;
   if (last_congestion_signal_.IsInfinite()) return false;
+  if (now < recovery_cooldown_until_) return false;
 
   TimeDelta effective_rtt = last_rtt_.IsFinite() ? std::max(last_rtt_, TimeDelta::Millis(20)) : TimeDelta::Millis(100);
   return (now - last_congestion_signal_) >= (effective_rtt * kRecoveryCeQuietRttMultiplier);

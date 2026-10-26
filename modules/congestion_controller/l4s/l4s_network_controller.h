@@ -133,6 +133,7 @@ class PragueCapacityEstimator {
   Timestamp additive_hold_until_ = Timestamp::MinusInfinity();
   Timestamp last_ecn_feedback_;
   Timestamp last_hard_loss_time_;
+  Timestamp loss_window_start_ = Timestamp::MinusInfinity();
 
   double alpha_;
   double ai_bits_accumulator_;
@@ -233,6 +234,7 @@ private:
   // Core processing methods
   void UpdateAllBandwidthEstimators(const TransportPacketsFeedback& feedback);
   void ProcessEcnFeedback(const TransportPacketsFeedback& feedback, DataRate current_fused_rate);
+  void FinalizeEcnWindow(Timestamp now);
   void UpdateAckedBitrateEstimator(const TransportPacketsFeedback& feedback);
   void ProcessRealProbeResults(const TransportPacketsFeedback& feedback);
   std::optional<DataRate> GetLastProbeResult();
@@ -296,6 +298,7 @@ private:
   
   // Tracks the mathematically throttled rate when the physical wire is full
   webrtc::DataRate pushback_target_rate_ = webrtc::DataRate::Zero();
+  double last_pushback_ratio_ = 1.0;
 
   // Environment and configuration
   const Environment env_;
@@ -324,6 +327,8 @@ private:
   int window_ce_count_ = 0;
   int window_ect_count_ = 0;
   Timestamp window_start_time_ = Timestamp::MinusInfinity();
+  TimeDelta window_duration_ = TimeDelta::Millis(100);
+  bool window_probe_ce_ = false;
 
   // ECN policy calculation
   double CalculateEcnYieldRatio(double raw_ce_ratio, double starvation_ratio, TimeDelta rtt_bloat) const;

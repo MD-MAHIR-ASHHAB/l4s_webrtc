@@ -266,7 +266,7 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
   }
 
   // Keep collecting in memory; copy and serialize only after an export request.
-  const std::string filename = "l4s_test_c6.json";
+  const std::string filename = "l4s_test_c9.json";
   if (!RequestOnlyMetricsExportEnabled() ||
       !ReadMetricsExportRequest(filename).empty()) {
     ExportToJsonFile(filename);
@@ -276,7 +276,7 @@ void L4SMetricsCollector::LogPeriodicSummary(Timestamp at_time) {
 
 L4SMetricsCollector::~L4SMetricsCollector() {
   RTC_LOG(LS_INFO) << "Test complete. Safely exporting metrics to JSON...";
-  ExportToJsonFile("l4s_test_c6.json");
+  ExportToJsonFile("l4s_test_c9.json");
 }
 
 
