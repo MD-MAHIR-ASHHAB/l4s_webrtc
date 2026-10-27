@@ -511,6 +511,10 @@ std::vector<ProbeClusterConfig> GoogCcNetworkController::ResetConstraints(
 
 NetworkControlUpdate GoogCcNetworkController::OnTransportLossReport(
     TransportLossReport msg) {
+  // One event per callback; never replay the cached latest report.
+  if (metrics_collector_) {
+    metrics_collector_->LogLossReport(msg);
+  }
   int64_t total_packets_delta =
       msg.packets_received_delta + msg.packets_lost_delta;
 
@@ -1109,6 +1113,32 @@ void GCCMetricsCollector::LogDelayMetrics(Timestamp at_time, TimeDelta rtt, Time
     //                               webrtc::test::Unit::kMilliseconds, webrtc::test::ImprovementDirection::kSmallerIsBetter,
     //                               {{"timestamp_ms", std::to_string(global_utc_ms)}});
   }
+}
+
+void GCCMetricsCollector::LogLossReport(const TransportLossReport& report) {
+  if (!logger_) {
+    return;
+  }
+  // UTC callback logging time aligns with existing JSON metrics. Transport
+  // timestamps below are local clock values, not UTC timestamps.
+  const int64_t utc_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  const auto log = [&](const char* name, double value, webrtc::test::Unit unit = webrtc::test::Unit::kCount) {
+    logger_->LogSingleValueMetric(
+        name, test_case_name_, value, unit,
+        webrtc::test::ImprovementDirection::kSmallerIsBetter,
+        {{"timestamp_ms", std::to_string(utc_ms)}});
+  };
+  // Retain zero-loss reports too. Do not rate-limit or clamp these deltas.
+  log("loss_report_lost_delta", static_cast<double>(report.packets_lost_delta));
+  log("loss_report_received_delta", static_cast<double>(report.packets_received_delta));
+  // Explicit names encode the units; these are diagnostic local clock values.
+  if (report.receive_time.IsFinite())
+    log("loss_report_receive_time_us", static_cast<double>(report.receive_time.us()), webrtc::test::Unit::kUnitless);
+  if (report.start_time.IsFinite())
+    log("loss_report_start_time_us", static_cast<double>(report.start_time.us()), webrtc::test::Unit::kUnitless);
+  if (report.end_time.IsFinite())
+    log("loss_report_end_time_us", static_cast<double>(report.end_time.us()), webrtc::test::Unit::kUnitless);
 }
 
 void GCCMetricsCollector::LogLossMetrics(Timestamp at_time, double loss_fraction,
