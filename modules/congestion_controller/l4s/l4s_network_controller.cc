@@ -872,6 +872,10 @@ webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTargetRateConstrain
 }
 
 webrtc::NetworkControlUpdate webrtc::L4SNetworkController::OnTransportLossReport(TransportLossReport msg) {
+  // One event per callback; never replay the cached latest report.
+  if (metrics_collector_) {
+    metrics_collector_->LogLossReport(msg);
+  }
   NetworkControlUpdate update;
   
   if (msg.packets_lost_delta > 0) {
