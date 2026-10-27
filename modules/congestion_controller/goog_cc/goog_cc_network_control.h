@@ -72,6 +72,8 @@ class GCCMetricsCollector {
                            std::optional<DataRate> send_rate);
   void LogDelayMetrics(Timestamp at_time, TimeDelta rtt, TimeDelta one_way_delay, 
                       TimeDelta jitter = TimeDelta::Zero());
+  void LogLossReport(const TransportLossReport& report);
+
    void LogLossMetrics(Timestamp at_time, double loss_fraction, int packets_lost);
   
 
