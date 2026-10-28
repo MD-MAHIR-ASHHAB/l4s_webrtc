@@ -1,121 +1,71 @@
-/*
- * Copyright (c) 2026 The WebRTC project authors. All Rights Reserved.
- *
- * Use of this source code is governed by a BSD-style license
- * that can be found in the LICENSE file in the root of the source
- * tree. An additional intellectual property rights grant can be found
- * in the file PATENTS.  All contributing project authors may
- * be found in the AUTHORS file in the root of the source tree.
- */
-
 #include "modules/congestion_controller/goog_cc/ecn_based_bwe.h"
-
 #include <algorithm>
-
 #include "rtc_base/logging.h"
 
 namespace webrtc {
-
 EcnBasedBwe::EcnBasedBwe() = default;
 
 void EcnBasedBwe::SetMinMaxBitrate(DataRate min_bitrate, DataRate max_bitrate) {
-  if (min_bitrate.IsFinite()) {
-    min_bitrate_ = min_bitrate;
-  }
-  if (max_bitrate.IsFinite()) {
+  if (min_bitrate.IsFinite()) min_bitrate_ = min_bitrate;
+  if (max_bitrate.IsFinite())
     max_bitrate_ = std::max(min_bitrate_, max_bitrate);
-  }
   current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
 }
-
-void EcnBasedBwe::SetTargetBitrate(DataRate starting_rate) {
-  if (starting_rate.IsFinite() && starting_rate > DataRate::Zero()) {
-    current_target_rate_ = std::clamp(starting_rate, min_bitrate_, max_bitrate_);
-  }
+void EcnBasedBwe::SetTargetBitrate(DataRate rate) {
+  if (rate.IsFinite() && rate > DataRate::Zero())
+    current_target_rate_ = std::clamp(rate, min_bitrate_, max_bitrate_);
 }
-
 void EcnBasedBwe::UpdateRtt(TimeDelta rtt) {
-  if (rtt.IsFinite() && rtt > TimeDelta::Zero()) {
-    current_rtt_ = rtt;
-  }
+  if (rtt.IsFinite() && rtt > TimeDelta::Zero()) current_rtt_ = rtt;
 }
-
 EcnBasedBwe::ECNResult EcnBasedBwe::IncomingPacketFeedbackVector(
     const TransportPacketsFeedback& report,
-    std::optional<DataRate> acknowledged_bitrate,
-    std::optional<DataRate> probe_bitrate,
-    std::optional<NetworkStateEstimate> estimate,
-    bool in_alr) {
-    
+    std::optional<DataRate> /*acknowledged_bitrate*/,
+    std::optional<DataRate> /*probe_bitrate*/,
+    std::optional<NetworkStateEstimate> /*estimate*/, bool /*in_alr*/) {
   ECNResult result;
-  
-  if (report.packet_feedbacks.empty()) {
-    return result;
-  }
+  const Timestamp now = report.feedback_time;
+  if (!now.IsFinite()) return result;
 
-  Timestamp now = report.feedback_time;
-  if (last_update_time_.IsInfinite()) {
-    last_update_time_ = now;
-    return result;
-  }
-
-  // TimeDelta delta_time = now - last_update_time_;
-  last_update_time_ = now;
-
-  // --- 1. DCTCP Alpha Calculation ---
-  int total_ecn_packets = report.ect_count + report.ce_count;
-  double raw_ce_ratio = 0.0;
-  
-  if (total_ecn_packets > 0) {
-    raw_ce_ratio = static_cast<double>(report.ce_count) / total_ecn_packets;
-  }
-
-  // Classic DCTCP gain factor (g = 1/16)
-  constexpr double g = 1.0 / 16.0; 
-  alpha_ = (1.0 - g) * alpha_ + g * raw_ce_ratio;
-
-  // --- 2. Rate Control State Machine ---
-  // Only execute Multiplicative Decrease (MD) on CE marks. Do not perform
-  // additive increases here — let the existing GCC AIMD/rate-control logic
-  // handle increases so AI remains adaptive and consistent with delay/loss.
-  bool executed_md = false;
-
-  if (report.ce_count > 0) {
-    // Multiplicative Decrease (MD)
-    // Enforce 1-RTT pipeline delay to prevent multiple cuts for the same congestion event
-    TimeDelta pipeline_delay = std::max(current_rtt_, TimeDelta::Millis(50));
-
-    if (last_md_time_.IsInfinite() || (now - last_md_time_ >= pipeline_delay)) {
-
-      double reduction_factor = 1.0 - (alpha_ / 2.0);
-      // --- ADD THIS SAFETY BOUND ---
-      // Force a minimum cut of 10% so the video encoder actually reacts,
-      // and a maximum cut of 50% (Classic DCTCP/RFC 3168 bound).
-      reduction_factor = std::clamp(reduction_factor, 0.50, 0.90);
-      current_target_rate_ = current_target_rate_ * reduction_factor;
-
-      last_md_time_ = now;
-      executed_md = true;
-
-      RTC_LOG(LS_INFO) << "[ECN BWE] Executed Cut. alpha: " << alpha_
-                       << ", raw_ce: " << raw_ce_ratio
-                       << ", new target: " << current_target_rate_.kbps()
-                       << " kbps";
+  // Close the previous window before admitting the current feedback batch.
+  // Never manufacture clean windows during feedback silence.
+  if (window_start_.IsFinite() && now >= window_start_ + window_duration_) {
+    if (window_total_ > 0) {
+      const double fraction = static_cast<double>(window_ce_) / window_total_;
+      constexpr double g = 1.0 / 16.0;
+      alpha_ = (1.0 - g) * alpha_ + g * fraction;
+      // A clean window decays alpha but does not request a fresh reduction.
+      if (window_ce_ > 0 &&
+          (last_md_time_.IsInfinite() || now - last_md_time_ >= window_duration_)) {
+        // Proportional DCTCP-inspired response. No arbitrary minimum 10% cut.
+        const double factor = std::clamp(1.0 - alpha_ / 2.0, 0.5, 1.0);
+        const DataRate previous = current_target_rate_;
+        current_target_rate_ = std::clamp(previous * factor, min_bitrate_, max_bitrate_);
+        last_md_time_ = now;
+        result.updated = current_target_rate_ < previous;
+        result.target_bitrate = current_target_rate_;
+        RTC_LOG(LS_VERBOSE) << "[ECN BWE] window packets=" << window_total_
+                           << " ce=" << window_ce_ << " fraction=" << fraction
+                           << " alpha=" << alpha_ << " factor=" << factor
+                           << " target_kbps=" << current_target_rate_.kbps();
+      }
     }
+    window_total_ = window_ce_ = 0;
+    window_start_ = Timestamp::MinusInfinity();
   }
 
-  // --- 3. Enforce Bounds and Output ---
-  current_target_rate_ = std::clamp(current_target_rate_, min_bitrate_, max_bitrate_);
-
-  // Only report an update when we executed a multiplicative decrease. When
-  // no CE marks are seen, do not override GCC's adaptive increase logic.
-  result.updated = executed_md;
-  if (result.updated) {
-    result.target_bitrate = current_target_rate_;
-    result.recovered_from_overuse = false;
+  // Adapter semantics: ect_count includes ECT(0), ECT(1), AND CE.
+  // Counts must represent newly acknowledged received packets.
+  if (report.packet_feedbacks.empty() || report.ect_count <= 0 ||
+      report.ce_count < 0 || report.ce_count > report.ect_count)
+    return result;
+  if (window_start_.IsInfinite()) {
+    window_start_ = now;
+    window_duration_ = std::max(current_rtt_, TimeDelta::Millis(20));
   }
-
+  if (now < window_start_) return result;
+  window_total_ += report.ect_count;
+  window_ce_ += report.ce_count;
   return result;
 }
-
 }  // namespace webrtc
