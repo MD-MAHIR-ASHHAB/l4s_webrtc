@@ -1052,7 +1052,14 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
       prague_estimator_->ClearProbeConstraint(); 
     }
   }
-
+  const int batch_ecn_total = batch_ect_count + batch_ce_count;
+  if (metrics_enabled_ && metrics_collector_ && batch_ecn_total > 0) {
+      const double batch_ce_fraction =
+          static_cast<double>(batch_ce_count) / batch_ecn_total;
+      metrics_collector_->LogCongestionMetrics(
+          feedback.feedback_time, batch_ce_count, batch_ect_count,
+          batch_ce_fraction);
+  }
   // RTC_LOG(LS_INFO) << "L4S: ECN feedback received. Batch ECT count: " << batch_ect_count
   //                   << ", Batch CE count: " << batch_ce_count
   //                   << ", probe caused congestion: " << probe_caused_congestion;
