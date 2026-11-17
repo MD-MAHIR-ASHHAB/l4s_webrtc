@@ -88,14 +88,7 @@ TimeDelta CongestionControlFeedbackGenerator::Process(Timestamp now) {
 
 void CongestionControlFeedbackGenerator::SendImmediateFeedback() {
   RTC_DCHECK_RUN_ON(&sequence_checker_);
-  // CE feedback intentionally bypasses the minimum-interval rate limiter.
-  // RFC 9330 §4.2 requires the sender to act on CE marks within one RTT;
-  // delaying the signal by up to 25 ms defeats the purpose of the immediate
-  // feedback path.  SendFeedback() already clamps 'now' to
-  // next_possible_feedback_send_time_ internally so RTCP NTP timestamps
-  // remain monotonically increasing.
-  RTC_LOG(LS_VERBOSE) << "L4S: Sending immediate RTCP feedback due to CE detection";
-  SendFeedback(env_.clock().CurrentTime());
+  // CE is reported through the regular RFC 8888 feedback schedule.
 }
 
 void CongestionControlFeedbackGenerator::SendFeedback(Timestamp now) {
