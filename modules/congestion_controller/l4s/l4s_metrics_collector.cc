@@ -214,7 +214,12 @@ void L4SMetricsCollector::LogCongestionMetrics(Timestamp at_time,
     std::chrono::system_clock::now().time_since_epoch()).count();
 
     
-  (void)ect_count;
+  logger_->LogSingleValueMetric(
+    "congestion_ect_count", test_case_name_, ect_count,
+    webrtc::test::Unit::kCount,
+    webrtc::test::ImprovementDirection::kNeitherIsBetter,
+    {{"timestamp_ms", std::to_string(global_utc_ms)}});
+    
   logger_->LogSingleValueMetric(
       "congestion_ce_count", test_case_name_, ce_count,
       webrtc::test::Unit::kCount,

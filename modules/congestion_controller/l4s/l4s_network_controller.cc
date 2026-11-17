@@ -1103,6 +1103,15 @@ void webrtc::L4SNetworkController::ProcessEcnFeedback(const TransportPacketsFeed
     }
   }
 
+  const int batch_ecn_total = batch_ect_count + batch_ce_count;
+  if (metrics_enabled_ && metrics_collector_ && batch_ecn_total > 0) {
+    const double batch_ce_fraction =
+        static_cast<double>(batch_ce_count) / batch_ecn_total;
+    metrics_collector_->LogCongestionMetrics(
+        feedback.feedback_time, batch_ce_count, batch_ect_count,
+        batch_ce_fraction);
+}
+
   // 2. Heartbeat/Activity Update
   if (batch_ect_count > 0 || batch_ce_count > 0) {
     ecn_supported_ = true;
